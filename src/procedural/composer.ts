@@ -29,14 +29,14 @@ export const MESP_ANATOMY = {
   bodyCx: 16,
   bodyCy: 16,
   bodyRx: 11,
-  bodyRy: 8,
+  bodyRy: 9,
   // Olho — arredondado.
   eyeCx: 11,
   eyeCy: 15,
   eyeRx: 3.5,
-  eyeRy: 3.5,
+  eyeRy: 3,
   // Pés.
-  feetY: 28,
+  feetY: 27,
   leftFootX: 9,
   leftFootRx: 3.5,
   leftFootRy: 2.2,
@@ -75,7 +75,7 @@ export function composeMesp(opts: ComposeOptions = {}): Grid {
   drawTuft(g, p, dy);
   fillEllipse(g, a.bodyCx, a.bodyCy + dy + 1, a.bodyRx, a.bodyRy, p.bodyLo);
   fillEllipse(g, a.bodyCx, a.bodyCy + dy, a.bodyRx, a.bodyRy, p.bodyMid);
-  fillEllipse(g, a.bodyCx - 1, a.bodyCy + dy - 2, a.bodyRx - 4, a.bodyRy - 4, p.bodyHi);
+  fillEllipse(g, a.bodyCx - 1, a.bodyCy + dy - 2, a.bodyRx - 3, a.bodyRy - 3, p.bodyHi);
 
   // ----- Manchas/spots (sobre o corpo, antes do outline) ------------------
   if (traits && traits.spots !== 'none') drawSpots(g, traits.spots, traits.spotColor, dy);
