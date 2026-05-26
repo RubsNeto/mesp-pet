@@ -34,6 +34,7 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
     cmd: 'kiro-cli',
     args: ['chat'],
   });
+  const [configLoaded, setConfigLoaded] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [editCmd, setEditCmd] = useState('kiro-cli');
   const [editArgs, setEditArgs] = useState('chat');
@@ -52,15 +53,21 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
   const writeKeyRef = useRef<((data: string) => void) | null>(null);
   const resizeRef = useRef<((cols: number, rows: number) => void) | null>(null);
 
-  // Carrega config do .env.
+  // Carrega config do .env. Só depois disso o spawn é tentado.
   useEffect(() => {
-    if (!window.mesp?.getConfig) return;
+    if (!window.mesp?.getConfig) {
+      setConfigLoaded(true); // browser puro, segue com defaults
+      return;
+    }
     void window.mesp.getConfig().then((cfg) => {
       const args = (cfg.kiroTaskPrefix || '').split(' ').filter(Boolean);
       const cmd = cfg.kiroCommand || 'kiro-cli';
       setCommandInfo({ cmd, args });
       setEditCmd(cmd);
       setEditArgs(args.join(' '));
+      setConfigLoaded(true);
+    }).catch(() => {
+      setConfigLoaded(true);
     });
   }, []);
 
@@ -157,7 +164,10 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
   }, [visible]);
 
   // Conecta ao processo e plumbing entre xterm <-> processo.
+  // IMPORTANTE: aguarda config carregar antes de tentar spawn, senão usa
+  // valores padrão (kiro-cli) que podem não existir e mostrar "desconectado".
   useEffect(() => {
+    if (!configLoaded) return;
     if (!window.mesp?.terminalSpawn) return;
     const term = termRef.current;
     if (!term) return;
@@ -310,7 +320,7 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
       if (stateTimer) clearTimeout(stateTimer);
       if (safetyTimer) clearTimeout(safetyTimer);
     };
-  }, [pet.id, commandInfo.cmd, commandInfo.args]);
+  }, [pet.id, commandInfo.cmd, commandInfo.args, configLoaded]);
 
   // Esc fecha quando o terminal não tem foco; quando tem, deixa o ESC ir pro
   // processo (apps interativas usam ESC).
