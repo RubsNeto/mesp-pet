@@ -30,7 +30,7 @@ export const MESP_ANATOMY = {
   bodyCy: 16,
   bodyRx: 11,
   bodyRy: 11,
-  bodyN: 2.0,
+  bodyN: 2.5,
   // Olho — arredondado.
   eyeCx: 11,
   eyeCy: 15,
@@ -69,9 +69,9 @@ export function composeMesp(opts: ComposeOptions = {}): Grid {
 
   // ----- Corpo + Tufo -----------------------------------------------------
   drawTuft(g, p, dy);
-  fillSquircle(g, a.bodyCx, a.bodyCy + dy + 2, a.bodyRx, a.bodyRy, a.bodyN, p.bodyLo);
+  fillSquircle(g, a.bodyCx, a.bodyCy + dy + 1, a.bodyRx, a.bodyRy, a.bodyN, p.bodyLo);
   fillSquircle(g, a.bodyCx, a.bodyCy + dy, a.bodyRx, a.bodyRy, a.bodyN, p.bodyMid);
-  fillSquircle(g, a.bodyCx - 1, a.bodyCy + dy - 3, a.bodyRx - 4, a.bodyRy - 4, a.bodyN, p.bodyHi);
+  fillSquircle(g, a.bodyCx - 1, a.bodyCy + dy - 2, a.bodyRx - 4, a.bodyRy - 4, a.bodyN, p.bodyHi);
 
   // Outline do conjunto corpo+tufo (só essa parte fica delineada agora).
   applyOutline(g, p.outline);
