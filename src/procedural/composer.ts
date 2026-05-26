@@ -16,7 +16,6 @@ import {
   applyOutline,
   fillEllipse,
   fillRect,
-  fillSquircle,
   makeGrid,
   setPixel,
 } from './primitives';
@@ -30,7 +29,6 @@ export const MESP_ANATOMY = {
   bodyCy: 16,
   bodyRx: 11,
   bodyRy: 11,
-  bodyN: 2.5,
   // Olho — arredondado.
   eyeCx: 11,
   eyeCy: 15,
@@ -69,9 +67,9 @@ export function composeMesp(opts: ComposeOptions = {}): Grid {
 
   // ----- Corpo + Tufo -----------------------------------------------------
   drawTuft(g, p, dy);
-  fillSquircle(g, a.bodyCx, a.bodyCy + dy + 1, a.bodyRx, a.bodyRy, a.bodyN, p.bodyLo);
-  fillSquircle(g, a.bodyCx, a.bodyCy + dy, a.bodyRx, a.bodyRy, a.bodyN, p.bodyMid);
-  fillSquircle(g, a.bodyCx - 1, a.bodyCy + dy - 2, a.bodyRx - 4, a.bodyRy - 4, a.bodyN, p.bodyHi);
+  fillEllipse(g, a.bodyCx, a.bodyCy + dy + 1, a.bodyRx, a.bodyRy, p.bodyLo);
+  fillEllipse(g, a.bodyCx, a.bodyCy + dy, a.bodyRx, a.bodyRy, p.bodyMid);
+  fillEllipse(g, a.bodyCx - 1, a.bodyCy + dy - 2, a.bodyRx - 4, a.bodyRy - 4, p.bodyHi);
 
   // Outline do conjunto corpo+tufo (só essa parte fica delineada agora).
   applyOutline(g, p.outline);
