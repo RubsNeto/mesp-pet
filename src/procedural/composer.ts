@@ -29,7 +29,7 @@ export const MESP_ANATOMY = {
   bodyCx: 16,
   bodyCy: 16,
   bodyRx: 11,
-  bodyRy: 11,
+  bodyRy: 10,
   // Olho — arredondado.
   eyeCx: 11,
   eyeCy: 15,
