@@ -1,0 +1,1041 @@
+/* src/styles/global.css
+ * Design system unificado para o MESP Pet.
+ * Janela totalmente transparente; só os elementos do pet, balão e painéis
+ * são desenhados. image-rendering: pixelated para pixel art nítida.
+ */
+
+/* -------------------------------------------------------------------------- */
+/*  Design Tokens                                                             */
+/* -------------------------------------------------------------------------- */
+
+:root {
+  /* Surface colors (dark theme) */
+  --surface-0: rgba(13, 17, 23, 0.97);
+  --surface-1: rgba(22, 27, 34, 0.95);
+  --surface-2: rgba(33, 38, 45, 0.9);
+
+  /* Text */
+  --text-primary: #f0f6fc;
+  --text-secondary: #c9d1d9;
+  --text-muted: #8b949e;
+  --text-faint: rgba(139, 148, 158, 0.6);
+
+  /* Borders */
+  --border-default: rgba(48, 54, 61, 0.8);
+  --border-subtle: rgba(48, 54, 61, 0.4);
+
+  /* Accent */
+  --accent: #58a6ff;
+  --accent-hover: #79c0ff;
+  --accent-bg: rgba(56, 139, 253, 0.15);
+
+  /* Semantic */
+  --success: #3fb950;
+  --success-bg: rgba(63, 185, 80, 0.15);
+  --error: #f85149;
+  --error-bg: rgba(248, 81, 73, 0.15);
+  --warning: #d29922;
+  --warning-bg: rgba(210, 153, 34, 0.15);
+
+  /* Shadows */
+  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.6);
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  /* Bubble (light theme for contrast against desktop) */
+  --bubble-bg: #ffffff;
+  --bubble-bg-success: #f0fdf4;
+  --bubble-bg-error: #fef2f2;
+  --bubble-border: #1f2937;
+  --bubble-text: #111827;
+  --bubble-shadow: rgba(0, 0, 0, 0.25);
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Reset & Base                                                              */
+/* -------------------------------------------------------------------------- */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  background: transparent !important;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, sans-serif;
+  color: var(--text-primary);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
+  pointer-events: none;
+}
+
+.interactive {
+  pointer-events: auto;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+img {
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+img.pixelated {
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Shared Components                                                         */
+/* -------------------------------------------------------------------------- */
+
+.btn {
+  background: var(--surface-2);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
+}
+
+.btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0d1117;
+  font-weight: 600;
+}
+
+.btn.primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.btn.primary:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn.danger {
+  background: var(--error-bg);
+  border-color: rgba(248, 81, 73, 0.4);
+  color: #fca5a5;
+}
+
+.btn-icon {
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  font-size: 16px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.btn-icon:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.cursor-blink {
+  display: inline-block;
+  margin-left: 1px;
+  animation: cursor-blink 1s steps(1, end) infinite;
+  color: var(--success);
+}
+
+@keyframes cursor-blink {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Pet                                                                       */
+/* -------------------------------------------------------------------------- */
+
+.pet-wrapper {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  width: 128px;
+  height: 128px;
+  cursor: grab;
+  filter: drop-shadow(0 6px 6px rgba(0, 0, 0, 0.35));
+  transition: filter 200ms ease;
+  will-change: transform;
+}
+
+/* Container interno que rotaciona com o cursor (head tilt).
+ * O sprite renderiza em 96x96 (menor que o wrapper 128 que serve de hitbox). */
+.pet-tilt {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  transform: rotate(var(--tilt, 0deg));
+  transform-origin: 50% 80%;
+  transition: transform 250ms cubic-bezier(0.2, 0.8, 0.4, 1);
+}
+
+/* Double-click: salto duplo alegre. */
+.pet-wrapper.pet-bounce .pet-tilt {
+  animation: pet-double-bounce 0.7s cubic-bezier(0.2, 0.8, 0.4, 1);
+}
+
+@keyframes pet-double-bounce {
+  0%   { transform: translateY(0)    rotate(var(--tilt, 0deg)); }
+  20%  { transform: translateY(-20px) rotate(var(--tilt, 0deg)) scale(1.05); }
+  40%  { transform: translateY(0)    rotate(var(--tilt, 0deg)); }
+  55%  { transform: translateY(-12px) rotate(var(--tilt, 0deg)); }
+  75%  { transform: translateY(0)    rotate(var(--tilt, 0deg)); }
+  100% { transform: translateY(0)    rotate(var(--tilt, 0deg)); }
+}
+
+/* Animação de aparição (spawn) — pop in com bounce. */
+.pet-wrapper.pet-spawning .pet-tilt {
+  animation: pet-spawn 0.7s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-origin: 50% 100%;
+}
+
+@keyframes pet-spawn {
+  0% {
+    opacity: 0;
+    transform: scale(0) translateY(20px);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.15) translateY(-4px);
+  }
+  80% {
+    transform: scale(0.95) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0) rotate(var(--tilt, 0deg));
+  }
+}
+
+/* Squash ao clicar — feedback tátil rápido. */
+.pet-wrapper.pet-squash .pet-tilt {
+  animation: pet-squash 180ms ease-out;
+}
+@keyframes pet-squash {
+  0%   { transform: scale(1, 1)      rotate(var(--tilt, 0deg)); }
+  40%  { transform: scale(1.18, 0.78) rotate(var(--tilt, 0deg)); }
+  100% { transform: scale(1, 1)      rotate(var(--tilt, 0deg)); }
+}
+
+/* Wiggle quando arrastando — ângulo variável + leve scale. */
+.pet-wrapper.dragging .pet-tilt {
+  animation: pet-wiggle 0.4s ease-in-out infinite;
+  transform-origin: 50% 90%;
+}
+@keyframes pet-wiggle {
+  0%, 100% { transform: rotate(-6deg) scale(0.96, 1.04); }
+  50%      { transform: rotate(6deg)  scale(0.96, 1.04); }
+}
+
+/* Yawn — antes de dormir. Boca abre + escala leve. */
+.pet-wrapper.pet-yawn .pet-tilt {
+  animation: pet-yawn 1s ease-in-out;
+}
+@keyframes pet-yawn {
+  0%   { transform: scale(1, 1)      rotate(var(--tilt, 0deg)); }
+  35%  { transform: scale(1.08, 1.12) rotate(var(--tilt, 0deg)); }
+  65%  { transform: scale(1.08, 1.12) rotate(var(--tilt, 0deg)); }
+  100% { transform: scale(1, 1)      rotate(var(--tilt, 0deg)); }
+}
+
+/* Stretch — esticar ao acordar. */
+.pet-wrapper.pet-stretch .pet-tilt {
+  animation: pet-stretch 0.9s cubic-bezier(0.5, 0, 0.3, 1);
+}
+@keyframes pet-stretch {
+  0%   { transform: scale(1, 1)      rotate(var(--tilt, 0deg)); }
+  35%  { transform: scale(0.85, 1.18) rotate(var(--tilt, 0deg)) translateY(-6px); }
+  70%  { transform: scale(1.08, 0.92) rotate(var(--tilt, 0deg)); }
+  100% { transform: scale(1, 1)      rotate(var(--tilt, 0deg)); }
+}
+
+/* Hello wave — pet balança lateralmente ao spawnar (alternativa ao spawn pop). */
+.pet-wrapper.pet-wave .pet-tilt {
+  animation: pet-wave 1s ease-in-out;
+}
+@keyframes pet-wave {
+  0%, 100% { transform: rotate(0); }
+  20%      { transform: rotate(-12deg); }
+  40%      { transform: rotate(10deg); }
+  60%      { transform: rotate(-8deg); }
+  80%      { transform: rotate(6deg); }
+}
+
+/* Shimmer — pequeno brilho/highlight pulsante (tremedeira de frio). */
+.pet-wrapper.pet-shimmer .pet-sprite {
+  animation: pet-shimmer 0.5s ease-in-out 4;
+}
+@keyframes pet-shimmer {
+  0%, 100% { filter: brightness(1) saturate(1); }
+  50%      { filter: brightness(1.3) saturate(1.4); }
+}
+
+/* Surprise jump — pulinho de susto. */
+.pet-wrapper.pet-surprise .pet-tilt {
+  animation: pet-surprise 0.45s cubic-bezier(0.2, 0.8, 0.4, 1);
+}
+@keyframes pet-surprise {
+  0%   { transform: translateY(0)    rotate(var(--tilt, 0deg)); }
+  35%  { transform: translateY(-14px) rotate(var(--tilt, 0deg)) scale(0.95, 1.05); }
+  70%  { transform: translateY(-2px) rotate(var(--tilt, 0deg)); }
+  100% { transform: translateY(0)    rotate(var(--tilt, 0deg)); }
+}
+
+/* Roll — quando bate na borda inferior, dá uma cambalhota. */
+.pet-wrapper.pet-roll .pet-tilt {
+  animation: pet-roll 0.7s ease-in-out;
+}
+@keyframes pet-roll {
+  0%   { transform: rotate(0); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Sombra dinâmica — encolhe quando o pet pula. */
+.pet-shadow {
+  transition: transform 200ms ease, opacity 200ms ease;
+}
+.pet-wrapper.pet-airborne .pet-shadow {
+  transform: translateX(-50%) scale(0.6);
+  opacity: 0.5;
+}
+
+.pet-wrapper.dragging {
+  cursor: grabbing;
+}
+
+.pet-sprite {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.pet-sprite.flip-x {
+  transform: scaleX(-1);
+}
+
+.pet-pupil {
+  position: absolute;
+  background: #0b1220;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 2;
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.15),
+    inset 1px 1px 0 rgba(255, 255, 255, 0.4);
+  /* Posição atualizada imperativamente via ref. Sem transition para resposta direta. */
+  will-change: left, top;
+}
+
+.pet-shadow {
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 50px;
+  height: 7px;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0));
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Z's flutuantes quando o MESP está dormindo. */
+.pet-zzz {
+  position: absolute;
+  top: 8px;
+  left: 70%;
+  width: 30px;
+  height: 50px;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.pet-zzz .zzz {
+  position: absolute;
+  font-family: 'Comic Sans MS', 'Segoe Script', cursive;
+  font-weight: 700;
+  color: #cdd6f4;
+  text-shadow: 0 0 4px rgba(205, 214, 244, 0.5), 0 1px 2px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  animation: zzz-float 3s ease-in-out infinite;
+}
+
+.pet-zzz .zzz-1 {
+  font-size: 10px;
+  animation-delay: 0s;
+  left: 0;
+}
+
+.pet-zzz .zzz-2 {
+  font-size: 13px;
+  animation-delay: 1s;
+  left: 8px;
+}
+
+.pet-zzz .zzz-3 {
+  font-size: 16px;
+  animation-delay: 2s;
+  left: 16px;
+}
+
+@keyframes zzz-float {
+  0% {
+    opacity: 0;
+    transform: translateY(0) scale(0.8);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-30px) translateX(8px) scale(1.2) rotate(8deg);
+  }
+}
+
+/* Animações de feedback por estado. */
+.pet-wrapper.state-success .pet-sprite {
+  animation: pet-jump 0.6s ease-out;
+}
+
+@keyframes pet-jump {
+  0%, 100% { transform: translateY(0); }
+  30%      { transform: translateY(-12px); }
+  60%      { transform: translateY(0); }
+  75%      { transform: translateY(-4px); }
+}
+
+.pet-wrapper.state-error {
+  animation: pet-shake 0.5s ease-in-out;
+}
+
+@keyframes pet-shake {
+  0%, 100% { transform: translateX(0); }
+  20%      { transform: translateX(-4px); }
+  40%      { transform: translateX(4px); }
+  60%      { transform: translateX(-2px); }
+  80%      { transform: translateX(2px); }
+}
+
+.pet-wrapper.state-working .pet-sprite {
+  animation: pet-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pet-pulse {
+  0%, 100% { filter: brightness(1); }
+  50%      { filter: brightness(1.15); }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Speech Bubble                                                             */
+/* -------------------------------------------------------------------------- */
+
+.bubble {
+  position: relative;
+  max-width: 240px;
+  min-width: 80px;
+  background: var(--bubble-bg);
+  border: 2px solid var(--bubble-border);
+  color: var(--bubble-text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.35;
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transform: translateY(-4px);
+  word-break: break-word;
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.bubble:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 6px 16px var(--bubble-shadow);
+}
+
+.bubble.success {
+  background: var(--bubble-bg-success);
+}
+
+.bubble.error {
+  background: var(--bubble-bg-error);
+  border-color: #b91c1c;
+}
+
+.bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 8px solid var(--bubble-border);
+  transform: translateX(-50%);
+}
+
+.bubble::before {
+  content: '';
+  position: absolute;
+  bottom: -5px;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 6px solid var(--bubble-bg);
+  transform: translateX(-50%);
+  z-index: 1;
+}
+
+.bubble.success::before {
+  border-top-color: var(--bubble-bg-success);
+}
+.bubble.error::before {
+  border-top-color: var(--bubble-bg-error);
+}
+
+.bubble-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.bubble-hint {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #6b7280;
+  font-style: italic;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Details Panel (modal)                                                     */
+/* -------------------------------------------------------------------------- */
+
+.panel-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  pointer-events: auto;
+  animation: fade-in 150ms ease;
+}
+
+.panel {
+  width: min(640px, 90vw);
+  max-height: 80vh;
+  background: var(--surface-0);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: slide-up 200ms ease;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.panel-title {
+  font-size: 14px;
+  font-weight: 600;
+  flex: 1;
+}
+
+.panel-status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.panel-status.success {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.panel-status.error {
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+.panel-status.working,
+.panel-status.thinking {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.panel-body {
+  padding: 16px 18px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.panel-section {
+  margin-bottom: 14px;
+}
+
+.panel-section h4 {
+  font-size: 11px;
+  margin: 0 0 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.panel-section p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.panel-pre {
+  font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-secondary);
+}
+
+.panel-footer {
+  display: flex;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border-subtle);
+  justify-content: flex-end;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Context Menu                                                              */
+/* -------------------------------------------------------------------------- */
+
+.context-menu {
+  position: fixed;
+  min-width: 180px;
+  background: var(--surface-0);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 4px;
+  box-shadow: var(--shadow-md);
+  z-index: 2000;
+  font-size: 12px;
+  animation: scale-in 120ms ease;
+}
+
+.context-menu-item {
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  transition: background 80ms ease;
+}
+
+.context-menu-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.context-menu-separator {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 4px 0;
+}
+
+.context-menu-item.danger {
+  color: #fca5a5;
+}
+
+.context-menu-item.danger:hover {
+  background: var(--error-bg);
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Mock Controls                                                             */
+/* -------------------------------------------------------------------------- */
+
+.mock-panel {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  background: var(--surface-0);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+  padding: 10px 12px;
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 220px;
+  box-shadow: var(--shadow-md);
+}
+
+.mock-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+  color: var(--text-muted);
+}
+
+.mock-panel .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.mock-panel .small-btn {
+  background: var(--surface-2);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  transition: background 100ms ease;
+}
+
+.mock-panel .small-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.mock-panel .small-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0d1117;
+  font-weight: 600;
+}
+
+.mock-panel .small-btn.primary:hover {
+  background: var(--accent-hover);
+}
+
+.mock-panel input[type='text'] {
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 11px;
+  width: 100%;
+  transition: border-color 120ms ease;
+}
+
+.mock-panel input[type='text']:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.mock-panel .toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.mock-panel .pet-count {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Kiro Terminal                                                              */
+/* -------------------------------------------------------------------------- */
+
+.kiro-terminal {
+  position: fixed;
+  background: var(--surface-0);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 900;
+  font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  user-select: text;
+  -webkit-user-select: text;
+  animation: slide-up 200ms ease;
+}
+
+.kiro-terminal-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.kiro-terminal-title {
+  font-weight: 600;
+  font-size: 12px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+}
+
+.kiro-terminal-title .muted {
+  color: var(--text-faint);
+  font-weight: 400;
+  font-size: 11px;
+}
+
+.terminal-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: background 200ms ease, box-shadow 200ms ease;
+}
+
+.terminal-dot.status-connected {
+  background: var(--success);
+  box-shadow: 0 0 6px rgba(63, 185, 80, 0.4);
+}
+
+.terminal-dot.status-connecting {
+  background: var(--warning);
+  box-shadow: 0 0 6px rgba(210, 153, 34, 0.4);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.terminal-dot.status-disconnected {
+  background: var(--text-muted);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.terminal-status {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.terminal-status.connected {
+  color: var(--success);
+}
+
+.terminal-status.connecting {
+  color: var(--warning);
+}
+
+.terminal-status.disconnected {
+  color: var(--text-muted);
+}
+
+.kiro-terminal-xterm {
+  flex: 1;
+  background: #1e1e2e;
+  padding: 8px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.kiro-terminal-xterm .xterm {
+  height: 100%;
+  width: 100%;
+}
+
+.kiro-terminal-xterm .xterm-viewport {
+  background-color: transparent !important;
+}
+
+.kiro-terminal-xterm .xterm-viewport::-webkit-scrollbar {
+  width: 8px;
+}
+
+.kiro-terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(139, 148, 158, 0.2);
+  border-radius: 4px;
+}
+
+.kiro-terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 148, 158, 0.35);
+}
+
+.kiro-terminal-config {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--border-subtle);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.kiro-terminal-config label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.kiro-terminal-config input {
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+}
+
+.kiro-terminal-config input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.kiro-terminal-config .config-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.kiro-terminal-config .config-preview {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.kiro-terminal-config .config-preview code {
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 2px 6px;
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.kiro-terminal-output .output-stdout,
+.kiro-terminal-output .output-stderr,
+.kiro-terminal-output .output-input,
+.kiro-terminal-output .output-system {
+  /* legado: mantido para compat caso volte a renderização própria */
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Animations                                                                */
+/* -------------------------------------------------------------------------- */
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
