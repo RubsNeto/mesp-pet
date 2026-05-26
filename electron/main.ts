@@ -47,6 +47,16 @@ const runningProcesses = new Map<string, ChildProcessWithoutNullStreams>();
 // Processos persistentes de terminal (um por pet) — PTY real (node-pty).
 const terminalProcesses = new Map<string, pty.IPty>();
 
+// Sanitiza argumentos para evitar injeção de comandos.
+function sanitizeArg(arg: string): string {
+  // Remove caracteres perigosos de shell: ; | & ` $ ( ) { } < > \n \r
+  return arg.replace(/[;|&`$(){}[\]<>\n\r]/g, '');
+}
+
+function sanitizeArgs(args: string[]): string[] {
+  return args.map(sanitizeArg).filter(Boolean);
+}
+
 function createWindow(): void {
   const primary = screen.getPrimaryDisplay();
   const { width, height } = primary.workAreaSize;
@@ -130,10 +140,11 @@ ipcMain.handle(
   ) => {
     const { runId, command, args, cwd } = payload;
     const cmd = command || process.env.KIRO_COMMAND || 'kiro';
-    const finalArgs =
+    const finalArgs = sanitizeArgs(
       args && args.length > 0
         ? args
-        : (process.env.KIRO_DEFAULT_ARGS || '').split(' ').filter(Boolean);
+        : (process.env.KIRO_DEFAULT_ARGS || '').split(' ').filter(Boolean)
+    );
 
     return await new Promise<{
       runId: string;
@@ -251,9 +262,11 @@ ipcMain.handle(
     }
 
     const cmd = command || process.env.KIRO_COMMAND || 'kiro-cli';
-    const finalArgs = args && args.length > 0
-      ? args
-      : (process.env.KIRO_TASK_PREFIX || 'chat').split(' ').filter(Boolean);
+    const finalArgs = sanitizeArgs(
+      args && args.length > 0
+        ? args
+        : (process.env.KIRO_TASK_PREFIX || 'chat').split(' ').filter(Boolean)
+    );
 
     let ptyProcess: pty.IPty;
     try {

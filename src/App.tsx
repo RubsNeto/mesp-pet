@@ -1,10 +1,11 @@
 // src/App.tsx
-//
-// Componente raiz: simplesmente delega para o PetManager.
-// A janela inteira é transparente; só os elementos do MESP são visíveis.
-
 import { PetManager } from './components/PetManager';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 export function App() {
-  return <PetManager />;
+  return (
+    <ErrorBoundary>
+      <PetManager />
+    </ErrorBoundary>
+  );
 }
