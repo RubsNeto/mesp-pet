@@ -8,7 +8,7 @@ import { KiroChatPanel } from './KiroChatPanel';
 import { ContextMenu, ContextMenuItem } from './ContextMenu';
 import { usePassThrough } from '../hooks/usePassThrough';
 import { usePetBehavior } from '../hooks/usePetBehavior';
-import { savePetState, loadPetState } from '../services/persistence';
+import { savePetState, loadPetState, clearPetState } from '../services/persistence';
 import { generateTraits, DEFAULT_TRAITS } from '../procedural/traits';
 
 let petCounter = 0;
@@ -251,6 +251,14 @@ export function PetManager() {
         onClick: () => updatePet(targetId, { showBubble: false }),
       },
       'separator',
+      {
+        label: 'Resetar pets',
+        icon: '🔄',
+        onClick: () => {
+          clearPetState();
+          window.location.reload();
+        },
+      },
       {
         label: 'Remover este MESP',
         icon: '🗑️',
