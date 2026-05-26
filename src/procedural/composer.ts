@@ -252,37 +252,37 @@ function drawFeet(
 // ---------------------------------------------------------------------------
 
 export const FRAME_IDLE_BASE = (): Grid =>
-  composeMesp({ eye: 'open', eyePos: 'center', mouth: 'none', feet: 'normal', blush: true });
+  composeMesp({ eye: 'open', eyePos: 'center', mouth: 'none', feet: 'normal' });
 
 export const FRAME_BLINK = (): Grid =>
-  composeMesp({ eye: 'blink', eyePos: 'center', mouth: 'none', feet: 'normal', blush: true });
+  composeMesp({ eye: 'blink', eyePos: 'center', mouth: 'none', feet: 'normal' });
 
 export const FRAME_OPEN_MOUTH = (): Grid =>
-  composeMesp({ eye: 'open', eyePos: 'center', mouth: 'open', feet: 'normal', blush: true });
+  composeMesp({ eye: 'open', eyePos: 'center', mouth: 'open', feet: 'normal' });
 
 export const FRAME_PE_ABERTO = (): Grid =>
-  composeMesp({ eye: 'open', eyePos: 'center', mouth: 'none', feet: 'open', blush: true });
+  composeMesp({ eye: 'open', eyePos: 'center', mouth: 'none', feet: 'open' });
 
 export const FRAME_JUMP = (): Grid =>
-  composeMesp({ eye: 'open', eyePos: 'center', mouth: 'smile', feet: 'jump', blush: true, bodyDy: -1 });
+  composeMesp({ eye: 'open', eyePos: 'center', mouth: 'smile', feet: 'jump', bodyDy: -1 });
 
 export const FRAME_FALL = (): Grid =>
-  composeMesp({ eye: 'open', eyePos: 'center', mouth: 'open', feet: 'fall', bodyDy: 1, blush: true });
+  composeMesp({ eye: 'open', eyePos: 'center', mouth: 'open', feet: 'fall', bodyDy: 1 });
 
 export const FRAME_CONFUSED = (): Grid =>
   composeMesp({ eye: 'confused', eyePos: 'center', mouth: 'none', feet: 'crouch' });
 
 export const FRAME_ALERT = (): Grid =>
-  composeMesp({ eye: 'open', eyePos: 'center', mouth: 'open', feet: 'normal', blush: true });
+  composeMesp({ eye: 'open', eyePos: 'center', mouth: 'open', feet: 'normal' });
 
 export const FRAME_SLEEP = (): Grid =>
-  composeMesp({ eye: 'closed', eyePos: 'center', mouth: 'none', feet: 'sit', blush: true });
+  composeMesp({ eye: 'closed', eyePos: 'center', mouth: 'none', feet: 'sit' });
 
 export const FRAME_SIT = (): Grid =>
-  composeMesp({ eye: 'open', eyePos: 'center', mouth: 'none', feet: 'sit', blush: true });
+  composeMesp({ eye: 'open', eyePos: 'center', mouth: 'none', feet: 'sit' });
 
 export const FRAME_CROUCH = (): Grid =>
-  composeMesp({ eye: 'open', eyePos: 'center', mouth: 'none', feet: 'crouch', blush: true });
+  composeMesp({ eye: 'open', eyePos: 'center', mouth: 'none', feet: 'crouch' });
 
 export function buildWalkingFrames(n: number): Grid[] {
   const out: Grid[] = [];
@@ -295,7 +295,6 @@ export function buildWalkingFrames(n: number): Grid[] {
         mouth: 'none',
         feet: 'normal',
         walkPhase: phase,
-        blush: true,
         bodyDy: Math.abs(Math.sin(phase * Math.PI * 2)) > 0.6 ? -1 : 0,
       })
     );
