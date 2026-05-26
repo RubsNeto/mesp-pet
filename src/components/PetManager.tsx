@@ -29,14 +29,20 @@ export function PetManager() {
   const [pets, setPets] = useState<PetEntity[]>(() => {
     const saved = loadPetState();
     if (saved && saved.length > 0) {
+      const winW = typeof window !== 'undefined' ? window.innerWidth : 1280;
+      const winH = typeof window !== 'undefined' ? window.innerHeight : 720;
       return saved.map((s) => {
         petCounter = Math.max(petCounter, parseInt(s.id.replace('mesp-', '')) || 0);
+        // Clamp posição para garantir que o pet apareça dentro da tela.
+        const x = clamp(s.position.x, 0, Math.max(0, winW - 128));
+        const y = clamp(s.position.y, 0, Math.max(0, winH - 128));
         return {
           id: s.id,
-          position: s.position,
+          position: { x, y },
           facing: s.facing,
           state: 'idle' as const,
           hue: s.hue,
+          traits: DEFAULT_TRAITS,
           task: null,
           history: [],
           showBubble: false,
