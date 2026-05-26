@@ -319,6 +319,10 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
       resizeRef.current = null;
       if (stateTimer) clearTimeout(stateTimer);
       if (safetyTimer) clearTimeout(safetyTimer);
+      // Mata o PTY ao trocar de comando ou desmontar para evitar processo \u00f3rf\u00e3o.
+      if (window.mesp?.terminalKill) {
+        void window.mesp.terminalKill(petId);
+      }
     };
   }, [pet.id, commandInfo.cmd, commandInfo.args, configLoaded]);
 

@@ -131,6 +131,24 @@ ipcMain.handle('app:get-config', () => ({
   kiroDefaultArgs: process.env.KIRO_DEFAULT_ARGS || '',
 }));
 
+// ----- Auto-start (login items) ---------------------------------------------
+
+ipcMain.handle('app:get-auto-start', () => {
+  const settings = app.getLoginItemSettings();
+  return settings.openAtLogin;
+});
+
+ipcMain.handle('app:set-auto-start', (_evt, enabled: boolean) => {
+  app.setLoginItemSettings({
+    openAtLogin: enabled,
+    // No Windows, abre minimizado para não "atrapalhar" o usuário.
+    // No Mac/Linux openAsHidden é ignorado se não suportado.
+    openAsHidden: false,
+    args: [],
+  });
+  return app.getLoginItemSettings().openAtLogin;
+});
+
 // IPC: Kiro/processo externo.
 ipcMain.handle(
   'kiro:run',
@@ -350,4 +368,16 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+// Cleanup: mata todos os PTYs e processos antes de sair, evitando órfãos.
+app.on('before-quit', () => {
+  for (const child of runningProcesses.values()) {
+    try { child.kill(); } catch { /* noop */ }
+  }
+  runningProcesses.clear();
+  for (const ptyProcess of terminalProcesses.values()) {
+    try { ptyProcess.kill(); } catch { /* noop */ }
+  }
+  terminalProcesses.clear();
 });

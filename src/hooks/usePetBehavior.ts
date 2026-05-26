@@ -1,5 +1,6 @@
 // src/hooks/usePetBehavior.ts
 // Auto-sleep + random walk behavior extracted from PetManager.
+// Tracks all spawned intervals/timeouts so they're cleaned on unmount.
 
 import { useEffect, useRef } from 'react';
 import type { PetEntity, PetState } from '../types';
@@ -32,7 +33,25 @@ export function usePetBehavior({ pets, setPetState, setPetFacing, nudgePet }: Us
   }, [setPetState]);
 
   // Random behaviors: walk, sit, jump.
+  // IMPORTANTE: rastreamos todos os intervals/timeouts criados aqui para
+  // limp\u00e1-los no unmount, evitando memory leaks.
   useEffect(() => {
+    const activeIntervals = new Set<ReturnType<typeof setInterval>>();
+    const activeTimeouts = new Set<ReturnType<typeof setTimeout>>();
+
+    const trackInterval = (id: ReturnType<typeof setInterval>) => {
+      activeIntervals.add(id);
+      return id;
+    };
+    const trackTimeout = (cb: () => void, ms: number) => {
+      const id = setTimeout(() => {
+        activeTimeouts.delete(id);
+        cb();
+      }, ms);
+      activeTimeouts.add(id);
+      return id;
+    };
+
     const behaviorTimer = setInterval(() => {
       petsRef.current.forEach((p) => {
         if (p.state !== 'idle') return;
@@ -45,11 +64,14 @@ export function usePetBehavior({ pets, setPetState, setPetFacing, nudgePet }: Us
           setPetFacing(p.id, facing);
           setPetState(p.id, 'walking');
           const dx = facing === 'left' ? -1 : 1;
-          const stepInterval = setInterval(() => {
-            nudgePet(p.id, dx, 0);
-          }, 110);
-          setTimeout(() => {
+          const stepInterval = trackInterval(
+            setInterval(() => {
+              nudgePet(p.id, dx, 0);
+            }, 110),
+          );
+          trackTimeout(() => {
             clearInterval(stepInterval);
+            activeIntervals.delete(stepInterval);
             const cur = petsRef.current.find((x) => x.id === p.id);
             if (cur && cur.state === 'walking') {
               setPetState(p.id, 'idle');
@@ -60,7 +82,7 @@ export function usePetBehavior({ pets, setPetState, setPetFacing, nudgePet }: Us
 
         if (roll < 0.24) {
           setPetState(p.id, 'sitting');
-          setTimeout(() => {
+          trackTimeout(() => {
             const cur = petsRef.current.find((x) => x.id === p.id);
             if (cur && cur.state === 'sitting' && !cur.manualSleep) {
               setPetState(p.id, 'idle');
@@ -71,7 +93,7 @@ export function usePetBehavior({ pets, setPetState, setPetFacing, nudgePet }: Us
 
         if (roll < 0.28) {
           setPetState(p.id, 'success');
-          setTimeout(() => {
+          trackTimeout(() => {
             const cur = petsRef.current.find((x) => x.id === p.id);
             if (cur && cur.state === 'success') {
               setPetState(p.id, 'idle');
@@ -81,6 +103,13 @@ export function usePetBehavior({ pets, setPetState, setPetFacing, nudgePet }: Us
         }
       });
     }, 8000);
-    return () => clearInterval(behaviorTimer);
+
+    return () => {
+      clearInterval(behaviorTimer);
+      activeIntervals.forEach(clearInterval);
+      activeTimeouts.forEach(clearTimeout);
+      activeIntervals.clear();
+      activeTimeouts.clear();
+    };
   }, [nudgePet, setPetFacing, setPetState]);
 }

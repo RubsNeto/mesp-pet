@@ -56,6 +56,9 @@
       "dist-electron/**/*",
       "package.json"
     ],
+    "asarUnpack": [
+      "**/node_modules/@homebridge/node-pty-prebuilt-multiarch/**"
+    ],
     "directories": {
       "output": "release"
     },
@@ -63,6 +66,13 @@
       "target": [
         "nsis"
       ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     },
     "mac": {
       "target": [

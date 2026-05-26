@@ -65,6 +65,15 @@ const api = {
     return ipcRenderer.invoke('app:get-config');
   },
 
+  /** Verifica se o app está configurado para iniciar com o sistema. */
+  getAutoStart(): Promise<boolean> {
+    return ipcRenderer.invoke('app:get-auto-start');
+  },
+  /** Habilita/desabilita auto-start no login do sistema. */
+  setAutoStart(enabled: boolean): Promise<boolean> {
+    return ipcRenderer.invoke('app:set-auto-start', enabled);
+  },
+
   // ----- Terminal persistente ------------------------------------------------
 
   /** Spawna um processo persistente da Kiro CLI para um pet. */

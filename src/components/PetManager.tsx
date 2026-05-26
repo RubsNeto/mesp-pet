@@ -57,13 +57,32 @@ export function PetManager() {
   });
   const [visibleTerminals, setVisibleTerminals] = useState<Set<string>>(() => new Set());
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({ open: false });
+  const [autoStartEnabled, setAutoStartEnabled] = useState(false);
+
+  // Carrega estado atual do auto-start.
+  useEffect(() => {
+    if (!window.mesp?.getAutoStart) return;
+    void window.mesp.getAutoStart().then((enabled) => {
+      setAutoStartEnabled(enabled);
+    });
+  }, []);
+
+  const toggleAutoStart = useCallback(() => {
+    if (!window.mesp?.setAutoStart) return;
+    void window.mesp.setAutoStart(!autoStartEnabled).then((newState) => {
+      setAutoStartEnabled(newState);
+    });
+  }, [autoStartEnabled]);
 
   const petsRef = useRef(pets);
   petsRef.current = pets;
 
-  // Persist state on change.
+  // Persist state on change (debounced para evitar grava\u00e7\u00f5es excessivas no drag).
   useEffect(() => {
-    savePetState(pets);
+    const t = setTimeout(() => {
+      savePetState(pets);
+    }, 500);
+    return () => clearTimeout(t);
   }, [pets]);
 
   // Pass-through de cliques (Electron).
@@ -283,6 +302,11 @@ export function PetManager() {
       { label: 'Abrir painel', icon: '📋', onClick: () => showTerminal(targetId) },
       'separator',
       {
+        label: autoStartEnabled ? 'Não iniciar com o sistema' : 'Iniciar com o sistema',
+        icon: autoStartEnabled ? '🟢' : '⚪',
+        onClick: toggleAutoStart,
+      },
+      {
         label: 'Resetar pets',
         icon: '🔄',
         onClick: () => {
@@ -307,7 +331,7 @@ export function PetManager() {
         },
       },
     ];
-  }, [contextMenu, pets, addPet, removePet, setPetState, updatePet, showTerminal, spawnToy]);
+  }, [contextMenu, pets, addPet, removePet, setPetState, updatePet, showTerminal, spawnToy, autoStartEnabled, toggleAutoStart]);
 
   // ----- Render ---------------------------------------------------------------
 
