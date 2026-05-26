@@ -73,6 +73,10 @@ const api = {
   setAutoStart(enabled: boolean): Promise<boolean> {
     return ipcRenderer.invoke('app:set-auto-start', enabled);
   },
+  /** Verifica se um comando está instalado na PATH. */
+  checkCommand(command: string): Promise<boolean> {
+    return ipcRenderer.invoke('app:check-command', command);
+  },
 
   // ----- Terminal persistente ------------------------------------------------
 

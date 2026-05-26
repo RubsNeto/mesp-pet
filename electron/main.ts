@@ -131,6 +131,31 @@ ipcMain.handle('app:get-config', () => ({
   kiroDefaultArgs: process.env.KIRO_DEFAULT_ARGS || '',
 }));
 
+// Verifica se um comando está disponível na PATH do sistema.
+ipcMain.handle('app:check-command', async (_evt, command: string): Promise<boolean> => {
+  if (!command || /[;|&`$(){}<>\n\r]/.test(command)) return false;
+  return new Promise((resolve) => {
+    const finder = process.platform === 'win32' ? 'where' : 'which';
+    const child = spawn(finder, [command], {
+      shell: false,
+      env: { ...process.env },
+    });
+    let resolved = false;
+    const finalize = (ok: boolean) => {
+      if (resolved) return;
+      resolved = true;
+      resolve(ok);
+    };
+    child.on('error', () => finalize(false));
+    child.on('close', (code) => finalize(code === 0));
+    // Timeout de 2s
+    setTimeout(() => {
+      try { child.kill(); } catch { /* noop */ }
+      finalize(false);
+    }, 2000);
+  });
+});
+
 // ----- Auto-start (login items) ---------------------------------------------
 
 ipcMain.handle('app:get-auto-start', () => {

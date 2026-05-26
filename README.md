@@ -30,6 +30,8 @@ ao ser clicado.
 
 ### Terminal CLI
 - Terminal real (xterm.js + node-pty) integrado, persistente por pet.
+- **Suporte multi-IA via presets**: Claude Code, Kiro CLI, Aider, Gemini, Codex, GitHub Copilot, Cursor — ou personalizado.
+- Detecção automática de quais CLIs estão instaladas no seu sistema.
 - Detecção automática de estados a partir do output (`thinking` → `working` → `success`/`error`).
 - Configuração via `.env` ou pelo painel ⚙ do terminal.
 

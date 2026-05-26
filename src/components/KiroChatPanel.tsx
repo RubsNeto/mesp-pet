@@ -1,15 +1,15 @@
 // src/components/KiroChatPanel.tsx
 //
-// Terminal real (xterm.js) conectado à Kiro CLI via processo persistente.
-// xterm.js renderiza ANSI escape codes corretamente (cores, spinners,
-// movimentos de cursor). O input do usuário é capturado pelo xterm e enviado
-// direto ao stdin do processo — comportamento idêntico a um terminal nativo.
+// Terminal real (xterm.js) conectado a uma CLI de IA via processo persistente.
+// Suporta presets para Claude Code, Aider, Gemini, Codex, Kiro, GitHub Copilot,
+// e configuração personalizada.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import type { PetEntity, PetState } from '../types';
+import { AI_PRESETS, findPresetByCommand, getPresetById } from '../services/aiPresets';
 
 export interface KiroChatPanelProps {
   pet: PetEntity;
@@ -38,6 +38,13 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
   const [showConfig, setShowConfig] = useState(false);
   const [editCmd, setEditCmd] = useState('kiro-cli');
   const [editArgs, setEditArgs] = useState('chat');
+  const [selectedPresetId, setSelectedPresetId] = useState<string>('kiro');
+  const [installedPresets, setInstalledPresets] = useState<Record<string, boolean>>({});
+
+  const currentPreset = useMemo(
+    () => findPresetByCommand(commandInfo.cmd, commandInfo.args),
+    [commandInfo.cmd, commandInfo.args],
+  );
 
   // Ref estável para onPetStateChange — evita re-spawn do PTY a cada render
   // do PetManager (a prop costuma ser arrow inline).
@@ -65,10 +72,42 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
       setCommandInfo({ cmd, args });
       setEditCmd(cmd);
       setEditArgs(args.join(' '));
+      const preset = findPresetByCommand(cmd, args);
+      setSelectedPresetId(preset?.id ?? 'custom');
       setConfigLoaded(true);
     }).catch(() => {
       setConfigLoaded(true);
     });
+  }, []);
+
+  // Quando abre o painel de config, detecta quais CLIs estão instaladas.
+  useEffect(() => {
+    if (!showConfig) return;
+    if (!window.mesp?.checkCommand) return;
+    let cancelled = false;
+    const detect = async () => {
+      const results: Record<string, boolean> = {};
+      for (const preset of AI_PRESETS) {
+        if (preset.id === 'custom' || !preset.command) continue;
+        if (cancelled) return;
+        try {
+          results[preset.id] = await window.mesp!.checkCommand(preset.command);
+        } catch {
+          results[preset.id] = false;
+        }
+      }
+      if (!cancelled) setInstalledPresets(results);
+    };
+    void detect();
+    return () => { cancelled = true; };
+  }, [showConfig]);
+
+  const handlePresetChange = useCallback((presetId: string) => {
+    setSelectedPresetId(presetId);
+    const preset = getPresetById(presetId);
+    if (!preset || preset.id === 'custom') return;
+    setEditCmd(preset.command);
+    setEditArgs(preset.args.join(' '));
   }, []);
 
   // Cria o terminal xterm uma única vez.
@@ -206,7 +245,9 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
         }
       });
 
-    // Detector heurístico de estado a partir do output da Kiro CLI.
+    // Detector heurístico de estado a partir do output do agente.
+    // Funciona com Kiro, Claude Code, Aider, Gemini e outros que usam
+    // padrões similares (spinner Braille para "thinking", ✓/✗ para resultado).
     // Mantém timer pra voltar para idle após N ms sem novidade.
     let stateTimer: ReturnType<typeof setTimeout> | null = null;
     let safetyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -248,8 +289,9 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
       const cleaned = raw.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '');
       lineBuffer += cleaned;
 
-      // Detecta spinner (Braille) IMEDIATAMENTE, não precisa esperar nova linha.
-      if (/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s*Thinking/.test(cleaned)) {
+      // Detecta spinner (Braille) IMEDIATAMENTE com palavras de "thinking" comuns.
+      // Cobre Kiro, Claude Code, Aider, Gemini, etc.
+      if (/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷]\s*(Thinking|Pensando|Processing|Working|Generating|Analyzing|Loading)/i.test(cleaned)) {
         setState('thinking');
         return;
       }
@@ -438,7 +480,7 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
       >
         <div className="kiro-terminal-title">
           <span className={`terminal-dot status-${status}`} />
-          Kiro CLI
+          {currentPreset ? `${currentPreset.icon} ${currentPreset.name}` : 'AI Agent'}
           <span className="muted">— {pet.id}</span>
         </div>
         <span className={`terminal-status ${status}`}>
@@ -478,12 +520,47 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
       {showConfig && (
         <div className="kiro-terminal-config">
           <label>
+            <span>Agente de IA</span>
+            <div className="preset-grid">
+              {AI_PRESETS.map((preset) => {
+                const installed = installedPresets[preset.id];
+                const isCustom = preset.id === 'custom';
+                const isSelected = selectedPresetId === preset.id;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className={`preset-card${isSelected ? ' selected' : ''}${
+                      installed === false && !isCustom ? ' not-installed' : ''
+                    }`}
+                    onClick={() => handlePresetChange(preset.id)}
+                    title={
+                      isCustom
+                        ? preset.description
+                        : installed === false
+                          ? `${preset.description} (não detectado na PATH)`
+                          : preset.description
+                    }
+                  >
+                    <span className="preset-icon">{preset.icon}</span>
+                    <span className="preset-name">{preset.name}</span>
+                    {!isCustom && installed === true && <span className="preset-badge">✓</span>}
+                    {!isCustom && installed === false && <span className="preset-badge missing">!</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </label>
+          <label>
             <span>Comando</span>
             <input
               type="text"
               value={editCmd}
-              onChange={(e) => setEditCmd(e.target.value)}
-              placeholder="kiro-cli"
+              onChange={(e) => {
+                setEditCmd(e.target.value);
+                setSelectedPresetId('custom');
+              }}
+              placeholder="ex: claude, aider, gemini..."
               spellCheck={false}
             />
           </label>
@@ -492,8 +569,11 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
             <input
               type="text"
               value={editArgs}
-              onChange={(e) => setEditArgs(e.target.value)}
-              placeholder="chat"
+              onChange={(e) => {
+                setEditArgs(e.target.value);
+                setSelectedPresetId('custom');
+              }}
+              placeholder="(opcional)"
               spellCheck={false}
             />
           </label>
@@ -503,6 +583,16 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
                 {editCmd} {editArgs}
               </code>
             </span>
+            {currentPreset?.installUrl && installedPresets[currentPreset.id] === false && (
+              <a
+                href={currentPreset.installUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn"
+              >
+                Como instalar
+              </a>
+            )}
             <button
               className="btn primary"
               onClick={() => {
