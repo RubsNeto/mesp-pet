@@ -8,11 +8,10 @@ import { KiroChatPanel } from './KiroChatPanel';
 import { ContextMenu, ContextMenuItem } from './ContextMenu';
 import { Hearts } from './Hearts';
 import { Toy } from './Toy';
-import { Fly } from './Fly';
 import { usePassThrough } from '../hooks/usePassThrough';
 import { usePetBehavior } from '../hooks/usePetBehavior';
 import { useThoughts } from '../hooks/useThoughts';
-import { useInteractions, useHappinessDecay } from '../hooks/useInteractions';
+import { useInteractions } from '../hooks/useInteractions';
 import { savePetState, loadPetState, clearPetState } from '../services/persistence';
 import { generateTraits, DEFAULT_TRAITS } from '../procedural/traits';
 
@@ -47,7 +46,6 @@ export function PetManager() {
           state: 'idle' as const,
           hue: s.hue,
           traits: DEFAULT_TRAITS,
-          happiness: 80,
           task: null,
           history: [],
           showBubble: false,
@@ -125,35 +123,23 @@ export function PetManager() {
     [updatePet]
   );
 
-  const setHappiness = useCallback(
-    (petId: string, delta: number) => {
-      updatePet(petId, (p) => ({
-        happiness: Math.max(0, Math.min(100, p.happiness + delta)),
-      }));
-    },
-    [updatePet]
-  );
-
   const scarePet = useCallback(
     (petId: string) => {
       const pet = petsRef.current.find((p) => p.id === petId);
       if (!pet) return;
-      // Foge para o lado oposto do centro da tela.
       const cx = window.innerWidth / 2;
       const dx = pet.position.x < cx ? -120 : 120;
       setPetState(petId, 'error');
       movePet(petId, pet.position.x + dx, pet.position.y - 30);
-      setHappiness(petId, -10);
       setTimeout(() => {
         setPetState(petId, 'idle');
       }, 1500);
     },
-    [setPetState, movePet, setHappiness]
+    [setPetState, movePet]
   );
 
   const setThought = useCallback((petId: string, text: string) => {
     updatePet(petId, { thoughtText: text });
-    // Limpa após 4s (mesma duração da animação CSS).
     setTimeout(() => {
       const cur = petsRef.current.find((p) => p.id === petId);
       if (cur && cur.thoughtText === text) {
@@ -168,25 +154,19 @@ export function PetManager() {
   // Thoughts aleatórios.
   useThoughts({ pets, onThought: setThought });
 
-  // Decay de felicidade.
-  useHappinessDecay(pets, setHappiness);
-
-  // Interactions: hearts, toys, flies.
-  const { hearts, spawnHeart, removeHeart, toys, spawnToy, removeToy, flies } = useInteractions({
+  // Interactions: hearts e toys.
+  const { hearts, spawnHeart, removeHeart, toys, spawnToy, removeToy } = useInteractions({
     pets,
-    setHappiness,
     movePet,
     setPetFacing,
     setPetState,
-    scarePet,
   });
 
   const handlePetPet = useCallback(
-    (petId: string, x: number, y: number) => {
+    (_petId: string, x: number, y: number) => {
       spawnHeart(x, y);
-      setHappiness(petId, 2);
     },
-    [spawnHeart, setHappiness]
+    [spawnHeart]
   );
 
   // ----- Terminal visibility ---------------------------------------------------
@@ -234,7 +214,6 @@ export function PetManager() {
         state: 'idle',
         hue: 0,
         traits,
-        happiness: 80,
         task: null,
         history: [],
         showBubble: false,
@@ -275,7 +254,6 @@ export function PetManager() {
   const handlePetDoubleClick = useCallback(
     (petId: string) => {
       setPetState(petId, 'success');
-      setHappiness(petId, 3);
       window.setTimeout(() => {
         const cur = petsRef.current.find((p) => p.id === petId);
         if (cur && cur.state === 'success') {
@@ -283,7 +261,7 @@ export function PetManager() {
         }
       }, 800);
     },
-    [setPetState, setHappiness]
+    [setPetState]
   );
 
   const handlePetContextMenu = useCallback((petId: string, x: number, y: number) => {
@@ -367,10 +345,6 @@ export function PetManager() {
         <Toy key={toy.id} toy={toy} onRemove={removeToy} />
       ))}
 
-      {flies.map((fly) => (
-        <Fly key={fly.id} fly={fly} />
-      ))}
-
       <Hearts hearts={hearts} onExpire={removeHeart} />
 
       {pets.map((targetPet) => (
@@ -381,9 +355,8 @@ export function PetManager() {
           onClose={() => hideTerminal(targetPet.id)}
           onPetStateChange={(state) => {
             setPetState(targetPet.id, state);
-            // Quando CLI termina com sucesso, ganha felicidade + corações.
+            // Quando CLI termina com sucesso, gera corações.
             if (state === 'success') {
-              setHappiness(targetPet.id, 5);
               const pet = petsRef.current.find((p) => p.id === targetPet.id);
               if (pet) {
                 for (let i = 0; i < 3; i++) {
@@ -426,7 +399,6 @@ function createInitialPet(): PetEntity {
     state: 'idle',
     hue: 0,
     traits: DEFAULT_TRAITS,
-    happiness: 80,
     task: null,
     history: [],
     showBubble: false,

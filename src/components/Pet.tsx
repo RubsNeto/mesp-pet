@@ -328,14 +328,6 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
           <span className="zzz zzz-3">Z</span>
         </div>
       )}
-      {pet.happiness < 100 && (
-        <div className="happiness-bar" aria-hidden>
-          <div
-            className="happiness-bar-fill"
-            style={{ width: `${Math.max(0, Math.min(100, pet.happiness))}%` }}
-          />
-        </div>
-      )}
     </div>
   );
 }

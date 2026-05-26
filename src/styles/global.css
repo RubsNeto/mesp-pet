@@ -1103,52 +1103,6 @@ img.pixelated {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Fly                                                                       */
-/* -------------------------------------------------------------------------- */
-
-.fly {
-  position: absolute;
-  width: 16px;
-  height: 16px;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  z-index: 60;
-  animation: fly-buzz 0.4s ease-in-out infinite alternate;
-}
-
-@keyframes fly-buzz {
-  0%   { transform: translate(0, 0); }
-  100% { transform: translate(2px, -2px); }
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Happiness indicator                                                       */
-/* -------------------------------------------------------------------------- */
-
-.happiness-bar {
-  position: absolute;
-  bottom: -18px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 60px;
-  height: 4px;
-  background: rgba(0, 0, 0, 0.4);
-  border-radius: 2px;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.happiness-bar-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #ff6b9d, #ff4d6d);
-  border-radius: 2px;
-  transition: width 300ms ease;
-}
-
-/* -------------------------------------------------------------------------- */
 /*  Thought Bubble (random pensamentos)                                       */
 /* -------------------------------------------------------------------------- */
 
