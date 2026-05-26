@@ -27,13 +27,13 @@ export const SPRITE_H = 32;
 /** Coordenadas anatômicas do MESP (espaço 32x32). */
 export const MESP_ANATOMY = {
   bodyCx: 16,
-  bodyCy: 17,
-  bodyRx: 12,
-  bodyRy: 9,
+  bodyCy: 16,
+  bodyRx: 11,
+  bodyRy: 11,
   bodyN: 2.0,
   // Olho — arredondado.
   eyeCx: 11,
-  eyeCy: 16,
+  eyeCy: 15,
   eyeRx: 3.5,
   eyeRy: 3.5,
   // Pés.
@@ -45,7 +45,7 @@ export const MESP_ANATOMY = {
   rightFootRx: 3.0,
   rightFootRy: 2.0,
   // Tufo (centralizado em bodyCx).
-  tuftBaseY: 7,
+  tuftBaseY: 4,
 } as const;
 
 export interface ComposeOptions {
@@ -71,7 +71,7 @@ export function composeMesp(opts: ComposeOptions = {}): Grid {
   drawTuft(g, p, dy);
   fillSquircle(g, a.bodyCx, a.bodyCy + dy + 2, a.bodyRx, a.bodyRy, a.bodyN, p.bodyLo);
   fillSquircle(g, a.bodyCx, a.bodyCy + dy, a.bodyRx, a.bodyRy, a.bodyN, p.bodyMid);
-  fillSquircle(g, a.bodyCx - 2, a.bodyCy + dy - 4, a.bodyRx - 4, a.bodyRy - 6, a.bodyN, p.bodyHi);
+  fillSquircle(g, a.bodyCx - 1, a.bodyCy + dy - 3, a.bodyRx - 4, a.bodyRy - 4, a.bodyN, p.bodyHi);
 
   // Outline do conjunto corpo+tufo (só essa parte fica delineada agora).
   applyOutline(g, p.outline);
@@ -180,7 +180,7 @@ function drawMouth(
 ): void {
   if (mode === 'none') return;
   const cx = 18;
-  const cy = 22 + dy;
+  const cy = 21 + dy;
   if (mode === 'closed') {
     setPixel(g, cx, cy, p.outline);
     setPixel(g, cx + 1, cy, p.outline);
