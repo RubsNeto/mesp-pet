@@ -24,6 +24,10 @@ export interface PetProps {
   onDoubleClick?: (petId: string) => void;
   onBubbleClick: (petId: string) => void;
   onContextMenu: (petId: string, x: number, y: number) => void;
+  /** Callback ao acariciar (clique e segurar) — gera coração e ganha felicidade. */
+  onPet?: (petId: string, x: number, y: number) => void;
+  /** Callback quando o usuário clica rápido várias vezes (susto). */
+  onScare?: (petId: string) => void;
 }
 
 interface DragState {
@@ -32,7 +36,7 @@ interface DragState {
   offsetY: number;
 }
 
-function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onContextMenu }: PetProps) {
+function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onContextMenu, onPet, onScare }: PetProps) {
   const { frame } = usePetAnimation(pet.state, pet.traits);
   const spriteSet = pet.traits ? getSpritesForTraits(pet.traits) : null;
   const flipsMap = spriteSet?.flips ?? SPRITE_FLIPS_ON_RIGHT;
@@ -46,6 +50,13 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
   const dragRef = useRef<DragState | null>(null);
   const movedRef = useRef(false);
   const lastClickAtRef = useRef(0);
+
+  // Detecção de carinho (hold).
+  const holdTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const holdStartRef = useRef(0);
+
+  // Detecção de cliques rápidos (susto).
+  const recentClicksRef = useRef<number[]>([]);
 
   const flipX = (flipsMap[frame] ?? false) && pet.facing === 'right';
   const eye = eyeMap[frame] ?? null;
@@ -156,8 +167,39 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
       movedRef.current = false;
       setDragging(true);
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+
+      // Detecção de cliques rápidos (susto): se 4+ cliques em 600ms, scare.
+      const now = Date.now();
+      const cutoff = now - 600;
+      recentClicksRef.current = recentClicksRef.current.filter((t) => t > cutoff);
+      recentClicksRef.current.push(now);
+      if (recentClicksRef.current.length >= 4 && onScare) {
+        onScare(pet.id);
+        recentClicksRef.current = [];
+      }
+
+      // Detecção de carinho (hold): após 300ms segurando sem mover, começa a gerar corações.
+      holdStartRef.current = now;
+      if (holdTimerRef.current) clearInterval(holdTimerRef.current);
+      holdTimerRef.current = setInterval(() => {
+        if (movedRef.current) {
+          if (holdTimerRef.current) clearInterval(holdTimerRef.current);
+          holdTimerRef.current = null;
+          return;
+        }
+        if (Date.now() - holdStartRef.current < 300) return;
+        // Spawn coração na posição do mouse com pequeno offset aleatório.
+        if (onPet) {
+          const r = wrapperRef.current?.getBoundingClientRect();
+          if (r) {
+            const cx = r.left + r.width / 2 + (Math.random() - 0.5) * 40;
+            const cy = r.top + 20 + (Math.random() - 0.5) * 20;
+            onPet(pet.id, cx, cy);
+          }
+        }
+      }, 250);
     },
-    []
+    [pet.id, onPet, onScare]
   );
 
   const handlePointerMove = useCallback(
@@ -176,6 +218,11 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
 
   const handlePointerUp = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
+      // Sempre limpa o holdTimer ao soltar.
+      if (holdTimerRef.current) {
+        clearInterval(holdTimerRef.current);
+        holdTimerRef.current = null;
+      }
       const drag = dragRef.current;
       if (drag && drag.pointerId === e.pointerId) {
         try {
@@ -185,7 +232,9 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
         }
         dragRef.current = null;
         setDragging(false);
-        if (!movedRef.current && e.button === 0) {
+        // Se houve carinho (hold > 300ms sem mover), não dispara click.
+        const wasPetting = !movedRef.current && Date.now() - holdStartRef.current > 300;
+        if (!movedRef.current && e.button === 0 && !wasPetting) {
           // Single-click sempre dispara imediatamente (abre terminal).
           // Se um segundo click vier dentro de 400ms, dispara também o pulinho.
           const now = Date.now();
@@ -246,6 +295,11 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
       {pet.showBubble && pet.task && (
         <SpeechBubble task={pet.task} onClick={() => onBubbleClick(pet.id)} />
       )}
+      {!pet.task && pet.thoughtText && (
+        <div className="thought-bubble" aria-hidden>
+          {pet.thoughtText}
+        </div>
+      )}
 
       <div ref={tiltRef} className="pet-tilt">
         <img
@@ -272,6 +326,14 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
           <span className="zzz zzz-1">Z</span>
           <span className="zzz zzz-2">Z</span>
           <span className="zzz zzz-3">Z</span>
+        </div>
+      )}
+      {pet.happiness < 100 && (
+        <div className="happiness-bar" aria-hidden>
+          <div
+            className="happiness-bar-fill"
+            style={{ width: `${Math.max(0, Math.min(100, pet.happiness))}%` }}
+          />
         </div>
       )}
     </div>

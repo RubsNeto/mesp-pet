@@ -47,12 +47,16 @@ export interface PetEntity {
   hue: number;
   /** Traits visuais únicos deste pet (cores, acessórios, manchas). */
   traits?: MespTraits;
+  /** Felicidade do pet (0-100). Sobe com carinho, desce com tempo. */
+  happiness: number;
   /** Última tarefa associada (ou null). Sempre igual a history[history.length-1]. */
   task: PetTask | null;
   /** Histórico completo de tarefas executadas para este pet. */
   history: PetTask[];
   /** Mostrar balão? Pode estar ativo mesmo sem tarefa (ex.: dica). */
   showBubble: boolean;
+  /** Texto temporário de pensamento (mostrado no balão sem task). */
+  thoughtText?: string;
   /** Pet está dormindo manualmente (não acordar pelo timer)? */
   manualSleep: boolean;
   /** Última vez que houve atividade (para timer de auto-dormir). */
