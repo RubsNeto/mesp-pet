@@ -1103,49 +1103,6 @@ img.pixelated {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Thought Bubble (random pensamentos)                                       */
-/* -------------------------------------------------------------------------- */
-
-.thought-bubble {
-  position: absolute;
-  top: -28px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--bubble-bg);
-  border: 2px solid var(--bubble-border);
-  color: var(--bubble-text);
-  border-radius: 12px;
-  padding: 4px 8px;
-  font-size: 11px;
-  font-weight: 500;
-  white-space: nowrap;
-  box-shadow: var(--shadow-sm);
-  pointer-events: none;
-  animation: thought-pop 4s ease-in-out forwards;
-  z-index: 10;
-}
-
-.thought-bubble::after {
-  content: '';
-  position: absolute;
-  bottom: -6px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 0;
-  height: 0;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 6px solid var(--bubble-border);
-}
-
-@keyframes thought-pop {
-  0%   { opacity: 0; transform: translate(-50%, 4px) scale(0.7); }
-  10%  { opacity: 1; transform: translate(-50%, 0) scale(1); }
-  85%  { opacity: 1; transform: translate(-50%, 0) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, -4px) scale(0.9); }
-}
-
-/* -------------------------------------------------------------------------- */
 /*  Scared state                                                              */
 /* -------------------------------------------------------------------------- */
 

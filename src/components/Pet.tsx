@@ -295,11 +295,6 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
       {pet.showBubble && pet.task && (
         <SpeechBubble task={pet.task} onClick={() => onBubbleClick(pet.id)} />
       )}
-      {!pet.task && pet.thoughtText && (
-        <div className="thought-bubble" aria-hidden>
-          {pet.thoughtText}
-        </div>
-      )}
 
       <div ref={tiltRef} className="pet-tilt">
         <img

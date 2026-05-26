@@ -10,7 +10,6 @@ import { Hearts } from './Hearts';
 import { Toy } from './Toy';
 import { usePassThrough } from '../hooks/usePassThrough';
 import { usePetBehavior } from '../hooks/usePetBehavior';
-import { useThoughts } from '../hooks/useThoughts';
 import { useInteractions } from '../hooks/useInteractions';
 import { savePetState, loadPetState, clearPetState } from '../services/persistence';
 import { generateTraits, DEFAULT_TRAITS } from '../procedural/traits';
@@ -138,21 +137,8 @@ export function PetManager() {
     [setPetState, movePet]
   );
 
-  const setThought = useCallback((petId: string, text: string) => {
-    updatePet(petId, { thoughtText: text });
-    setTimeout(() => {
-      const cur = petsRef.current.find((p) => p.id === petId);
-      if (cur && cur.thoughtText === text) {
-        updatePet(petId, { thoughtText: undefined });
-      }
-    }, 4_000);
-  }, [updatePet]);
-
   // Auto behavior via extracted hook.
   usePetBehavior({ pets, setPetState, setPetFacing, nudgePet });
-
-  // Thoughts aleatórios.
-  useThoughts({ pets, onThought: setThought });
 
   // Interactions: hearts e toys.
   const { hearts, spawnHeart, removeHeart, toys, spawnToy, removeToy } = useInteractions({

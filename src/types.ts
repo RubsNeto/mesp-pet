@@ -53,8 +53,6 @@ export interface PetEntity {
   history: PetTask[];
   /** Mostrar balão? Pode estar ativo mesmo sem tarefa (ex.: dica). */
   showBubble: boolean;
-  /** Texto temporário de pensamento (mostrado no balão sem task). */
-  thoughtText?: string;
   /** Pet está dormindo manualmente (não acordar pelo timer)? */
   manualSleep: boolean;
   /** Última vez que houve atividade (para timer de auto-dormir). */
