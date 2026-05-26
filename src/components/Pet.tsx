@@ -11,7 +11,7 @@
 // e o componente é memoizado para evitar re-renders quando outros pets mudam.
 
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { SPRITE_FLIPS_ON_RIGHT, SPRITE_EYE } from '../assets/sprites';
+import { SPRITE_FLIPS_ON_RIGHT, SPRITE_EYE, getSpritesForTraits } from '../assets/sprites';
 import { usePetAnimation } from '../hooks/usePetAnimation';
 import { subscribeMousePosition } from '../hooks/useMousePosition';
 import type { PetEntity } from '../types';
@@ -33,7 +33,11 @@ interface DragState {
 }
 
 function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onContextMenu }: PetProps) {
-  const { frame } = usePetAnimation(pet.state);
+  const { frame } = usePetAnimation(pet.state, pet.traits);
+  const spriteSet = pet.traits ? getSpritesForTraits(pet.traits) : null;
+  const flipsMap = spriteSet?.flips ?? SPRITE_FLIPS_ON_RIGHT;
+  const eyeMap = spriteSet?.eye ?? SPRITE_EYE;
+
   const wrapperRef = useRef<HTMLDivElement>(null);
   const tiltRef = useRef<HTMLDivElement>(null);
   const pupilRef = useRef<HTMLDivElement>(null);
@@ -43,8 +47,8 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
   const movedRef = useRef(false);
   const lastClickAtRef = useRef(0);
 
-  const flipX = (SPRITE_FLIPS_ON_RIGHT[frame] ?? false) && pet.facing === 'right';
-  const eye = SPRITE_EYE[frame] ?? null;
+  const flipX = (flipsMap[frame] ?? false) && pet.facing === 'right';
+  const eye = eyeMap[frame] ?? null;
 
   // Refs sempre atualizados — usados pelo subscribe do mouse.
   const eyeRef = useRef(eye);
@@ -228,7 +232,7 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
       style={{
         left: pet.position.x,
         top: pet.position.y,
-        filter: `hue-rotate(${pet.hue}deg) drop-shadow(0 6px 6px rgba(0, 0, 0, 0.35))`,
+        filter: 'drop-shadow(0 6px 6px rgba(0, 0, 0, 0.35))',
       }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}

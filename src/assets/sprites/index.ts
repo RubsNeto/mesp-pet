@@ -1,107 +1,124 @@
 // src/assets/sprites/index.ts
 //
-// Sprites do MESP gerados 100% PROCEDURALMENTE em código.
-// Nenhum PNG é importado ou extraído — o pet é desenhado em runtime via
-// primitivas (elipses, retângulos, outline).
-//
-// Para mudar o visual:
-//   - Cores: src/procedural/palette.ts
-//   - Forma: src/procedural/composer.ts (MESP_ANATOMY + sub-helpers)
-//   - Animações: STATE_FRAMES abaixo
+// Sprites do MESP gerados proceduralmente.
+// Suporta traits para variação visual por pet.
 
 import type { PetState } from '../../types';
 import {
   buildWalkingFrames,
-  FRAME_ALERT,
-  FRAME_BLINK,
-  FRAME_CONFUSED,
-  FRAME_FALL,
-  FRAME_IDLE_BASE,
-  FRAME_JUMP,
-  FRAME_OPEN_MOUTH,
-  FRAME_SIT,
-  FRAME_SLEEP,
+  composeMesp,
   MESP_ANATOMY,
   SPRITE_W,
 } from '../../procedural/composer';
 import { renderGridToDataUrl } from '../../procedural/render';
+import type { MespTraits } from '../../procedural/traits';
+import { DEFAULT_TRAITS } from '../../procedural/traits';
 
-const RENDER_SCALE = 8; // 32 lógico × 8 = 256px no data URL
-
-const url = (build: () => ReturnType<typeof FRAME_IDLE_BASE>): string =>
-  renderGridToDataUrl(build(), RENDER_SCALE);
-
-// ---------------------------------------------------------------------------
-//  URLs por sprite
-// ---------------------------------------------------------------------------
-
-const idleBase  = url(FRAME_IDLE_BASE);
-const blink     = url(FRAME_BLINK);
-const openMouth = url(FRAME_OPEN_MOUTH);
-const jump      = url(FRAME_JUMP);
-const fall      = url(FRAME_FALL);
-const confused  = url(FRAME_CONFUSED);
-const alert     = url(FRAME_ALERT);
-const sleep     = url(FRAME_SLEEP);
-const sit       = url(FRAME_SIT);
-
-// 8 frames de walking em loop.
-const walkingFrames = buildWalkingFrames(8).map((g) => renderGridToDataUrl(g, RENDER_SCALE));
+const RENDER_SCALE = 8;
 
 // ---------------------------------------------------------------------------
-//  STATE_FRAMES
+//  Per-trait sprite generation
 // ---------------------------------------------------------------------------
 
-export const STATE_FRAMES: Record<PetState, string[]> = {
-  idle: [
-    idleBase, idleBase, idleBase, idleBase, idleBase, idleBase, idleBase, idleBase,
-    idleBase, idleBase, blink, idleBase, idleBase, idleBase, idleBase, idleBase,
-  ],
-  walking: walkingFrames,
-  thinking: [confused, idleBase, confused, idleBase],
-  working: [alert, idleBase, alert, idleBase],
-  success: [jump, fall, jump, fall],
-  error: [confused],
-  sleeping: [sleep],
-  sitting: [sit],
-};
+export interface SpriteSet {
+  frames: Record<PetState, string[]>;
+  fps: Record<PetState, number>;
+  flips: Record<string, boolean>;
+  eye: Record<string, EyeConfig | null>;
+}
 
-export const STATE_FPS: Record<PetState, number> = {
-  idle: 2,
-  walking: 12,
-  thinking: 2,
-  working: 3,
-  success: 4,
-  error: 1,
-  sleeping: 1,
-  sitting: 2,
-};
+function buildSpriteSet(traits: MespTraits): SpriteSet {
+  const t = traits;
+  const url = (opts: Parameters<typeof composeMesp>[0]): string =>
+    renderGridToDataUrl(composeMesp({ ...opts, traits: t }), RENDER_SCALE);
+
+  const idleBase  = url({ eye: 'open', eyePos: 'center', mouth: 'none', feet: 'normal' });
+  const blink     = url({ eye: 'blink', eyePos: 'center', mouth: 'none', feet: 'normal' });
+  const openMouth = url({ eye: 'open', eyePos: 'center', mouth: 'open', feet: 'normal' });
+  const jump      = url({ eye: 'open', eyePos: 'center', mouth: 'smile', feet: 'jump', bodyDy: -1 });
+  const fall      = url({ eye: 'open', eyePos: 'center', mouth: 'open', feet: 'fall', bodyDy: 1 });
+  const confused  = url({ eye: 'confused', eyePos: 'center', mouth: 'none', feet: 'crouch' });
+  const alert     = url({ eye: 'open', eyePos: 'center', mouth: 'open', feet: 'normal' });
+  const sleep     = url({ eye: 'closed', eyePos: 'center', mouth: 'none', feet: 'sit' });
+  const sit       = url({ eye: 'open', eyePos: 'center', mouth: 'none', feet: 'sit' });
+
+  const walkingFrames = buildWalkingFrames(8, t).map((g) => renderGridToDataUrl(g, RENDER_SCALE));
+
+  const frames: Record<PetState, string[]> = {
+    idle: [
+      idleBase, idleBase, idleBase, idleBase, idleBase, idleBase, idleBase, idleBase,
+      idleBase, idleBase, blink, idleBase, idleBase, idleBase, idleBase, idleBase,
+    ],
+    walking: walkingFrames,
+    thinking: [confused, idleBase, confused, idleBase],
+    working: [alert, idleBase, alert, idleBase],
+    success: [jump, fall, jump, fall],
+    error: [confused],
+    sleeping: [sleep],
+    sitting: [sit],
+  };
+
+  const fps: Record<PetState, number> = {
+    idle: 2, walking: 12, thinking: 2, working: 3,
+    success: 4, error: 1, sleeping: 1, sitting: 2,
+  };
+
+  const flips: Record<string, boolean> = {};
+  for (const u of walkingFrames) flips[u] = true;
+
+  const eye: Record<string, EyeConfig | null> = {};
+  const EYE_CENTER = computeEye(MESP_ANATOMY.bodyCx);
+  const EYE_LEFT = computeEye(MESP_ANATOMY.eyeCx);
+  eye[idleBase] = EYE_CENTER;
+  eye[openMouth] = EYE_CENTER;
+  eye[jump] = EYE_CENTER;
+  eye[fall] = EYE_CENTER;
+  eye[alert] = EYE_CENTER;
+  eye[sit] = EYE_CENTER;
+  eye[blink] = null;
+  eye[sleep] = null;
+  eye[confused] = null;
+  for (const u of walkingFrames) eye[u] = EYE_LEFT;
+
+  return { frames, fps, flips, eye };
+}
+
+// Cache sprite sets by serialized traits to avoid regenerating.
+const spriteCache = new Map<string, SpriteSet>();
+
+function traitsKey(traits: MespTraits): string {
+  return `${traits.palette.bodyMid}-${traits.accessory}-${traits.spots}-${traits.spotColor}`;
+}
+
+export function getSpritesForTraits(traits: MespTraits): SpriteSet {
+  const key = traitsKey(traits);
+  let set = spriteCache.get(key);
+  if (!set) {
+    set = buildSpriteSet(traits);
+    spriteCache.set(key, set);
+  }
+  return set;
+}
 
 // ---------------------------------------------------------------------------
-//  SPRITE_FLIPS_ON_RIGHT
+//  Default sprite set (backward compat)
 // ---------------------------------------------------------------------------
 
-/** Walking flipa quando o pet anda pra direita (perfil esquerdo é o canônico). */
-export const SPRITE_FLIPS_ON_RIGHT: Record<string, boolean> = {};
-for (const u of walkingFrames) SPRITE_FLIPS_ON_RIGHT[u] = true;
+const defaultSet = buildSpriteSet(DEFAULT_TRAITS);
 
-/** @deprecated mantido pra compat. */
+export const STATE_FRAMES = defaultSet.frames;
+export const STATE_FPS = defaultSet.fps;
+export const SPRITE_FLIPS_ON_RIGHT = defaultSet.flips;
+export const SPRITE_EYE = defaultSet.eye;
+
+/** @deprecated */
 export const STATE_USES_PROFILE: Record<PetState, boolean> = {
-  idle: false,
-  walking: true,
-  thinking: false,
-  working: false,
-  success: false,
-  error: false,
-  sleeping: false,
-  sitting: false,
+  idle: false, walking: true, thinking: false, working: false,
+  success: false, error: false, sleeping: false, sitting: false,
 };
 
-// Não-usado externamente, mas evita warnings:
-void openMouth;
-
 // ---------------------------------------------------------------------------
-//  SPRITE_EYE — coordenadas calculadas matematicamente
+//  Eye config
 // ---------------------------------------------------------------------------
 
 export interface EyeConfig {
@@ -114,7 +131,7 @@ export interface EyeConfig {
 
 const PUPIL_DIAMETER = 5;
 const SAFETY_MARGIN = 3;
-const SCALE_TO_RENDER = 96 / SPRITE_W; // pet renderiza em 96x96 no display
+const SCALE_TO_RENDER = 96 / SPRITE_W;
 
 function computeEye(absoluteCx?: number): EyeConfig {
   const a = MESP_ANATOMY;
@@ -135,20 +152,3 @@ function computeEye(absoluteCx?: number): EyeConfig {
 function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
-
-const EYE_CENTER = computeEye(MESP_ANATOMY.bodyCx); // idle/parado
-const EYE_LEFT   = computeEye(MESP_ANATOMY.eyeCx);  // walking (perfil)
-
-export const SPRITE_EYE: Record<string, EyeConfig | null> = {
-  [idleBase]:  EYE_CENTER,
-  [openMouth]: EYE_CENTER,
-  [jump]:      EYE_CENTER,
-  [fall]:      EYE_CENTER,
-  [alert]:     EYE_CENTER,
-  [sit]:       EYE_CENTER,
-  // Olhos fechados / sem pupila
-  [blink]:    null,
-  [sleep]:    null,
-  [confused]: null,
-};
-for (const u of walkingFrames) SPRITE_EYE[u] = EYE_LEFT;

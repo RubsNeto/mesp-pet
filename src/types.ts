@@ -1,6 +1,8 @@
 // src/types.ts
 // Tipos compartilhados pelos componentes/hooks/serviços do MESP.
 
+import type { MespTraits } from './procedural/traits';
+
 export type PetState =
   | 'idle'
   | 'walking'
@@ -43,6 +45,8 @@ export interface PetEntity {
   state: PetState;
   /** Hue rotation em graus, aplicado para variação de cor. */
   hue: number;
+  /** Traits visuais únicos deste pet (cores, acessórios, manchas). */
+  traits?: MespTraits;
   /** Última tarefa associada (ou null). Sempre igual a history[history.length-1]. */
   task: PetTask | null;
   /** Histórico completo de tarefas executadas para este pet. */

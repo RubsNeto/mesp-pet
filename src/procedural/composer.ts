@@ -11,6 +11,7 @@
 //   pés:      2 ovais embaixo, o esquerdo mais saliente (perfil 3/4)
 
 import { DEFAULT_PALETTE, MespPalette } from './palette';
+import type { Accessory, MespTraits, SpotPattern } from './traits';
 import {
   Grid,
   applyOutline,
@@ -48,6 +49,7 @@ export const MESP_ANATOMY = {
 
 export interface ComposeOptions {
   palette?: MespPalette;
+  traits?: MespTraits;
   mouth?: 'none' | 'closed' | 'open' | 'smile';
   eye?: 'open' | 'blink' | 'closed' | 'confused';
   /** Posição horizontal do olho. 'center' = encarando frente, 'left' = perfil. */
@@ -60,10 +62,14 @@ export interface ComposeOptions {
 }
 
 export function composeMesp(opts: ComposeOptions = {}): Grid {
-  const p = opts.palette ?? DEFAULT_PALETTE;
+  const traits = opts.traits;
+  const p = traits?.palette ?? opts.palette ?? DEFAULT_PALETTE;
   const g = makeGrid(SPRITE_W, SPRITE_H);
   const a = MESP_ANATOMY;
   const dy = opts.bodyDy ?? 0;
+
+  // ----- Acessório (atrás do corpo para horns/ears) -----------------------
+  if (traits) drawAccessory(g, p, traits.accessory, dy);
 
   // ----- Corpo + Tufo -----------------------------------------------------
   drawTuft(g, p, dy);
@@ -71,7 +77,10 @@ export function composeMesp(opts: ComposeOptions = {}): Grid {
   fillEllipse(g, a.bodyCx, a.bodyCy + dy, a.bodyRx, a.bodyRy, p.bodyMid);
   fillEllipse(g, a.bodyCx - 1, a.bodyCy + dy - 2, a.bodyRx - 4, a.bodyRy - 4, p.bodyHi);
 
-  // Outline do conjunto corpo+tufo (só essa parte fica delineada agora).
+  // ----- Manchas/spots (sobre o corpo, antes do outline) ------------------
+  if (traits && traits.spots !== 'none') drawSpots(g, traits.spots, traits.spotColor, dy);
+
+  // Outline do conjunto corpo+tufo+acessório.
   applyOutline(g, p.outline);
 
   // ----- Olho (dentro do corpo, depois do outline) ------------------------
@@ -248,6 +257,81 @@ function drawFeet(
 }
 
 // ---------------------------------------------------------------------------
+//  Acessórios e manchas
+// ---------------------------------------------------------------------------
+
+function drawAccessory(g: Grid, p: MespPalette, acc: Accessory, dy: number): void {
+  const a = MESP_ANATOMY;
+  const topY = a.bodyCy + dy - a.bodyRy;
+
+  if (acc === 'horns') {
+    // Dois chifrinhos triangulares
+    for (let i = 0; i < 4; i++) {
+      setPixel(g, 10, topY - i, p.bodyLo);
+      setPixel(g, 22, topY - i, p.bodyLo);
+    }
+    setPixel(g, 10, topY - 4, p.bodyMid);
+    setPixel(g, 22, topY - 4, p.bodyMid);
+  }
+
+  if (acc === 'ears') {
+    // Orelhinhas redondas
+    fillEllipse(g, 9, topY - 1, 3, 4, p.bodyMid);
+    fillEllipse(g, 23, topY - 1, 3, 4, p.bodyMid);
+    // Interior rosa
+    fillEllipse(g, 9, topY - 1, 1.5, 2.5, '#ffb8d0');
+    fillEllipse(g, 23, topY - 1, 1.5, 2.5, '#ffb8d0');
+  }
+
+  if (acc === 'antenna') {
+    // Anteninha com bolinha
+    setPixel(g, 16, topY - 1, p.outline);
+    setPixel(g, 16, topY - 2, p.outline);
+    setPixel(g, 16, topY - 3, p.outline);
+    fillEllipse(g, 16, topY - 5, 2, 2, '#ffeb3b');
+  }
+
+  if (acc === 'bow') {
+    // Lacinho
+    fillEllipse(g, 22, topY + 1, 3, 2, '#ff6b9d');
+    fillEllipse(g, 26, topY + 1, 3, 2, '#ff6b9d');
+    setPixel(g, 24, topY + 1, '#cc2266');
+  }
+
+  if (acc === 'halo') {
+    // Auréola
+    for (let x = -4; x <= 4; x++) {
+      setPixel(g, a.bodyCx + x, topY - 4, '#ffd700');
+      if (Math.abs(x) >= 3) setPixel(g, a.bodyCx + x, topY - 3, '#ffd700');
+    }
+  }
+}
+
+function drawSpots(g: Grid, pattern: SpotPattern, color: string, dy: number): void {
+  const a = MESP_ANATOMY;
+
+  if (pattern === 'belly') {
+    // Barriga oval clara
+    fillEllipse(g, a.bodyCx, a.bodyCy + dy + 2, 5, 5, color);
+  }
+
+  if (pattern === 'patches') {
+    // Manchinhas aleatórias (posições fixas para consistência)
+    fillEllipse(g, 11, 13 + dy, 2, 2, color);
+    fillEllipse(g, 20, 18 + dy, 2.5, 1.5, color);
+    fillEllipse(g, 14, 20 + dy, 1.5, 2, color);
+  }
+
+  if (pattern === 'stripe') {
+    // Faixa horizontal no meio
+    for (let x = a.bodyCx - 7; x <= a.bodyCx + 7; x++) {
+      setPixel(g, x, a.bodyCy + dy, color);
+      setPixel(g, x, a.bodyCy + dy + 1, color);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 //  Frames pré-compostos
 // ---------------------------------------------------------------------------
 
@@ -284,12 +368,13 @@ export const FRAME_SIT = (): Grid =>
 export const FRAME_CROUCH = (): Grid =>
   composeMesp({ eye: 'open', eyePos: 'center', mouth: 'none', feet: 'crouch' });
 
-export function buildWalkingFrames(n: number): Grid[] {
+export function buildWalkingFrames(n: number, traits?: MespTraits): Grid[] {
   const out: Grid[] = [];
   for (let i = 0; i < n; i += 1) {
     const phase = i / n;
     out.push(
       composeMesp({
+        traits,
         eye: 'open',
         eyePos: 'left',
         mouth: 'none',

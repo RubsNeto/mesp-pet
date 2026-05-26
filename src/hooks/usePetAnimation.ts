@@ -1,45 +1,48 @@
 // src/hooks/usePetAnimation.ts
 //
 // Hook responsável por ciclar entre os frames de animação do pet, de acordo com
-// o estado atual. Otimizado para não disparar re-render quando o frame
-// (URL do sprite) não muda — importante porque o idle tem muitos frames
-// repetidos do mesmo sprite para criar a sensação de "parado".
+// o estado atual e traits visuais.
 
 import { useEffect, useRef, useState } from 'react';
-import { STATE_FPS, STATE_FRAMES } from '../assets/sprites';
+import { STATE_FPS, STATE_FRAMES, getSpritesForTraits } from '../assets/sprites';
+import type { MespTraits } from '../procedural/traits';
 import type { PetState } from '../types';
 
 export interface UsePetAnimationResult {
   frame: string;
 }
 
-export function usePetAnimation(state: PetState): UsePetAnimationResult {
-  const frames = STATE_FRAMES[state] ?? STATE_FRAMES.idle;
+export function usePetAnimation(state: PetState, traits?: MespTraits): UsePetAnimationResult {
+  const spriteSet = traits ? getSpritesForTraits(traits) : null;
+  const framesMap = spriteSet?.frames ?? STATE_FRAMES;
+  const fpsMap = spriteSet?.fps ?? STATE_FPS;
+
+  const frames = framesMap[state] ?? framesMap.idle;
   const [frame, setFrame] = useState<string>(frames[0]!);
   const indexRef = useRef(0);
   const stateRef = useRef<PetState>(state);
+  const framesRef = useRef(frames);
 
-  // Reseta ao trocar de estado.
   useEffect(() => {
     stateRef.current = state;
+    const newFrames = framesMap[state] ?? framesMap.idle;
+    framesRef.current = newFrames;
     indexRef.current = 0;
-    const newFrames = STATE_FRAMES[state] ?? STATE_FRAMES.idle;
     setFrame(newFrames[0]!);
-  }, [state]);
+  }, [state, framesMap]);
 
-  // Ciclo de animação: só dispara setFrame quando o sprite efetivamente muda.
   useEffect(() => {
-    const fps = STATE_FPS[state] ?? 4;
+    const fps = fpsMap[state] ?? 4;
     const intervalMs = Math.max(60, Math.floor(1000 / fps));
     const id = setInterval(() => {
-      const curFrames = STATE_FRAMES[stateRef.current] ?? STATE_FRAMES.idle;
+      const curFrames = framesRef.current;
       if (curFrames.length <= 1) return;
       indexRef.current = (indexRef.current + 1) % curFrames.length;
       const nextFrame = curFrames[indexRef.current]!;
       setFrame((prev) => (prev === nextFrame ? prev : nextFrame));
     }, intervalMs);
     return () => clearInterval(id);
-  }, [state]);
+  }, [state, fpsMap]);
 
   return { frame };
 }

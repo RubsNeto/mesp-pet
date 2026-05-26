@@ -9,8 +9,7 @@ import { ContextMenu, ContextMenuItem } from './ContextMenu';
 import { usePassThrough } from '../hooks/usePassThrough';
 import { usePetBehavior } from '../hooks/usePetBehavior';
 import { savePetState, loadPetState } from '../services/persistence';
-
-const PET_HUE_PALETTE = [0, 45, 90, 150, 200, 260, 310];
+import { generateTraits, DEFAULT_TRAITS } from '../procedural/traits';
 
 let petCounter = 0;
 function newPetId(): string {
@@ -152,7 +151,7 @@ export function PetManager() {
   const addPet = useCallback(() => {
     setPets((prev) => {
       const id = newPetId();
-      const hue = PET_HUE_PALETTE[prev.length % PET_HUE_PALETTE.length] ?? 0;
+      const traits = generateTraits();
       const last = prev[prev.length - 1];
       const baseX = last ? last.position.x + 140 : Math.max(0, window.innerWidth / 2 - 64);
       const baseY = last ? last.position.y : Math.max(0, window.innerHeight / 2 - 64);
@@ -161,7 +160,8 @@ export function PetManager() {
         position: { x: clamp(baseX, 0, window.innerWidth - 128), y: clamp(baseY, 0, window.innerHeight - 128) },
         facing: 'left',
         state: 'idle',
-        hue,
+        hue: 0,
+        traits,
         task: null,
         history: [],
         showBubble: false,
@@ -315,6 +315,7 @@ function createInitialPet(): PetEntity {
     facing: 'left',
     state: 'idle',
     hue: 0,
+    traits: DEFAULT_TRAITS,
     task: null,
     history: [],
     showBubble: false,
