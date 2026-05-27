@@ -5,11 +5,18 @@
 // Como o renderer (React) é responsável por desenhar os pets em divs absolutas, a
 // janela faz o papel de "camada flutuante" sobre o desktop.
 //
-// IPC:
+// IPC (todos os handlers validam input em runtime; a tipagem do preload é só
+// uma promessa, não garantia):
 //   - kiro:run        -> executa um comando externo (ex.: kiro CLI) e devolve o resultado
 //   - kiro:cancel     -> cancela uma execução em andamento
 //   - app:quit        -> encerra a aplicação
 //   - app:set-ignore-mouse-events -> deixa cliques passarem pela janela em áreas vazias
+//
+// Endurecimento para produção:
+//   - Validação de tipos em runtime nos inputs do IPC.
+//   - Rate-limit do número de PTYs simultâneos.
+//   - Cap do número de runs concorrentes.
+//   - safeSend ignora `webContents.send` quando a janela já foi destruída.
 
 import { app, BrowserWindow, ipcMain, screen, Menu } from 'electron';
 import { spawn, ChildProcessWithoutNullStreams } from 'node:child_process';
@@ -21,17 +28,36 @@ import * as pty from '@homebridge/node-pty-prebuilt-multiarch';
 // Em dev, vite-plugin-electron injeta VITE_DEV_SERVER_URL.
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
 
+// Limites de produção.
+const MAX_TERMINAL_PROCESSES = 16;
+const MAX_RUNNING_PROCESSES = 32;
+const MAX_ARG_COUNT = 64;
+const MAX_ARG_LENGTH = 4096;
+const MAX_PETID_LENGTH = 64;
+const MAX_RUNID_LENGTH = 128;
+const MAX_TERMINAL_DATA_BYTES = 1_000_000; // 1MB write em terminal:write
+const COMMAND_PATTERN = /^[A-Za-z0-9_./\\:\-+ ]{1,512}$/;
+const PETID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+const RUNID_PATTERN = /^[A-Za-z0-9_.-]{1,128}$/;
+
 // Carrega .env de forma simples, sem dependência externa.
 function loadDotEnv(): void {
   const envPath = path.join(app.getAppPath(), '.env');
   if (!fs.existsSync(envPath)) return;
-  const content = fs.readFileSync(envPath, 'utf-8');
+  let content: string;
+  try {
+    content = fs.readFileSync(envPath, 'utf-8');
+  } catch {
+    return;
+  }
   for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith('#')) continue;
     const eq = line.indexOf('=');
     if (eq <= 0) continue;
     const key = line.slice(0, eq).trim();
+    // Aceita só chaves "ENV_LIKE" para não permitir poluição do process.env.
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(key)) continue;
     const value = line.slice(eq + 1).trim();
     if (process.env[key] === undefined) {
       process.env[key] = value;
@@ -47,15 +73,74 @@ const runningProcesses = new Map<string, ChildProcessWithoutNullStreams>();
 // Processos persistentes de terminal (um por pet) — PTY real (node-pty).
 const terminalProcesses = new Map<string, pty.IPty>();
 
-// Sanitiza argumentos para evitar injeção de comandos.
-function sanitizeArg(arg: string): string {
-  // Remove caracteres perigosos de shell: ; | & ` $ ( ) { } < > \n \r
-  return arg.replace(/[;|&`$(){}[\]<>\n\r]/g, '');
+// ---------------------------------------------------------------------------
+//  Validação de input (runtime, defesa em profundidade)
+// ---------------------------------------------------------------------------
+
+function isString(v: unknown, max = Infinity): v is string {
+  return typeof v === 'string' && v.length > 0 && v.length <= max;
+}
+
+function isStringArray(v: unknown, maxItems: number, maxLen: number): v is string[] {
+  if (!Array.isArray(v)) return false;
+  if (v.length > maxItems) return false;
+  for (const item of v) {
+    if (typeof item !== 'string') return false;
+    if (item.length > maxLen) return false;
+  }
+  return true;
+}
+
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+function validatePetId(id: unknown): string | null {
+  if (!isString(id, MAX_PETID_LENGTH)) return null;
+  if (!PETID_PATTERN.test(id)) return null;
+  return id;
+}
+
+function validateRunId(id: unknown): string | null {
+  if (!isString(id, MAX_RUNID_LENGTH)) return null;
+  if (!RUNID_PATTERN.test(id)) return null;
+  return id;
+}
+
+function validateCommand(cmd: unknown): string | null {
+  if (!isString(cmd, 512)) return null;
+  if (!COMMAND_PATTERN.test(cmd)) return null;
+  return cmd;
+}
+
+// Sanitiza argumentos para evitar injeção de comandos (defesa adicional ao
+// validateCommand).
+export function sanitizeArg(arg: string): string {
+  // Remove caracteres perigosos de shell: ; | & ` $ ( ) { } < > \n \r e nul.
+  // Também NUL bytes que podem truncar strings em algumas chamadas.
+  return arg.replace(/[;|&`$(){}[\]<>\n\r\0]/g, '');
 }
 
 function sanitizeArgs(args: string[]): string[] {
-  return args.map(sanitizeArg).filter(Boolean);
+  return args.map(sanitizeArg).filter((a) => a.length > 0);
 }
+
+/** Envia mensagem para o renderer com proteção contra janela destruída. */
+function safeSend(channel: string, payload: unknown): void {
+  if (!mainWindow) return;
+  if (mainWindow.isDestroyed()) return;
+  const wc = mainWindow.webContents;
+  if (!wc || wc.isDestroyed()) return;
+  try {
+    wc.send(channel, payload);
+  } catch {
+    // Janela pode ter sido destruída entre o check e o send — ignora.
+  }
+}
+
+// ---------------------------------------------------------------------------
+//  Window / app lifecycle
+// ---------------------------------------------------------------------------
 
 function createWindow(): void {
   const primary = screen.getPrimaryDisplay();
@@ -83,6 +168,10 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      // Endurecimento extra:
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      experimentalFeatures: false,
     },
   });
 
@@ -94,10 +183,17 @@ function createWindow(): void {
   // elementos interativos (pet, balão, painel) via app:set-ignore-mouse-events.
   mainWindow.setIgnoreMouseEvents(true, { forward: true });
 
+  // Bloqueia navegação pra fora — proteção contra hijack do renderer.
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.on('will-navigate', (e, url) => {
+    // Permite só o dev server e o file:// local.
+    if (VITE_DEV_SERVER_URL && url.startsWith(VITE_DEV_SERVER_URL)) return;
+    if (url.startsWith('file://')) return;
+    e.preventDefault();
+  });
+
   if (VITE_DEV_SERVER_URL) {
     void mainWindow.loadURL(VITE_DEV_SERVER_URL);
-    // Devtools desligado por padrão para não roubar o foco do pet.
-    // mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     void mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
@@ -111,9 +207,14 @@ function createWindow(): void {
   });
 }
 
-// IPC: ativar/desativar pass-through de cliques.
-ipcMain.handle('app:set-ignore-mouse-events', (_evt, ignore: boolean, forward = true) => {
-  if (!mainWindow) return;
+// ---------------------------------------------------------------------------
+//  IPC handlers
+// ---------------------------------------------------------------------------
+
+ipcMain.handle('app:set-ignore-mouse-events', (_evt, ignoreRaw: unknown, forwardRaw: unknown = true) => {
+  const ignore = ignoreRaw === true;
+  const forward = forwardRaw !== false;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.setIgnoreMouseEvents(ignore, ignore ? { forward } : undefined);
 });
 
@@ -122,7 +223,8 @@ ipcMain.handle('app:quit', () => {
 });
 
 ipcMain.handle('app:open-devtools', () => {
-  mainWindow?.webContents.openDevTools({ mode: 'detach' });
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.openDevTools({ mode: 'detach' });
 });
 
 ipcMain.handle('app:get-config', () => ({
@@ -132,8 +234,9 @@ ipcMain.handle('app:get-config', () => ({
 }));
 
 // Verifica se um comando está disponível na PATH do sistema.
-ipcMain.handle('app:check-command', async (_evt, command: string): Promise<boolean> => {
-  if (!command || /[;|&`$(){}<>\n\r]/.test(command)) return false;
+ipcMain.handle('app:check-command', async (_evt, commandRaw: unknown): Promise<boolean> => {
+  const command = validateCommand(commandRaw);
+  if (!command) return false;
   return new Promise((resolve) => {
     const finder = process.platform === 'win32' ? 'where' : 'which';
     const child = spawn(finder, [command], {
@@ -148,7 +251,6 @@ ipcMain.handle('app:check-command', async (_evt, command: string): Promise<boole
     };
     child.on('error', () => finalize(false));
     child.on('close', (code) => finalize(code === 0));
-    // Timeout de 2s
     setTimeout(() => {
       try { child.kill(); } catch { /* noop */ }
       finalize(false);
@@ -163,47 +265,59 @@ ipcMain.handle('app:get-auto-start', () => {
   return settings.openAtLogin;
 });
 
-ipcMain.handle('app:set-auto-start', (_evt, enabled: boolean) => {
+ipcMain.handle('app:set-auto-start', (_evt, enabledRaw: unknown) => {
+  const enabled = enabledRaw === true;
   app.setLoginItemSettings({
     openAtLogin: enabled,
-    // No Windows, abre minimizado para não "atrapalhar" o usuário.
-    // No Mac/Linux openAsHidden é ignorado se não suportado.
     openAsHidden: false,
     args: [],
   });
   return app.getLoginItemSettings().openAtLogin;
 });
 
-// IPC: Kiro/processo externo.
+// ----- Comando externo "one-shot" -------------------------------------------
+
 ipcMain.handle(
   'kiro:run',
-  async (
-    event,
-    payload: { runId: string; command?: string; args?: string[]; cwd?: string }
-  ) => {
-    const { runId, command, args, cwd } = payload;
-    const cmd = command || process.env.KIRO_COMMAND || 'kiro';
-    const finalArgs = sanitizeArgs(
-      args && args.length > 0
-        ? args
-        : (process.env.KIRO_DEFAULT_ARGS || '').split(' ').filter(Boolean)
-    );
+  async (event, payloadRaw: unknown) => {
+    if (!payloadRaw || typeof payloadRaw !== 'object') {
+      return makeRunError('payload inválido');
+    }
+    const payload = payloadRaw as Record<string, unknown>;
+    const runId = validateRunId(payload.runId);
+    if (!runId) return makeRunError('runId inválido');
 
-    return await new Promise<{
-      runId: string;
-      ok: boolean;
-      code: number | null;
-      stdout: string;
-      stderr: string;
-      command: string;
-      args: string[];
-      error?: string;
-    }>((resolve) => {
+    if (runningProcesses.size >= MAX_RUNNING_PROCESSES) {
+      return makeRunError(`limite de ${MAX_RUNNING_PROCESSES} processos concorrentes atingido`, runId);
+    }
+    if (runningProcesses.has(runId)) {
+      return makeRunError('runId em uso', runId);
+    }
+
+    const cmdRaw = payload.command;
+    const cmd = validateCommand(cmdRaw)
+      ?? validateCommand(process.env.KIRO_COMMAND ?? null)
+      ?? 'kiro';
+
+    const argsInput = payload.args;
+    let args: string[];
+    if (argsInput === undefined || argsInput === null) {
+      args = (process.env.KIRO_DEFAULT_ARGS || '').split(' ').filter(Boolean);
+    } else if (isStringArray(argsInput, MAX_ARG_COUNT, MAX_ARG_LENGTH)) {
+      args = argsInput;
+    } else {
+      return makeRunError('args inválidos', runId);
+    }
+    const finalArgs = sanitizeArgs(args);
+
+    const cwd = isString(payload.cwd, 4096) ? payload.cwd : process.cwd();
+
+    return await new Promise<KiroRunResult>((resolve) => {
       let child: ChildProcessWithoutNullStreams;
       try {
         child = spawn(cmd, finalArgs, {
-          cwd: cwd || process.cwd(),
-          shell: process.platform === 'win32', // necessário para resolver .cmd no Windows
+          cwd,
+          shell: process.platform === 'win32',
           env: { ...process.env },
         });
       } catch (err) {
@@ -228,13 +342,17 @@ ipcMain.handle(
       child.stdout.on('data', (chunk) => {
         const text = chunk.toString();
         stdout += text;
-        event.sender.send('kiro:stdout', { runId, chunk: text });
+        if (event.sender && !event.sender.isDestroyed()) {
+          event.sender.send('kiro:stdout', { runId, chunk: text });
+        }
       });
 
       child.stderr.on('data', (chunk) => {
         const text = chunk.toString();
         stderr += text;
-        event.sender.send('kiro:stderr', { runId, chunk: text });
+        if (event.sender && !event.sender.isDestroyed()) {
+          event.sender.send('kiro:stderr', { runId, chunk: text });
+        }
       });
 
       child.on('error', (err) => {
@@ -267,7 +385,33 @@ ipcMain.handle(
   }
 );
 
-ipcMain.handle('kiro:cancel', (_evt, runId: string) => {
+interface KiroRunResult {
+  runId: string;
+  ok: boolean;
+  code: number | null;
+  stdout: string;
+  stderr: string;
+  command: string;
+  args: string[];
+  error?: string;
+}
+
+function makeRunError(error: string, runId = 'invalid'): KiroRunResult {
+  return {
+    runId,
+    ok: false,
+    code: null,
+    stdout: '',
+    stderr: '',
+    command: '',
+    args: [],
+    error,
+  };
+}
+
+ipcMain.handle('kiro:cancel', (_evt, runIdRaw: unknown) => {
+  const runId = validateRunId(runIdRaw);
+  if (!runId) return false;
   const child = runningProcesses.get(runId);
   if (child) {
     try {
@@ -283,90 +427,130 @@ ipcMain.handle('kiro:cancel', (_evt, runId: string) => {
 
 // ----- Terminal persistente (PTY real, um por pet) ---------------------------
 
-ipcMain.handle(
-  'terminal:spawn',
-  (
-    _evt,
-    payload: {
-      petId: string;
-      command?: string;
-      args?: string[];
-      cwd?: string;
-      cols?: number;
-      rows?: number;
-    }
-  ) => {
-    const { petId, command, args, cwd, cols, rows } = payload;
-    // Mata processo anterior se existir.
-    const existing = terminalProcesses.get(petId);
-    if (existing) {
-      try { existing.kill(); } catch { /* noop */ }
-      terminalProcesses.delete(petId);
-    }
-
-    const cmd = command || process.env.KIRO_COMMAND || 'kiro-cli';
-    const finalArgs = sanitizeArgs(
-      args && args.length > 0
-        ? args
-        : (process.env.KIRO_TASK_PREFIX || 'chat').split(' ').filter(Boolean)
-    );
-
-    let ptyProcess: pty.IPty;
-    try {
-      ptyProcess = pty.spawn(cmd, finalArgs, {
-        name: 'xterm-256color',
-        cols: cols ?? 100,
-        rows: rows ?? 30,
-        cwd: cwd || process.cwd(),
-        env: { ...process.env, TERM: 'xterm-256color' } as { [key: string]: string },
-      });
-    } catch (err) {
-      mainWindow?.webContents.send('terminal:exit', {
-        petId,
-        code: null,
-        error: (err as Error).message,
-      });
-      return { ok: false, error: (err as Error).message };
-    }
-
-    terminalProcesses.set(petId, ptyProcess);
-
-    ptyProcess.onData((data) => {
-      mainWindow?.webContents.send('terminal:stdout', { petId, data });
-    });
-
-    ptyProcess.onExit(({ exitCode, signal }) => {
-      terminalProcesses.delete(petId);
-      mainWindow?.webContents.send('terminal:exit', {
-        petId,
-        code: exitCode,
-        error: signal ? `signal ${signal}` : undefined,
-      });
-    });
-
-    return { ok: true };
+ipcMain.handle('terminal:spawn', (_evt, payloadRaw: unknown) => {
+  if (!payloadRaw || typeof payloadRaw !== 'object') {
+    return { ok: false, error: 'payload inválido' };
   }
-);
+  const payload = payloadRaw as Record<string, unknown>;
+  const petId = validatePetId(payload.petId);
+  if (!petId) return { ok: false, error: 'petId inválido' };
 
-ipcMain.handle('terminal:write', (_evt, payload: { petId: string; data: string }) => {
-  const ptyProcess = terminalProcesses.get(payload.petId);
+  // Mata processo anterior se existir (sempre — mesmo lógica de antes).
+  const existing = terminalProcesses.get(petId);
+  if (existing) {
+    try { existing.kill(); } catch { /* noop */ }
+    terminalProcesses.delete(petId);
+  }
+
+  // Cap global de PTYs simultâneos.
+  if (terminalProcesses.size >= MAX_TERMINAL_PROCESSES) {
+    return { ok: false, error: `limite de ${MAX_TERMINAL_PROCESSES} terminais atingido` };
+  }
+
+  const cmd = validateCommand(payload.command)
+    ?? validateCommand(process.env.KIRO_COMMAND ?? null)
+    ?? 'kiro-cli';
+
+  const argsInput = payload.args;
+  let args: string[];
+  if (argsInput === undefined || argsInput === null) {
+    args = (process.env.KIRO_TASK_PREFIX || 'chat').split(' ').filter(Boolean);
+  } else if (isStringArray(argsInput, MAX_ARG_COUNT, MAX_ARG_LENGTH)) {
+    args = argsInput;
+  } else {
+    return { ok: false, error: 'args inválidos' };
+  }
+  const finalArgs = sanitizeArgs(args);
+
+  const cols = isFiniteNumber(payload.cols)
+    ? Math.max(1, Math.min(1000, Math.floor(payload.cols)))
+    : 100;
+  const rows = isFiniteNumber(payload.rows)
+    ? Math.max(1, Math.min(500, Math.floor(payload.rows)))
+    : 30;
+  const cwd = isString(payload.cwd, 4096) ? payload.cwd : process.cwd();
+
+  // No Windows, pty.spawn chama CreateProcess direto e NÃO respeita PATHEXT.
+  // Isso significa que `kiro-cli.cmd`, `npm.cmd`, etc. falham com "file not
+  // found". Para suportar .cmd/.bat/.ps1, wrappamos com `cmd.exe /c`, que
+  // resolve o nome via PATH + PATHEXT corretamente.
+  let spawnCmd = cmd;
+  let spawnArgs = finalArgs;
+  if (process.platform === 'win32' && !/\.exe$/i.test(cmd)) {
+    spawnCmd = process.env.ComSpec || 'cmd.exe';
+    spawnArgs = ['/c', cmd, ...finalArgs];
+  }
+
+  let ptyProcess: pty.IPty;
+  try {
+    ptyProcess = pty.spawn(spawnCmd, spawnArgs, {
+      name: 'xterm-256color',
+      cols,
+      rows,
+      cwd,
+      env: { ...process.env, TERM: 'xterm-256color' } as { [key: string]: string },
+    });
+  } catch (err) {
+    safeSend('terminal:exit', {
+      petId,
+      code: null,
+      error: (err as Error).message,
+    });
+    return { ok: false, error: (err as Error).message };
+  }
+
+  terminalProcesses.set(petId, ptyProcess);
+
+  ptyProcess.onData((data) => {
+    safeSend('terminal:stdout', { petId, data });
+  });
+
+  ptyProcess.onExit(({ exitCode, signal }) => {
+    terminalProcesses.delete(petId);
+    safeSend('terminal:exit', {
+      petId,
+      code: exitCode,
+      error: signal ? `signal ${signal}` : undefined,
+    });
+  });
+
+  return { ok: true };
+});
+
+ipcMain.handle('terminal:write', (_evt, payloadRaw: unknown) => {
+  if (!payloadRaw || typeof payloadRaw !== 'object') return false;
+  const payload = payloadRaw as Record<string, unknown>;
+  const petId = validatePetId(payload.petId);
+  if (!petId) return false;
+  if (typeof payload.data !== 'string') return false;
+  if (payload.data.length > MAX_TERMINAL_DATA_BYTES) return false;
+  const ptyProcess = terminalProcesses.get(petId);
   if (!ptyProcess) return false;
   ptyProcess.write(payload.data);
   return true;
 });
 
-ipcMain.handle('terminal:resize', (_evt, payload: { petId: string; cols: number; rows: number }) => {
-  const ptyProcess = terminalProcesses.get(payload.petId);
+ipcMain.handle('terminal:resize', (_evt, payloadRaw: unknown) => {
+  if (!payloadRaw || typeof payloadRaw !== 'object') return false;
+  const payload = payloadRaw as Record<string, unknown>;
+  const petId = validatePetId(payload.petId);
+  if (!petId) return false;
+  if (!isFiniteNumber(payload.cols) || !isFiniteNumber(payload.rows)) return false;
+  const cols = Math.max(1, Math.min(1000, Math.floor(payload.cols)));
+  const rows = Math.max(1, Math.min(500, Math.floor(payload.rows)));
+  const ptyProcess = terminalProcesses.get(petId);
   if (!ptyProcess) return false;
   try {
-    ptyProcess.resize(Math.max(1, payload.cols), Math.max(1, payload.rows));
+    ptyProcess.resize(cols, rows);
   } catch {
     /* noop */
   }
   return true;
 });
 
-ipcMain.handle('terminal:kill', (_evt, petId: string) => {
+ipcMain.handle('terminal:kill', (_evt, petIdRaw: unknown) => {
+  const petId = validatePetId(petIdRaw);
+  if (!petId) return false;
   const ptyProcess = terminalProcesses.get(petId);
   if (!ptyProcess) return false;
   try { ptyProcess.kill(); } catch { /* noop */ }

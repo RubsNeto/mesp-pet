@@ -5,15 +5,51 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
-  ci:
-    runs-on: ubuntu-latest
+  test:
+    name: ${{ matrix.os }} / node ${{ matrix.node }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [22]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ matrix.node }}
           cache: npm
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
+
+      # Linux precisa de ferramentas pra rebuildar node-pty se necessário.
+      - name: Linux build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libxss1 libasound2t64 || sudo apt-get install -y libnss3 libxss1 libasound2
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tests
+        run: npm test
+
+      # Build só em Linux pra economizar minutos do CI; o build é
+      # plataforma-independente (Vite/TS) e os módulos nativos só são
+      # exercitados em runtime.
+      - name: Build
+        if: runner.os == 'Linux'
+        run: npm run build
+
+      - name: Audit (somente reporta — informacional)
+        if: runner.os == 'Linux'
+        run: npm audit --audit-level=high || true

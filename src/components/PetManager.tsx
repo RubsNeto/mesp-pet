@@ -14,6 +14,10 @@ import { useInteractions } from '../hooks/useInteractions';
 import { savePetState, loadPetState, clearPetState } from '../services/persistence';
 import { generateTraits, DEFAULT_TRAITS } from '../procedural/traits';
 
+// Limite máximo de pets simultâneos para evitar uso descontrolado de memória.
+// 10 é mais que suficiente pra brincar; cada pet ocupa ~1MB com sprites cacheados.
+const MAX_PETS = 10;
+
 let petCounter = 0;
 function newPetId(): string {
   petCounter += 1;
@@ -34,7 +38,9 @@ export function PetManager() {
     if (saved && saved.length > 0) {
       const winW = typeof window !== 'undefined' ? window.innerWidth : 1280;
       const winH = typeof window !== 'undefined' ? window.innerHeight : 720;
-      return saved.map((s) => {
+      // Limita o que vem da persistência ao máximo configurado, defesa contra
+      // localStorage com gente demais por algum motivo.
+      return saved.slice(0, MAX_PETS).map((s) => {
         petCounter = Math.max(petCounter, parseInt(s.id.replace('mesp-', '')) || 0);
         const x = clamp(s.position.x, 0, Math.max(0, winW - 128));
         const y = clamp(s.position.y, 0, Math.max(0, winH - 128));
@@ -43,8 +49,8 @@ export function PetManager() {
           position: { x, y },
           facing: s.facing,
           state: 'idle' as const,
-          hue: s.hue,
-          traits: DEFAULT_TRAITS,
+          // Restaura traits salvos; se vier de schema antigo, usa default.
+          traits: s.traits ?? DEFAULT_TRAITS,
           task: null,
           history: [],
           showBubble: false,
@@ -207,6 +213,7 @@ export function PetManager() {
 
   const addPet = useCallback(() => {
     setPets((prev) => {
+      if (prev.length >= MAX_PETS) return prev;
       const id = newPetId();
       const traits = generateTraits();
       const last = prev[prev.length - 1];
@@ -217,7 +224,6 @@ export function PetManager() {
         position: { x: clamp(baseX, 0, window.innerWidth - 128), y: clamp(baseY, 0, window.innerHeight - 128) },
         facing: 'left',
         state: 'idle',
-        hue: 0,
         traits,
         task: null,
         history: [],
@@ -281,7 +287,7 @@ export function PetManager() {
     const target = pets.find((p) => p.id === targetId);
     if (!target) return [];
     return [
-      { label: 'Novo MESP', icon: '✨', onClick: () => addPet() },
+      { label: 'Novo MESP', icon: '✨', disabled: pets.length >= MAX_PETS, onClick: () => addPet() },
       {
         label: 'Dropar bolinha',
         icon: '🎾',
@@ -407,7 +413,6 @@ function createInitialPet(): PetEntity {
     position: { x, y },
     facing: 'left',
     state: 'idle',
-    hue: 0,
     traits: DEFAULT_TRAITS,
     task: null,
     history: [],

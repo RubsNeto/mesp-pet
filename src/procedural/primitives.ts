@@ -19,17 +19,21 @@ export function gridSize(g: Grid): { w: number; h: number } {
 }
 
 export function setPixel(g: Grid, x: number, y: number, c: Pixel): void {
-  if (y < 0 || y >= g.length) return;
-  const row = g[y];
-  if (x < 0 || x >= row.length) return;
-  row[x] = c;
+  const ix = Math.round(x);
+  const iy = Math.round(y);
+  if (iy < 0 || iy >= g.length) return;
+  const row = g[iy];
+  if (ix < 0 || ix >= row.length) return;
+  row[ix] = c;
 }
 
 export function getPixel(g: Grid, x: number, y: number): Pixel {
-  if (y < 0 || y >= g.length) return null;
-  const row = g[y];
-  if (x < 0 || x >= row.length) return null;
-  return row[x];
+  const ix = Math.round(x);
+  const iy = Math.round(y);
+  if (iy < 0 || iy >= g.length) return null;
+  const row = g[iy];
+  if (ix < 0 || ix >= row.length) return null;
+  return row[ix];
 }
 
 /** Pinta um retângulo cheio. */
@@ -43,6 +47,7 @@ export function fillRect(g: Grid, x: number, y: number, w: number, h: number, c:
 
 /** Pinta uma elipse cheia (cx,cy = centro; rx,ry = semi-eixos). */
 export function fillEllipse(g: Grid, cx: number, cy: number, rx: number, ry: number, c: Pixel): void {
+  if (rx <= 0 || ry <= 0) return;
   const x0 = Math.floor(cx - rx);
   const x1 = Math.ceil(cx + rx);
   const y0 = Math.floor(cy - ry);
@@ -75,6 +80,7 @@ export function fillSquircle(
   n: number,
   c: Pixel
 ): void {
+  if (rx <= 0 || ry <= 0) return;
   const x0 = Math.floor(cx - rx);
   const x1 = Math.ceil(cx + rx);
   const y0 = Math.floor(cy - ry);
@@ -84,6 +90,31 @@ export function fillSquircle(
       const nx = Math.abs((x + 0.5 - cx) / rx);
       const ny = Math.abs((y + 0.5 - cy) / ry);
       if (Math.pow(nx, n) + Math.pow(ny, n) <= 1) setPixel(g, x, y, c);
+    }
+  }
+}
+
+/**
+ * Desenha um pequeno coração centrado em (cx, cy) com largura aproximada
+ * `size`. Bom pra peito do pet ou enfeites. Tamanho recomendado: 4-7.
+ */
+export function fillHeart(g: Grid, cx: number, cy: number, size: number, c: Pixel): void {
+  // Versão pixelada simples baseada em duas curvas + ponta.
+  const half = Math.max(2, Math.floor(size / 2));
+  // Lobos superiores.
+  for (let dy = 0; dy <= half; dy += 1) {
+    const radiusFactor = 1 - dy / (half + 0.5);
+    const w = Math.max(0, Math.round(half * radiusFactor));
+    for (let dx = -w; dx <= w; dx += 1) {
+      setPixel(g, cx - half + dx, cy - 1 + dy - Math.floor(half / 2), c);
+      setPixel(g, cx + half + dx, cy - 1 + dy - Math.floor(half / 2), c);
+    }
+  }
+  // Triângulo inferior.
+  for (let dy = 0; dy <= size; dy += 1) {
+    const w = Math.max(0, size - dy);
+    for (let dx = -w; dx <= w; dx += 1) {
+      setPixel(g, cx + dx, cy + dy - Math.floor(half / 2), c);
     }
   }
 }
@@ -100,6 +131,7 @@ export function applyOutline(g: Grid, outline: string): void {
     for (let x = 0; x < w; x += 1) {
       const c = g[y][x];
       if (c === null) continue;
+      if (c === outline) continue;
       // checa 4-vizinhos
       const n =
         getPixel(g, x - 1, y) === null ||

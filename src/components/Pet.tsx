@@ -4,14 +4,16 @@
 //   - sprite atual (animação cíclica)
 //   - sombra
 //   - balão de fala (SpeechBubble)
-//   - pupila que segue o cursor (atualizada via ref imperativamente)
+//   - pupilas que seguem o cursor (atualizadas via ref imperativamente)
 //   - tratamento de drag, click e contextmenu
 //
-// Performance: a pupila é atualizada via ref direto no DOM (sem React state),
-// e o componente é memoizado para evitar re-renders quando outros pets mudam.
+// Performance: as pupilas são atualizadas via ref direto no DOM (sem React
+// state), e o componente é memoizado para evitar re-renders quando outros
+// pets mudam.
 
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { SPRITE_FLIPS_ON_RIGHT, SPRITE_EYE, getSpritesForTraits } from '../assets/sprites';
+import type { EyeConfig } from '../assets/sprites';
 import { usePetAnimation } from '../hooks/usePetAnimation';
 import { subscribeMousePosition } from '../hooks/useMousePosition';
 import type { PetEntity } from '../types';
@@ -36,6 +38,12 @@ interface DragState {
   offsetY: number;
 }
 
+// Layout: wrapper 128x128 contém tilt 96x96 centralizado horizontalmente
+// e alinhado pelo bottom (devido ao flex column justify-end items-center).
+const TILT_W = 96;
+const TILT_X_OFFSET = 16;
+const TILT_Y_OFFSET = 32;
+
 function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onContextMenu, onPet, onScare }: PetProps) {
   const { frame } = usePetAnimation(pet.state, pet.traits);
   const spriteSet = pet.traits ? getSpritesForTraits(pet.traits) : null;
@@ -44,7 +52,8 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const tiltRef = useRef<HTMLDivElement>(null);
-  const pupilRef = useRef<HTMLDivElement>(null);
+  // Suporta múltiplas pupilas — uma ref por slot.
+  const pupilRefs = useRef<Array<HTMLDivElement | null>>([]);
   const [dragging, setDragging] = useState(false);
   const [spawning, setSpawning] = useState(true);
   const dragRef = useRef<DragState | null>(null);
@@ -59,68 +68,72 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
   const recentClicksRef = useRef<number[]>([]);
 
   const flipX = (flipsMap[frame] ?? false) && pet.facing === 'right';
-  const eye = eyeMap[frame] ?? null;
+  const eyeConfig: EyeConfig | null = eyeMap[frame] ?? null;
+
+  // Lista de slots — número garantido estável por frame (até trocar de frame).
+  const slots = useMemo(() => eyeConfig?.slots ?? [], [eyeConfig]);
 
   // Refs sempre atualizados — usados pelo subscribe do mouse.
-  const eyeRef = useRef(eye);
+  const eyeRef = useRef<EyeConfig | null>(eyeConfig);
   const posRef = useRef(pet.position);
   const flipRef = useRef(flipX);
   useLayoutEffect(() => {
-    eyeRef.current = eye;
+    eyeRef.current = eyeConfig;
     posRef.current = pet.position;
     flipRef.current = flipX;
-  }, [eye, pet.position, flipX]);
+  }, [eyeConfig, pet.position, flipX]);
 
-  // Subscribe ao mouse e atualiza a pupila imperativamente.
+  // Subscribe ao mouse e atualiza as pupilas imperativamente.
   // ZERO re-renders do React causados por movimento do mouse.
   useEffect(() => {
-    if (!eye) return; // sem olho, sem subscribe
-    // Layout: wrapper 128x128 contém tilt 96x96 centralizado horizontalmente
-    // e alinhado pelo bottom (devido ao flex column justify-end items-center).
-    // Tilt offset dentro do wrapper: x = (128-96)/2 = 16, y = 128-96 = 32.
-    const TILT_W = 96;
-    const TILT_X_OFFSET = 16;
-    const TILT_Y_OFFSET = 32;
+    if (!eyeConfig || eyeConfig.slots.length === 0) return;
 
     const update = (mx: number, my: number) => {
-      const e = eyeRef.current;
-      const p = pupilRef.current;
-      if (!e || !p) return;
-
-      // Quando o sprite está flipado (andando para a direita), o olho aparece
-      // em (TILT_W - cx) dentro do tilt. Ajustamos cx para a posição visual.
+      const cfg = eyeRef.current;
+      if (!cfg) return;
       const flipped = flipRef.current;
-      const visualCx = flipped ? TILT_W - e.cx : e.cx;
+      const px = posRef.current.x;
+      const py = posRef.current.y;
 
-      const eyeWorldX = posRef.current.x + TILT_X_OFFSET + visualCx;
-      const eyeWorldY = posRef.current.y + TILT_Y_OFFSET + e.cy;
-      let dx = mx - eyeWorldX;
-      let dy = my - eyeWorldY;
-      const dist = Math.hypot(dx, dy);
-      const factor = dist > 0 ? Math.min(1, dist / 80) : 0;
-      if (dist > 0) {
-        dx = (dx / dist) * factor;
-        dy = (dy / dist) * factor;
-      } else {
-        dx = 0;
-        dy = 0;
-      }
-      let offX = dx * e.rx;
-      let offY = dy * e.ry;
-      if (e.rx > 0 && e.ry > 0) {
-        const t = Math.hypot(offX / e.rx, offY / e.ry);
-        if (t > 1) {
-          offX /= t;
-          offY /= t;
+      for (let i = 0; i < cfg.slots.length; i += 1) {
+        const slot = cfg.slots[i]!;
+        const pupil = pupilRefs.current[i];
+        if (!pupil) continue;
+
+        // Quando o sprite está flipado (andando para a direita), o olho
+        // aparece em (TILT_W - cx) dentro do tilt.
+        const visualCx = flipped ? TILT_W - slot.cx : slot.cx;
+
+        const eyeWorldX = px + TILT_X_OFFSET + visualCx;
+        const eyeWorldY = py + TILT_Y_OFFSET + slot.cy;
+        let dx = mx - eyeWorldX;
+        let dy = my - eyeWorldY;
+        const dist = Math.hypot(dx, dy);
+        const factor = dist > 0 ? Math.min(1, dist / 80) : 0;
+        if (dist > 0) {
+          dx = (dx / dist) * factor;
+          dy = (dy / dist) * factor;
+        } else {
+          dx = 0;
+          dy = 0;
         }
+        let offX = dx * slot.rx;
+        let offY = dy * slot.ry;
+        if (slot.rx > 0 && slot.ry > 0) {
+          const t = Math.hypot(offX / slot.rx, offY / slot.ry);
+          if (t > 1) {
+            offX /= t;
+            offY /= t;
+          }
+        }
+        const left = visualCx + offX - cfg.size / 2;
+        const top = slot.cy + offY - cfg.size / 2;
+        pupil.style.left = `${left}px`;
+        pupil.style.top = `${top}px`;
       }
-      const left = visualCx + offX - e.size / 2;
-      const top = e.cy + offY - e.size / 2;
-      p.style.left = `${left}px`;
-      p.style.top = `${top}px`;
     };
     return subscribeMousePosition(update);
-  }, [eye]);
+  }, [eyeConfig]);
 
   // Head tilt: sutil rotação do corpo na direção do cursor quando ele está
   // próximo. Não causa re-render — atualiza CSS variable diretamente no wrapper.
@@ -146,7 +159,7 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
     return subscribeMousePosition(update);
   }, []);
 
-  // Tira a animação de spawn depois que ela termina (600ms).
+  // Tira a animação de spawn depois que ela termina (700ms).
   useEffect(() => {
     const t = setTimeout(() => setSpawning(false), 700);
     return () => clearTimeout(t);
@@ -274,6 +287,11 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
     };
   }, []);
 
+  // Limpa refs extras quando muda o número de slots.
+  useEffect(() => {
+    pupilRefs.current = pupilRefs.current.slice(0, slots.length);
+  }, [slots.length]);
+
   return (
     <div
       ref={wrapperRef}
@@ -303,17 +321,20 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
           className={`pet-sprite pixelated${flipX ? ' flip-x' : ''}`}
           draggable={false}
         />
-        {eye && (
+        {eyeConfig && slots.map((_, i) => (
           <div
-            ref={pupilRef}
+            key={i}
+            ref={(el) => {
+              pupilRefs.current[i] = el;
+            }}
             className="pet-pupil"
             style={{
-              width: eye.size,
-              height: eye.size,
+              width: eyeConfig.size,
+              height: eyeConfig.size,
             }}
             aria-hidden
           />
-        )}
+        ))}
       </div>
       <div className="pet-shadow" aria-hidden />
       {pet.state === 'sleeping' && (

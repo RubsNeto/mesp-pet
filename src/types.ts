@@ -43,10 +43,8 @@ export interface PetEntity {
   position: PetPosition;
   facing: PetFacing;
   state: PetState;
-  /** Hue rotation em graus, aplicado para variação de cor. */
-  hue: number;
   /** Traits visuais únicos deste pet (cores, acessórios, manchas). */
-  traits?: MespTraits;
+  traits: MespTraits;
   /** Última tarefa associada (ou null). Sempre igual a history[history.length-1]. */
   task: PetTask | null;
   /** Histórico completo de tarefas executadas para este pet. */

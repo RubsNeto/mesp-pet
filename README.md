@@ -15,9 +15,9 @@ ao ser clicado.
 ### Visual
 - Janela 100% transparente, sempre acima, com pass-through de cliques nas áreas vazias.
 - Pet em pixel art animado com 8 estados: `idle`, `walking`, `thinking`, `working`, `success`, `error`, `sleeping`, `sitting`.
-- **Variação por pet**: cada novo MESP tem cores e acessórios aleatórios (chifres, orelhas, antena, lacinho, auréola) e padrões (manchas, faixa, barriga clara).
-- Pupila segue o cursor; corpo inclina sutilmente na direção do mouse.
-- Sprites gerados 100% proceduralmente em código.
+- **Variação por pet**: cada novo MESP escolhe uma de 12 famílias de cor (sky, rose, mint, lemon, lilac, peach, lavender, cream, aqua, coral, sage, ghost), pode receber 1 acessório (chifres, orelhas, antena, lacinho, auréola, florzinha, estrela) e 1 padrão (manchas, faixa, barriga clara, coração no peito).
+- 2 olhinhos com pupilas que seguem o cursor (cada uma independente); brilhinhos no estado `sparkle`; corpo inclina sutilmente na direção do mouse.
+- Sprites gerados 100% proceduralmente em código — para visualizar variantes sem rodar o app, use `node scripts/preview-procedural.cjs`.
 
 ### Interações
 - **Arrastar** pela tela.
