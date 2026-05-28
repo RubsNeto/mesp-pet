@@ -563,6 +563,10 @@ Menu.setApplicationMenu(null);
 
 app.whenReady().then(() => {
   loadDotEnv();
+  // Ativa auto-start com o Windows por padrão
+  if (!app.getLoginItemSettings().openAtLogin) {
+    app.setLoginItemSettings({ openAtLogin: true });
+  }
   createWindow();
 
   app.on('activate', () => {

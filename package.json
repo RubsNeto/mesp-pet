@@ -7,9 +7,8 @@
   "author": "MESP",
   "license": "MIT",
   "scripts": {
-    "extract-sprites": "node scripts/extract-sprites.js",
-    "predev": "npm run extract-sprites",
-    "prebuild": "npm run extract-sprites",
+    "patch-gyp": "node scripts/patch-gyp.js",
+    "postinstall": "node scripts/patch-gyp.js && electron-builder install-app-deps",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "start": "electron .",
@@ -21,7 +20,7 @@
     "test": "node --test tests/summarize.test.mjs tests/kiroBridge.spawn.test.mjs tests/procedural.test.mjs tests/sanitize.test.mjs tests/persistence.test.mjs tests/composer.test.mjs",
     "package": "npm run build && electron-builder",
     "package:dir": "npm run build && electron-builder --dir",
-    "rebuild-native": "electron-builder install-app-deps"
+    "rebuild-native": "node scripts/patch-gyp.js && electron-builder install-app-deps"
   },
   "dependencies": {
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
@@ -53,6 +52,7 @@
   "build": {
     "appId": "io.mesp.pet",
     "productName": "MESP Pet",
+    "npmRebuild": false,
     "files": [
       "dist/**/*",
       "dist-electron/**/*",

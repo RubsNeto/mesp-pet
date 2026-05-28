@@ -8,3 +8,12 @@ release
 .env
 .env.local
 sprites_extracted
+
+# Dados pessoais — NÃO commitar
+respostas-orcamentos.json
+
+# Landing (Next.js) artefatos locais
+landing/.next
+landing/out
+landing/_run-dev.bat
+landing/dev.log

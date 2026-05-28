@@ -26,5 +26,12 @@ export default tseslint.config(
       },
     },
   },
+  // Scripts CommonJS rodados pelo Node diretamente (sem transpilação): permitem require().
+  {
+    files: ['scripts/**/*.{cjs,js}', 'tests/**/*.cjs'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
   { ignores: ['dist', 'dist-electron', 'release', 'node_modules', 'sprites_extracted'] },
 );
