@@ -1,0 +1,230 @@
+@import 'tailwindcss';
+
+@theme {
+  /* Core palette — Linear-style cool dark */
+  --color-bg: #08090f;
+  --color-bg-2: #0c0d14;
+  --color-bg-3: #11131c;
+  --color-fg: #ededf2;
+  --color-fg-secondary: #a4a8b6;
+  --color-fg-muted: #696e7e;
+  --color-fg-dim: #4b4f5e;
+  --color-border: rgba(255, 255, 255, 0.06);
+  --color-border-strong: rgba(255, 255, 255, 0.12);
+  --color-border-bright: rgba(255, 255, 255, 0.22);
+
+  /* MESP brand colors */
+  --color-mesp-blue: #6fcfee;
+  --color-mesp-blue-light: #b6ecff;
+  --color-mesp-rose: #f48ab2;
+  --color-mesp-mint: #7adf99;
+  --color-mesp-violet: #b48aef;
+  --color-mesp-amber: #ffd4a0;
+
+  --font-display: var(--font-display-var);
+  --font-sans: var(--font-sans-var);
+  --font-mono: var(--font-mono-var);
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+    /* subtle noise texture */
+    background-image:
+      radial-gradient(circle at 20% 0%, rgba(180, 138, 239, 0.05), transparent 40%),
+      radial-gradient(circle at 80% 0%, rgba(111, 207, 238, 0.05), transparent 40%);
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    background: rgba(180, 138, 239, 0.35);
+    color: white;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--color-bg);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border-strong);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-border-bright);
+  }
+}
+
+@layer utilities {
+  .grad-text {
+    background: linear-gradient(
+      135deg,
+      #ffffff 0%,
+      #c5c8d4 40%,
+      #6fcfee 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+
+  .grad-text-vivid {
+    background: linear-gradient(135deg, #6fcfee 0%, #b48aef 50%, #f48ab2 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+
+  /* Linear-style glassmorphism */
+  .glass {
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid var(--color-border);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+  }
+
+  .grid-bg {
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+    background-size: 56px 56px;
+  }
+
+  .radial-fade {
+    mask-image: radial-gradient(ellipse 80% 70% at center, black 30%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse 80% 70% at center, black 30%, transparent 75%);
+  }
+
+  .top-fade {
+    mask-image: linear-gradient(to bottom, black 30%, transparent);
+    -webkit-mask-image: linear-gradient(to bottom, black 30%, transparent);
+  }
+
+  /* Hairline divider — Linear signature thin lines */
+  .hairline {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      var(--color-border-bright) 50%,
+      transparent 100%
+    );
+    height: 1px;
+  }
+
+  .hairline-v {
+    background: linear-gradient(
+      180deg,
+      transparent 0%,
+      var(--color-border-bright) 50%,
+      transparent 100%
+    );
+    width: 1px;
+  }
+
+  /* Pixel art crisp */
+  .pixelated {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+
+  /* Marquee mask edges */
+  .marquee-mask {
+    mask-image: linear-gradient(
+      to right,
+      transparent 0%,
+      black 10%,
+      black 90%,
+      transparent 100%
+    );
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 0%,
+      black 10%,
+      black 90%,
+      transparent 100%
+    );
+  }
+}
+
+/* Animations */
+@keyframes mesp-float {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.mesp-float {
+  animation: mesp-float 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes blob-drift {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(30px, -25px) scale(1.06);
+  }
+  66% {
+    transform: translate(-25px, 18px) scale(0.96);
+  }
+}
+
+@keyframes marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -300px 0;
+  }
+  100% {
+    background-position: 300px 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mesp-float,
+  *[class*='animate'] {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
