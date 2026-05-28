@@ -267,12 +267,13 @@ export function PetManager() {
   const handlePetDoubleClick = useCallback(
     (petId: string) => {
       setPetState(petId, 'success');
+      // Espera a volta da vitória inteira (1.6s no Pet.tsx) antes de voltar a idle.
       window.setTimeout(() => {
         const cur = petsRef.current.find((p) => p.id === petId);
         if (cur && cur.state === 'success') {
           setPetState(petId, 'idle');
         }
-      }, 800);
+      }, 1800);
     },
     [setPetState]
   );
@@ -280,6 +281,30 @@ export function PetManager() {
   const handlePetContextMenu = useCallback((petId: string, x: number, y: number) => {
     setContextMenu({ open: true, petId, x, y });
   }, []);
+
+  // Dispara a celebração (salto gigante + corações) manualmente. Mesmo efeito
+  // que o agente concluir uma tarefa. Usado pelo menu de contexto e dbl-click.
+  const celebratePet = useCallback(
+    (petId: string) => {
+      const pet = petsRef.current.find((p) => p.id === petId);
+      if (!pet) return;
+      setPetState(petId, 'success');
+      for (let i = 0; i < 3; i++) {
+        setTimeout(() => {
+          spawnHeart(
+            pet.position.x + 64 + (Math.random() - 0.5) * 60,
+            pet.position.y + 30 + (Math.random() - 0.5) * 20,
+          );
+        }, i * 120);
+      }
+      // Volta pra idle só depois da volta da vitória terminar (1.6s + folga).
+      window.setTimeout(() => {
+        const cur = petsRef.current.find((p) => p.id === petId);
+        if (cur && cur.state === 'success') setPetState(petId, 'idle');
+      }, 1800);
+    },
+    [setPetState, spawnHeart],
+  );
 
   const chooseWorkDir = useCallback(
     (petId: string) => {
@@ -308,6 +333,11 @@ export function PetManager() {
         label: 'Dropar bolinha',
         icon: '🎾',
         onClick: () => spawnToy(contextMenu.x, contextMenu.y),
+      },
+      {
+        label: 'Comemorar',
+        icon: '🎉',
+        onClick: () => celebratePet(targetId),
       },
       {
         label: target.state === 'sleeping' ? 'Acordar' : 'Dormir',
@@ -358,7 +388,7 @@ export function PetManager() {
         },
       },
     ];
-  }, [contextMenu, pets, addPet, removePet, setPetState, updatePet, showTerminal, spawnToy, autoStartEnabled, toggleAutoStart, chooseWorkDir]);
+  }, [contextMenu, pets, addPet, removePet, setPetState, updatePet, showTerminal, spawnToy, celebratePet, autoStartEnabled, toggleAutoStart, chooseWorkDir]);
 
   // ----- Render ---------------------------------------------------------------
 

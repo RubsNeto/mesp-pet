@@ -441,49 +441,26 @@ img.pixelated {
 }
 
 /* Animações de feedback por estado. */
-/* Celebração: salto GIGANTE quando o agente conclui um prompt/tarefa.
- * Agacha (antecipação) -> dispara pra cima crescendo -> gira no ápice ->
- * pousa com squash. Roda em .pet-tilt pra levar corpo + olhos juntos.
- * A classe state-success é adicionada do zero a cada conclusão, então a
- * animação reinicia naturalmente (sem precisar de reflow via JS). */
+/* Celebração: o pet fica GRANDÃO e dá uma volta rápida por toda a tela
+ * (uma "volta da vitória"), passando pelos quatro cantos e voltando pra casa.
+ * O trajeto pela tela é feito imperativamente no wrapper via Web Animations API
+ * (ver Pet.tsx), porque uma keyframe CSS fixa não daria a volta a partir de
+ * qualquer posição. Aqui ficam só os efeitos de apoio (z-index + brilho). */
 .pet-wrapper.state-success {
-  /* Sobe na pilha durante o salto pra não ficar atrás de outros pets/painéis. */
+  /* Sobe na pilha durante a volta pra não ficar atrás de outros pets/painéis.
+   * O Pet.tsx ainda eleva mais (z-index 1000) enquanto a volta roda. */
   z-index: 50;
 }
 
-.pet-wrapper.state-success .pet-tilt {
-  animation: pet-celebrate 1.1s cubic-bezier(0.18, 0.9, 0.32, 1.2);
-  transform-origin: 50% 90%;
-}
-
-@keyframes pet-celebrate {
-  0%   { transform: translateY(0)      scale(1, 1)       rotate(0); }
-  10%  { transform: translateY(8px)    scale(1.22, 0.78) rotate(0); }   /* agacha */
-  38%  { transform: translateY(-170px) scale(0.82, 1.2)  rotate(-14deg); } /* dispara */
-  55%  { transform: translateY(-190px) scale(1.35, 1.35) rotate(10deg); }  /* ápice gigante */
-  74%  { transform: translateY(0)      scale(1.18, 0.82) rotate(0); }   /* pousa */
-  86%  { transform: translateY(0)      scale(0.9, 1.12)  rotate(0); }   /* squash */
-  100% { transform: translateY(0)      scale(1, 1)       rotate(0); }
-}
-
-/* Brilho rápido no sprite durante o salto, pra reforçar a euforia. */
+/* Brilho no sprite durante a volta, pra reforçar a euforia. Sincronizado com a
+ * duração da volta (1.6s) definida no Pet.tsx. */
 .pet-wrapper.state-success .pet-sprite {
-  animation: pet-celebrate-glow 1.1s ease-in-out;
+  animation: pet-celebrate-glow 1.6s ease-in-out;
 }
 
 @keyframes pet-celebrate-glow {
   0%, 100% { filter: brightness(1)   saturate(1); }
-  45%      { filter: brightness(1.5) saturate(1.5); }
-}
-
-/* Sombra encolhe enquanto o pet está no ar (vende a altura do salto). */
-.pet-wrapper.state-success .pet-shadow {
-  animation: pet-celebrate-shadow 1.1s ease-in-out;
-}
-
-@keyframes pet-celebrate-shadow {
-  0%, 100% { transform: translateX(-50%) scale(1);   opacity: 1; }
-  50%      { transform: translateX(-50%) scale(0.35); opacity: 0.35; }
+  50%      { filter: brightness(1.5) saturate(1.5); }
 }
 
 .pet-wrapper.state-error {

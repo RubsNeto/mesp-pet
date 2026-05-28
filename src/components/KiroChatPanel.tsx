@@ -59,6 +59,13 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
   const connectedRef = useRef(false);
   const writeKeyRef = useRef<((data: string) => void) | null>(null);
   const resizeRef = useRef<((cols: number, rows: number) => void) | null>(null);
+  // Visibilidade atual, lida via ref para não forçar re-run do efeito de spawn
+  // (que mataria/recriaria o PTY a cada vez que o painel é aberto/fechado).
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+  // Spawn pendente — o efeito monta os listeners de imediato, mas só dispara o
+  // PTY quando o painel aparece pela 1ª vez, garantindo dimensões reais.
+  const spawnFnRef = useRef<(() => void) | null>(null);
 
   // Carrega config do .env. Só depois disso o spawn é tentado.
   useEffect(() => {
@@ -193,11 +200,16 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
 
   // Quando o painel vira visível (de display:none para visível), o fitAddon
   // precisa recalcular as dimensões e o terminal precisa ganhar foco.
+  // É também aqui que disparamos o spawn na 1ª exibição: enquanto o painel está
+  // com display:none, o fit mede dimensão zero e o PTY nasceria com 80x24,
+  // cortando as respostas dos agentes TUI (Claude Code, Kiro, etc.).
   useEffect(() => {
     if (!visible) return;
     const t = setTimeout(() => {
       try { fitRef.current?.fit(); } catch { /* noop */ }
       termRef.current?.focus();
+      // Faz o spawn agora, já com as dimensões reais do painel.
+      spawnFnRef.current?.();
     }, 30);
     return () => clearTimeout(t);
   }, [visible]);
@@ -212,43 +224,61 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
     if (!term) return;
 
     const petId = pet.id;
-    connectedRef.current = false;
-    setStatus('connecting');
-    const cmdLine = `\x1b[90m$ ${commandInfo.cmd}${commandInfo.args.length ? ' ' + commandInfo.args.join(' ') : ''}\x1b[0m\r\n`;
-    term.write(cmdLine);
 
-    if (pet.workDir) {
-      term.write(`\x1b[90m  cwd: ${pet.workDir}\x1b[0m\r\n`);
-    }
+    // Spawn do PTY. Adiado até o painel ficar visível: enquanto está oculto
+    // (display:none) o fit mede dimensão zero e o processo nasceria em 80x24,
+    // o que faz os agentes TUI (Claude Code, Kiro, Aider, Gemini…) cortarem as
+    // respostas longas. Spawnar com o painel visível garante o tamanho real.
+    let didSpawn = false;
+    const doSpawn = () => {
+      if (didSpawn) return;
+      didSpawn = true;
+      connectedRef.current = false;
+      setStatus('connecting');
+      // Recalcula as dimensões imediatamente antes do spawn.
+      try { fitRef.current?.fit(); } catch { /* noop */ }
+      const cmdLine = `\x1b[90m$ ${commandInfo.cmd}${commandInfo.args.length ? ' ' + commandInfo.args.join(' ') : ''}\x1b[0m\r\n`;
+      term.write(cmdLine);
 
-    void window.mesp
-      .terminalSpawn({
-        petId,
-        command: commandInfo.cmd,
-        args: commandInfo.args,
-        cwd: pet.workDir ?? undefined,
-        cols: term.cols,
-        rows: term.rows,
-      })
-      .then((res) => {
-        if (res.ok) {
-          connectedRef.current = true;
-          setStatus('connected');
-          // Habilita envio de input ao stdin.
-          writeKeyRef.current = (data: string) => {
-            void window.mesp!.terminalWrite(petId, data);
-          };
-          // Habilita propagação de resize ao PTY.
-          resizeRef.current = (cols: number, rows: number) => {
-            void window.mesp!.terminalResize(petId, cols, rows);
-          };
-          // Foca o terminal logo após conectar.
-          setTimeout(() => term.focus(), 30);
-        } else {
-          term.write(`\r\n\x1b[31m✗ Falha ao iniciar: ${res.error || 'desconhecido'}\x1b[0m\r\n`);
-          setStatus('disconnected');
-        }
-      });
+      if (pet.workDir) {
+        term.write(`\x1b[90m  cwd: ${pet.workDir}\x1b[0m\r\n`);
+      }
+
+      void window.mesp!
+        .terminalSpawn({
+          petId,
+          command: commandInfo.cmd,
+          args: commandInfo.args,
+          cwd: pet.workDir ?? undefined,
+          cols: term.cols,
+          rows: term.rows,
+        })
+        .then((res) => {
+          if (res.ok) {
+            connectedRef.current = true;
+            setStatus('connected');
+            // Habilita envio de input ao stdin.
+            writeKeyRef.current = (data: string) => {
+              void window.mesp!.terminalWrite(petId, data);
+            };
+            // Habilita propagação de resize ao PTY.
+            resizeRef.current = (cols: number, rows: number) => {
+              void window.mesp!.terminalResize(petId, cols, rows);
+            };
+            // Sincroniza o PTY com o tamanho atual do xterm. Cobre o caso em que
+            // o fit mudou as dimensões entre a chamada de spawn e o resolve — sem
+            // isso, esse resize se perderia (o resizeRef só existe a partir daqui)
+            // e o agente continuaria achando que tem o tamanho antigo.
+            try { fitRef.current?.fit(); } catch { /* noop */ }
+            void window.mesp!.terminalResize(petId, term.cols, term.rows);
+            // Foca o terminal logo após conectar.
+            setTimeout(() => term.focus(), 30);
+          } else {
+            term.write(`\r\n\x1b[31m✗ Falha ao iniciar: ${res.error || 'desconhecido'}\x1b[0m\r\n`);
+            setStatus('disconnected');
+          }
+        });
+    };
 
     // Detector heurístico de estado a partir do output do agente.
     // Funciona com Kiro, Claude Code, Aider, Gemini e outros que usam
@@ -358,10 +388,17 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
       if (safetyTimer) clearTimeout(safetyTimer);
     });
 
+    // Com os listeners montados, exp\u00f5e o spawn para o efeito de visibilidade e
+    // dispara agora se o painel j\u00e1 estiver aberto (ex.: "Salvar e reconectar"
+    // com o painel vis\u00edvel, em que este efeito re-roda sem mudar `visible`).
+    spawnFnRef.current = doSpawn;
+    if (visibleRef.current) doSpawn();
+
     return () => {
       offStdout();
       offStderr();
       offExit();
+      spawnFnRef.current = null;
       writeKeyRef.current = null;
       resizeRef.current = null;
       if (stateTimer) clearTimeout(stateTimer);
@@ -393,6 +430,8 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
     connectedRef.current = false;
     setStatus('connecting');
     term.reset();
+    // Recalcula as dimensões antes do spawn (o painel está visível aqui).
+    try { fitRef.current?.fit(); } catch { /* noop */ }
     const cmdLine = `\x1b[90m$ ${commandInfo.cmd}${commandInfo.args.length ? ' ' + commandInfo.args.join(' ') : ''}\x1b[0m\r\n`;
     term.write(cmdLine);
     if (pet.workDir) {
@@ -417,6 +456,8 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
           resizeRef.current = (cols: number, rows: number) => {
             void window.mesp!.terminalResize(pet.id, cols, rows);
           };
+          try { fitRef.current?.fit(); } catch { /* noop */ }
+          void window.mesp!.terminalResize(pet.id, term.cols, term.rows);
           setTimeout(() => term.focus(), 30);
         } else {
           term.write(`\r\n\x1b[31m✗ Falha ao reconectar: ${res.error || 'desconhecido'}\x1b[0m\r\n`);
