@@ -56,6 +56,7 @@ export function PetManager() {
           showBubble: false,
           manualSleep: false,
           lastActivityAt: Date.now(),
+          workDir: s.workDir ?? null,
         };
       });
     }
@@ -230,6 +231,7 @@ export function PetManager() {
         showBubble: false,
         manualSleep: false,
         lastActivityAt: Date.now(),
+        workDir: null,
       };
       return [...prev, next];
     });
@@ -279,6 +281,20 @@ export function PetManager() {
     setContextMenu({ open: true, petId, x, y });
   }, []);
 
+  const chooseWorkDir = useCallback(
+    (petId: string) => {
+      if (!window.mesp?.selectFolder) return;
+      const current = petsRef.current.find((p) => p.id === petId);
+      void window.mesp.selectFolder(current?.workDir ?? undefined).then((folder) => {
+        if (!folder) return;
+        updatePet(petId, { workDir: folder, lastActivityAt: Date.now() });
+        // Garante que o terminal está visível pra usuário ver o respawn.
+        showTerminal(petId);
+      });
+    },
+    [updatePet, showTerminal],
+  );
+
   // ----- Context menu items ---------------------------------------------------
 
   const contextMenuItems = useMemo<Array<ContextMenuItem | 'separator'>>(() => {
@@ -306,6 +322,11 @@ export function PetManager() {
       },
       { label: 'Sentar', icon: '🪑', onClick: () => setPetState(targetId, 'sitting') },
       { label: 'Abrir painel', icon: '📋', onClick: () => showTerminal(targetId) },
+      {
+        label: target.workDir ? `Pasta: ${shortenPath(target.workDir)}` : 'Pasta de trabalho…',
+        icon: '📁',
+        onClick: () => chooseWorkDir(targetId),
+      },
       'separator',
       {
         label: autoStartEnabled ? 'Não iniciar com o sistema' : 'Iniciar com o sistema',
@@ -337,7 +358,7 @@ export function PetManager() {
         },
       },
     ];
-  }, [contextMenu, pets, addPet, removePet, setPetState, updatePet, showTerminal, spawnToy, autoStartEnabled, toggleAutoStart]);
+  }, [contextMenu, pets, addPet, removePet, setPetState, updatePet, showTerminal, spawnToy, autoStartEnabled, toggleAutoStart, chooseWorkDir]);
 
   // ----- Render ---------------------------------------------------------------
 
@@ -405,6 +426,14 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+function shortenPath(p: string): string {
+  // Mostra só o nome da pasta + pai, pra não estourar a largura do menu.
+  const norm = p.replace(/\\/g, '/').replace(/\/+$/, '');
+  const parts = norm.split('/');
+  if (parts.length <= 2) return norm;
+  return `…/${parts.slice(-2).join('/')}`;
+}
+
 function createInitialPet(): PetEntity {
   const x = 16;
   const y = typeof window !== 'undefined' ? Math.max(0, window.innerHeight - 128 - 16) : 400;
@@ -419,5 +448,6 @@ function createInitialPet(): PetEntity {
     showBubble: false,
     manualSleep: false,
     lastActivityAt: Date.now(),
+    workDir: null,
   };
 }

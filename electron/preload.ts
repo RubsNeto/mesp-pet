@@ -77,6 +77,10 @@ const api = {
   checkCommand(command: string): Promise<boolean> {
     return ipcRenderer.invoke('app:check-command', command);
   },
+  /** Abre o diálogo nativo de seleção de pasta. Retorna o caminho ou null. */
+  selectFolder(defaultPath?: string): Promise<string | null> {
+    return ipcRenderer.invoke('dialog:select-folder', defaultPath);
+  },
 
   // ----- Terminal persistente ------------------------------------------------
 

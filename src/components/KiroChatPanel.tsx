@@ -217,11 +217,16 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
     const cmdLine = `\x1b[90m$ ${commandInfo.cmd}${commandInfo.args.length ? ' ' + commandInfo.args.join(' ') : ''}\x1b[0m\r\n`;
     term.write(cmdLine);
 
+    if (pet.workDir) {
+      term.write(`\x1b[90m  cwd: ${pet.workDir}\x1b[0m\r\n`);
+    }
+
     void window.mesp
       .terminalSpawn({
         petId,
         command: commandInfo.cmd,
         args: commandInfo.args,
+        cwd: pet.workDir ?? undefined,
         cols: term.cols,
         rows: term.rows,
       })
@@ -366,7 +371,7 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
         void window.mesp.terminalKill(petId);
       }
     };
-  }, [pet.id, commandInfo.cmd, commandInfo.args, configLoaded]);
+  }, [pet.id, pet.workDir, commandInfo.cmd, commandInfo.args, configLoaded]);
 
   // Esc fecha quando o terminal não tem foco; quando tem, deixa o ESC ir pro
   // processo (apps interativas usam ESC).
@@ -390,11 +395,15 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
     term.reset();
     const cmdLine = `\x1b[90m$ ${commandInfo.cmd}${commandInfo.args.length ? ' ' + commandInfo.args.join(' ') : ''}\x1b[0m\r\n`;
     term.write(cmdLine);
+    if (pet.workDir) {
+      term.write(`\x1b[90m  cwd: ${pet.workDir}\x1b[0m\r\n`);
+    }
     void window.mesp
       .terminalSpawn({
         petId: pet.id,
         command: commandInfo.cmd,
         args: commandInfo.args,
+        cwd: pet.workDir ?? undefined,
         cols: term.cols,
         rows: term.rows,
       })
@@ -414,7 +423,7 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
           setStatus('disconnected');
         }
       });
-  }, [pet.id, commandInfo]);
+  }, [pet.id, pet.workDir, commandInfo]);
 
   const kill = useCallback(() => {
     if (!window.mesp?.terminalKill) return;
