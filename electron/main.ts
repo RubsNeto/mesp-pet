@@ -18,7 +18,7 @@
 //   - Cap do número de runs concorrentes.
 //   - safeSend ignora `webContents.send` quando a janela já foi destruída.
 
-import { app, BrowserWindow, ipcMain, screen, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, screen, Menu, dialog } from 'electron';
 import { spawn, ChildProcessWithoutNullStreams } from 'node:child_process';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
@@ -256,6 +256,21 @@ ipcMain.handle('app:check-command', async (_evt, commandRaw: unknown): Promise<b
       finalize(false);
     }, 2000);
   });
+});
+
+// Abre o diálogo nativo de seleção de pasta. Retorna o caminho escolhido ou
+// null se o usuário cancelou. Usado pelo menu "Pasta de trabalho…" para definir
+// o cwd do PTY de cada pet.
+ipcMain.handle('dialog:select-folder', async (_evt, defaultPathRaw: unknown) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return null;
+  const defaultPath = isString(defaultPathRaw, 4096) ? defaultPathRaw : undefined;
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Pasta de trabalho do MESP',
+    properties: ['openDirectory'],
+    defaultPath,
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
 });
 
 // ----- Auto-start (login items) ---------------------------------------------

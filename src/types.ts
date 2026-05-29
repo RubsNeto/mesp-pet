@@ -55,4 +55,6 @@ export interface PetEntity {
   manualSleep: boolean;
   /** Última vez que houve atividade (para timer de auto-dormir). */
   lastActivityAt: number;
+  /** Pasta de trabalho para o terminal deste pet. null = usa process.cwd(). */
+  workDir: string | null;
 }
