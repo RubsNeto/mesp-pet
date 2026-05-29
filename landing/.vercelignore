@@ -1,0 +1,8 @@
+node_modules
+.next
+.next/cache
+.next/dev
+release
+dist
+dist-electron
+*.log

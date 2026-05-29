@@ -17,3 +17,6 @@ landing/.next
 landing/out
 landing/_run-dev.bat
 landing/dev.log
+
+.vercel
+.env*
