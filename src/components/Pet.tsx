@@ -165,6 +165,78 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
     return () => clearTimeout(t);
   }, []);
 
+  // Comemoração: o pet fica "grandão" e dá uma volta rápida por toda a tela,
+  // passando pelos quatro cantos e voltando pra casa. Feito imperativamente com
+  // a Web Animations API no wrapper, pra cobrir a tela inteira independente de
+  // onde o pet está (uma keyframe CSS fixa não daria a volta a partir de
+  // qualquer posição). Roda a cada vez que o estado vira "success".
+  const lapAnimRef = useRef<Animation | null>(null);
+  useEffect(() => {
+    if (pet.state !== 'success') return;
+    const wrapper = wrapperRef.current;
+    if (!wrapper || typeof wrapper.animate !== 'function') return;
+
+    // Cancela uma volta anterior que ainda esteja rodando.
+    lapAnimRef.current?.cancel();
+
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const scale = 1.8; // "grandão"
+    const r = 64 * scale; // raio aprox. do wrapper escalado, p/ manter na tela
+    const cx0 = posRef.current.x + 64; // centro atual do pet
+    const cy0 = posRef.current.y + 64;
+
+    // Centros-alvo nos quatro cantos, com folga pro tamanho aumentado.
+    const corners = [
+      { x: r, y: r },
+      { x: W - r, y: r },
+      { x: W - r, y: H - r },
+      { x: r, y: H - r },
+    ];
+
+    // Começa pelo canto mais próximo, pra volta fluir natural.
+    let startIdx = 0;
+    let best = Infinity;
+    for (let i = 0; i < corners.length; i += 1) {
+      const d = Math.hypot(corners[i]!.x - cx0, corners[i]!.y - cy0);
+      if (d < best) {
+        best = d;
+        startIdx = i;
+      }
+    }
+    const ordered = [0, 1, 2, 3].map((k) => corners[(startIdx + k) % 4]!);
+    const at = (c: { x: number; y: number }) =>
+      `translate(${Math.round(c.x - cx0)}px, ${Math.round(c.y - cy0)}px) scale(${scale})`;
+
+    // Sobe na pilha durante a volta pra passar por cima de painéis/pets.
+    wrapper.style.zIndex = '1000';
+
+    const anim = wrapper.animate(
+      [
+        { transform: 'translate(0px, 0px) scale(1)', offset: 0 },
+        // Pop "grandão" no lugar antes de sair correndo.
+        { transform: 'translate(0px, 0px) scale(1.8)', offset: 0.1, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' },
+        { transform: at(ordered[0]!), offset: 0.3 },
+        { transform: at(ordered[1]!), offset: 0.48 },
+        { transform: at(ordered[2]!), offset: 0.66 },
+        { transform: at(ordered[3]!), offset: 0.84 },
+        { transform: 'translate(0px, 0px) scale(1)', offset: 1 },
+      ],
+      { duration: 1600, easing: 'cubic-bezier(0.45, 0.05, 0.35, 1)' },
+    );
+    lapAnimRef.current = anim;
+
+    const resetZ = () => {
+      if (wrapperRef.current) wrapperRef.current.style.zIndex = '';
+    };
+    anim.onfinish = resetZ;
+    anim.oncancel = resetZ;
+
+    return () => {
+      anim.cancel();
+    };
+  }, [pet.state]);
+
   // ----- Drag handlers -------------------------------------------------------
 
   const handlePointerDown = useCallback(

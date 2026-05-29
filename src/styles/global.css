@@ -441,15 +441,26 @@ img.pixelated {
 }
 
 /* Animações de feedback por estado. */
-.pet-wrapper.state-success .pet-sprite {
-  animation: pet-jump 0.6s ease-out;
+/* Celebração: o pet fica GRANDÃO e dá uma volta rápida por toda a tela
+ * (uma "volta da vitória"), passando pelos quatro cantos e voltando pra casa.
+ * O trajeto pela tela é feito imperativamente no wrapper via Web Animations API
+ * (ver Pet.tsx), porque uma keyframe CSS fixa não daria a volta a partir de
+ * qualquer posição. Aqui ficam só os efeitos de apoio (z-index + brilho). */
+.pet-wrapper.state-success {
+  /* Sobe na pilha durante a volta pra não ficar atrás de outros pets/painéis.
+   * O Pet.tsx ainda eleva mais (z-index 1000) enquanto a volta roda. */
+  z-index: 50;
 }
 
-@keyframes pet-jump {
-  0%, 100% { transform: translateY(0); }
-  30%      { transform: translateY(-12px); }
-  60%      { transform: translateY(0); }
-  75%      { transform: translateY(-4px); }
+/* Brilho no sprite durante a volta, pra reforçar a euforia. Sincronizado com a
+ * duração da volta (1.6s) definida no Pet.tsx. */
+.pet-wrapper.state-success .pet-sprite {
+  animation: pet-celebrate-glow 1.6s ease-in-out;
+}
+
+@keyframes pet-celebrate-glow {
+  0%, 100% { filter: brightness(1)   saturate(1); }
+  50%      { filter: brightness(1.5) saturate(1.5); }
 }
 
 .pet-wrapper.state-error {

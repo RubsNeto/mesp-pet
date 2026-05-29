@@ -18,6 +18,8 @@ export interface PersistedPet {
   facing: 'left' | 'right';
   /** Traits visuais (opcional para compat com versões antigas). */
   traits?: MespTraits;
+  /** Pasta de trabalho do terminal (opcional). */
+  workDir?: string | null;
 }
 
 interface PersistedState {
@@ -35,6 +37,7 @@ export function savePetState(pets: PetEntity[]): void {
       position: p.position,
       facing: p.facing,
       traits: p.traits,
+      workDir: p.workDir,
     })),
     savedAt: Date.now(),
   };
@@ -65,11 +68,13 @@ export function loadPetState(): PersistedPet[] | null {
         }
         const facing = p.facing === 'right' ? 'right' : 'left';
         const traits = deserializeTraits(p.traits) ?? undefined;
+        const workDir = typeof p.workDir === 'string' && p.workDir.length > 0 ? p.workDir : null;
         return {
           id: p.id,
           position: { x: p.position.x, y: p.position.y },
           facing,
           traits,
+          workDir,
         };
       })
       .filter((x): x is PersistedPet => x !== null);
