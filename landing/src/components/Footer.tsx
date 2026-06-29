@@ -2,6 +2,7 @@
 
 import { motion } from 'motion/react';
 import { MespCanvas } from './MespCanvas';
+import { REPO_URL, ISSUES_URL, LICENSE_URL, AUTHOR_URL, APP_VERSION } from '@/lib/site';
 
 export function Footer() {
   return (
@@ -25,19 +26,19 @@ export function Footer() {
         <p className="text-center text-[12.5px] text-white/45">
           Feito com pixels e carinho por{' '}
           <a
-            href="https://github.com/RubsNeto"
+            href={AUTHOR_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="text-white underline-offset-4 hover:underline"
           >
             RubsNeto
           </a>
-          . MIT License · v1.0
+          . MIT License · v{APP_VERSION}
         </p>
 
         <div className="flex items-center gap-5 text-[12.5px] text-white/45">
           <a
-            href="https://github.com/RubsNeto/mesp-pet"
+            href={REPO_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="transition hover:text-white"
@@ -45,7 +46,7 @@ export function Footer() {
             GitHub
           </a>
           <a
-            href="https://github.com/RubsNeto/mesp-pet/issues"
+            href={ISSUES_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="transition hover:text-white"
@@ -53,7 +54,7 @@ export function Footer() {
             Issues
           </a>
           <a
-            href="https://github.com/RubsNeto/mesp-pet/blob/main/LICENSE"
+            href={LICENSE_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="transition hover:text-white"

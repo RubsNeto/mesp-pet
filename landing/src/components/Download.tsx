@@ -2,6 +2,7 @@
 
 import { motion } from 'motion/react';
 import { MespCanvas } from './MespCanvas';
+import { RELEASES_URL } from '@/lib/site';
 
 export function Download() {
   return (
@@ -132,7 +133,7 @@ function DownloadBtn({
   if (primary) {
     return (
       <a
-        href="https://github.com/RubsNeto/mesp-pet/releases"
+      href={RELEASES_URL}
         target="_blank"
         rel="noopener noreferrer"
         className="group inline-flex h-12 items-center gap-2.5 rounded-full bg-white px-5 text-black shadow-[0_15px_40px_-10px_rgba(255,255,255,0.3)] transition hover:scale-[1.02]"
@@ -158,7 +159,7 @@ function DownloadBtn({
   }
   return (
     <a
-      href="https://github.com/RubsNeto/mesp-pet/releases"
+      href={RELEASES_URL}
       target="_blank"
       rel="noopener noreferrer"
       className="inline-flex h-12 items-center gap-2.5 rounded-full border border-white/15 bg-white/[0.04] px-5 text-white backdrop-blur transition hover:border-white/30 hover:bg-white/[0.08]"

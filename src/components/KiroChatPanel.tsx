@@ -28,6 +28,52 @@ const MARGIN = 12;
 
 type TermStatus = 'disconnected' | 'connecting' | 'connected';
 
+// ----- Copiar / colar -------------------------------------------------------
+
+/** Copia a seleção atual do terminal para o clipboard do sistema. */
+async function copySelection(term: Terminal): Promise<void> {
+  const sel = term.getSelection();
+  if (!sel) return;
+  try {
+    if (window.mesp?.clipboardWriteText) await window.mesp.clipboardWriteText(sel);
+    else await navigator.clipboard.writeText(sel);
+  } catch {
+    /* noop */
+  }
+}
+
+/** Envolve um caminho em aspas se ele contiver espaços. */
+function quotePathIfNeeded(p: string): string {
+  return /\s/.test(p) ? `"${p}"` : p;
+}
+
+/**
+ * Cola o conteúdo do clipboard no terminal.
+ *   1. Se houver uma imagem, salva em arquivo temporário e cola o caminho
+ *      (CLIs de IA como Claude Code aceitam o caminho de uma imagem).
+ *   2. Caso contrário, cola o texto.
+ * `term.paste` respeita bracketed-paste do PTY.
+ */
+async function pasteIntoTerminal(term: Terminal): Promise<void> {
+  try {
+    const imgPath = await window.mesp?.clipboardSaveImage?.();
+    if (imgPath) {
+      term.paste(quotePathIfNeeded(imgPath));
+      return;
+    }
+  } catch {
+    /* noop */
+  }
+  try {
+    let text = '';
+    if (window.mesp?.clipboardReadText) text = await window.mesp.clipboardReadText();
+    else text = await navigator.clipboard.readText();
+    if (text) term.paste(text);
+  } catch {
+    /* noop */
+  }
+}
+
 export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroChatPanelProps) {
   const [status, setStatus] = useState<TermStatus>('disconnected');
   const [commandInfo, setCommandInfo] = useState<{ cmd: string; args: string[] }>({
@@ -158,6 +204,31 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
     term.loadAddon(fit);
     term.open(containerRef.current);
     fit.fit();
+
+    // Atalhos de copiar/colar (sem quebrar Ctrl+C como SIGINT):
+    //   • Ctrl+V / Ctrl+Shift+V / Cmd+V  -> cola texto OU imagem do clipboard
+    //   • Ctrl+Shift+C / Cmd+C           -> copia a seleção
+    //   • Ctrl+C com seleção ativa       -> copia (sem seleção, vira SIGINT)
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown') return true;
+      const key = e.key.toLowerCase();
+
+      if ((e.ctrlKey || e.metaKey) && key === 'v') {
+        void pasteIntoTerminal(term);
+        return false;
+      }
+      if ((e.ctrlKey && e.shiftKey && key === 'c') || (e.metaKey && key === 'c')) {
+        void copySelection(term);
+        term.clearSelection();
+        return false;
+      }
+      if (e.ctrlKey && !e.shiftKey && key === 'c' && term.hasSelection()) {
+        void copySelection(term);
+        term.clearSelection();
+        return false;
+      }
+      return true;
+    });
 
     termRef.current = term;
     fitRef.current = fit;
@@ -661,6 +732,19 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
         ref={containerRef}
         className="kiro-terminal-xterm"
         onClick={() => termRef.current?.focus()}
+        onContextMenu={(e) => {
+          // Clique direito: copia se há seleção; senão cola (texto ou imagem).
+          e.preventDefault();
+          const term = termRef.current;
+          if (!term) return;
+          if (term.hasSelection()) {
+            void copySelection(term);
+            term.clearSelection();
+          } else {
+            void pasteIntoTerminal(term);
+          }
+        }}
+        title="Ctrl+V cola texto ou imagem · Ctrl+Shift+C copia · clique direito copia/cola"
       />
     </div>
   );

@@ -2,6 +2,7 @@
 
 import { motion, type Variants } from 'motion/react';
 import { HeroMesp } from './HeroMesp';
+import { REPO_URL, RELEASES_URL, APP_VERSION } from '@/lib/site';
 
 const fadeUp: Variants = {
   hidden: { y: 24, opacity: 0 },
@@ -50,7 +51,7 @@ export function Hero() {
 
       {/* Pill */}
       <motion.a
-        href="https://github.com/RubsNeto/mesp-pet/releases"
+        href={RELEASES_URL}
         target="_blank"
         rel="noopener noreferrer"
         custom={0}
@@ -63,7 +64,7 @@ export function Hero() {
           <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400 opacity-75" />
           <span className="relative size-1.5 rounded-full bg-emerald-400" />
         </span>
-        <span>v1.0 disponível</span>
+        <span>v{APP_VERSION} disponível</span>
         <span className="text-white/30">·</span>
         <span>baixar agora</span>
         <svg viewBox="0 0 24 24" className="size-3 transition group-hover:translate-x-0.5">
@@ -162,7 +163,7 @@ export function Hero() {
         </a>
 
         <a
-          href="https://github.com/RubsNeto/mesp-pet"
+          href={REPO_URL}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex h-11 items-center gap-2 rounded-full border border-white/15 bg-white/[0.03] px-6 text-[14px] font-medium text-white backdrop-blur transition hover:border-white/25 hover:bg-white/[0.06]"

@@ -18,10 +18,11 @@
 //   - Cap do número de runs concorrentes.
 //   - safeSend ignora `webContents.send` quando a janela já foi destruída.
 
-import { app, BrowserWindow, ipcMain, screen, Menu, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, screen, Menu, dialog, clipboard } from 'electron';
 import { spawn, ChildProcessWithoutNullStreams } from 'node:child_process';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as pty from '@homebridge/node-pty-prebuilt-multiarch';
 
 // Em produção a janela carrega dist/index.html.
@@ -272,6 +273,79 @@ ipcMain.handle('dialog:select-folder', async (_evt, defaultPathRaw: unknown) => 
   if (result.canceled || result.filePaths.length === 0) return null;
   return result.filePaths[0];
 });
+
+// ----- Clipboard (copiar/colar no terminal) ---------------------------------
+
+const MAX_CLIPBOARD_TEXT = 1_000_000; // 1MB de texto colado, no máximo.
+
+// Lê o texto atual do clipboard do sistema.
+ipcMain.handle('clipboard:read-text', () => {
+  const text = clipboard.readText();
+  if (typeof text !== 'string') return '';
+  return text.length > MAX_CLIPBOARD_TEXT ? text.slice(0, MAX_CLIPBOARD_TEXT) : text;
+});
+
+// Escreve texto no clipboard do sistema (usado ao copiar a seleção do terminal).
+ipcMain.handle('clipboard:write-text', (_evt, textRaw: unknown) => {
+  if (typeof textRaw !== 'string') return false;
+  const text = textRaw.length > MAX_CLIPBOARD_TEXT ? textRaw.slice(0, MAX_CLIPBOARD_TEXT) : textRaw;
+  clipboard.writeText(text);
+  return true;
+});
+
+// Se houver uma imagem no clipboard, salva como PNG num diretório temporário e
+// devolve o caminho. Retorna null se não houver imagem. Útil para colar imagens
+// em CLIs de IA (Claude Code, etc.) que aceitam o caminho de um arquivo.
+ipcMain.handle('clipboard:save-image', async (): Promise<string | null> => {
+  let image;
+  try {
+    image = clipboard.readImage();
+  } catch {
+    return null;
+  }
+  if (!image || image.isEmpty()) return null;
+
+  let png: Buffer;
+  try {
+    png = image.toPNG();
+  } catch {
+    return null;
+  }
+  if (!png || png.length === 0) return null;
+
+  const dir = path.join(os.tmpdir(), 'mesp-pet-images');
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    pruneOldImages(dir);
+    const file = path.join(dir, `paste-${Date.now()}.png`);
+    fs.writeFileSync(file, png);
+    return file;
+  } catch {
+    return null;
+  }
+});
+
+// Remove imagens coladas com mais de 24h para não acumular lixo no temp.
+function pruneOldImages(dir: string): void {
+  const MAX_AGE_MS = 24 * 60 * 60 * 1000;
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return;
+  }
+  const now = Date.now();
+  for (const name of entries) {
+    if (!name.startsWith('paste-') || !name.endsWith('.png')) continue;
+    const full = path.join(dir, name);
+    try {
+      const stat = fs.statSync(full);
+      if (now - stat.mtimeMs > MAX_AGE_MS) fs.unlinkSync(full);
+    } catch {
+      /* noop */
+    }
+  }
+}
 
 // ----- Auto-start (login items) ---------------------------------------------
 

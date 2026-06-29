@@ -82,6 +82,21 @@ const api = {
     return ipcRenderer.invoke('dialog:select-folder', defaultPath);
   },
 
+  // ----- Clipboard -----------------------------------------------------------
+
+  /** Lê o texto atual do clipboard do sistema. */
+  clipboardReadText(): Promise<string> {
+    return ipcRenderer.invoke('clipboard:read-text');
+  },
+  /** Escreve texto no clipboard do sistema. */
+  clipboardWriteText(text: string): Promise<boolean> {
+    return ipcRenderer.invoke('clipboard:write-text', text);
+  },
+  /** Se houver imagem no clipboard, salva como PNG temporário e retorna o caminho. */
+  clipboardSaveImage(): Promise<string | null> {
+    return ipcRenderer.invoke('clipboard:save-image');
+  },
+
   // ----- Terminal persistente ------------------------------------------------
 
   /** Spawna um processo persistente da Kiro CLI para um pet. */

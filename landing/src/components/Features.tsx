@@ -2,6 +2,7 @@
 
 import { motion } from 'motion/react';
 import { MespCanvas } from './MespCanvas';
+import { REPO_URL } from '@/lib/site';
 
 interface FeatureCardProps {
   index: number;
@@ -237,7 +238,7 @@ export function Features() {
                 </p>
               </div>
               <a
-                href="https://github.com/RubsNeto/mesp-pet"
+                href={REPO_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex h-10 items-center gap-2 rounded-full border border-white/15 bg-white/[0.03] px-5 text-[13px] font-medium text-white transition hover:border-white/25 hover:bg-white/[0.06]"

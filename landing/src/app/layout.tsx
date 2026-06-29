@@ -21,6 +21,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://mesp-pet.vercel.app'),
   title: 'MESP Pet — Companion pixel-art para Kiro CLI',
   description:
     'O MESP fica no canto da sua tela acompanhando suas sessões de IA. Reage à Kiro CLI, Claude Code, Aider e mais. Open source, MIT.',
