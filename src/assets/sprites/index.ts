@@ -113,6 +113,9 @@ function buildSpriteSet(traits: MespTraits): SpriteSet {
     walking: walkingFrames,
     thinking: [confused, idle, confused, idle],
     working: [alert, idle, alert, idle],
+    // Waiting: o pet olha pra você, atento, esperando uma resposta. Alterna
+    // alerta/idle devagar; o destaque forte ("!" + balanço) vem do CSS.
+    waiting: [alert, idle, alert, sit],
     success: [jump, fall, jump, fall],
     error: [confused],
     sleeping: [sleep],
@@ -124,6 +127,7 @@ function buildSpriteSet(traits: MespTraits): SpriteSet {
     walking: 12,
     thinking: 2,
     working: 3,
+    waiting: 2,
     success: 4,
     error: 1,
     sleeping: 1,

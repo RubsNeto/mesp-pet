@@ -44,6 +44,21 @@ const TILT_W = 96;
 const TILT_X_OFFSET = 16;
 const TILT_Y_OFFSET = 32;
 
+// Rótulos curtos do HUD por estado ocupado.
+const HUD_LABEL: Partial<Record<string, string>> = {
+  thinking: 'pensando',
+  working: 'trabalhando',
+  waiting: 'precisa de você',
+};
+
+/** Formata segundos como "12s" ou "1m04s". */
+function formatElapsed(totalSec: number): string {
+  if (totalSec < 60) return `${totalSec}s`;
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}m${String(s).padStart(2, '0')}s`;
+}
+
 function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onContextMenu, onPet, onScare }: PetProps) {
   const { frame } = usePetAnimation(pet.state, pet.traits);
   const spriteSet = pet.traits ? getSpritesForTraits(pet.traits) : null;
@@ -56,6 +71,8 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
   const pupilRefs = useRef<Array<HTMLDivElement | null>>([]);
   const [dragging, setDragging] = useState(false);
   const [spawning, setSpawning] = useState(true);
+  // HUD: tempo decorrido enquanto o agente está ocupado (thinking/working/waiting).
+  const [elapsed, setElapsed] = useState(0);
   const dragRef = useRef<DragState | null>(null);
   const movedRef = useRef(false);
   const lastClickAtRef = useRef(0);
@@ -164,6 +181,22 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
     const t = setTimeout(() => setSpawning(false), 700);
     return () => clearTimeout(t);
   }, []);
+
+  // HUD: cronômetro do tempo que o agente está ocupado. Zera ao entrar num
+  // estado ocupado e conta de segundo em segundo; para quando volta a idle.
+  const isBusy = pet.state === 'thinking' || pet.state === 'working' || pet.state === 'waiting';
+  useEffect(() => {
+    if (!isBusy) {
+      setElapsed(0);
+      return;
+    }
+    const start = Date.now();
+    setElapsed(0);
+    const id = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - start) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [isBusy, pet.state]);
 
   // Comemoração: o pet fica "grandão" e dá uma volta rápida por toda a tela,
   // passando pelos quatro cantos e voltando pra casa. Feito imperativamente com
@@ -384,6 +417,19 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
     >
       {pet.showBubble && pet.task && (
         <SpeechBubble task={pet.task} onClick={() => onBubbleClick(pet.id)} />
+      )}
+
+      {/* HUD ambiente: status + tempo decorrido, legível de relance. */}
+      {isBusy && (
+        <div className={`pet-hud hud-${pet.state}`} aria-hidden>
+          <span className="pet-hud-label">{HUD_LABEL[pet.state] ?? ''}</span>
+          {elapsed > 0 && <span className="pet-hud-time">{formatElapsed(elapsed)}</span>}
+        </div>
+      )}
+
+      {/* "Preciso de você": badge forte quando o agente aguarda input. */}
+      {pet.state === 'waiting' && (
+        <div className="pet-attention" aria-label="Aguardando você" title="O agente está esperando sua resposta">!</div>
       )}
 
       <div ref={tiltRef} className="pet-tilt">

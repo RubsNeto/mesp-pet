@@ -19,6 +19,8 @@ export default tseslint.config(
       'electron/**/*.{ts,js}',
       '*.config.{js,cjs,mjs,ts}',
       'eslint.config.js',
+      '**/*.cjs',
+      'gen-icons.cjs',
     ],
     languageOptions: {
       globals: {
@@ -28,10 +30,25 @@ export default tseslint.config(
   },
   // Scripts CommonJS rodados pelo Node diretamente (sem transpilação): permitem require().
   {
-    files: ['scripts/**/*.{cjs,js}', 'tests/**/*.cjs'],
+    files: ['scripts/**/*.{cjs,js}', 'tests/**/*.cjs', '**/*.cjs', 'gen-icons.cjs'],
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
+      '@typescript-eslint/no-unused-expressions': 'off',
     },
   },
-  { ignores: ['dist', 'dist-electron', 'release', 'node_modules', 'sprites_extracted'] },
+  // Userscript Tampermonkey + content script de extensão de browser: rodam no
+  // navegador (não no app Electron). Habilita globals de browser/greasemonkey.
+  {
+    files: ['21st-dev-scroll.user.js', '21st-scroll-extension/**/*.js'],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        GM_addStyle: 'readonly',
+        GM: 'readonly',
+      },
+    },
+  },
+  // `landing/` é um projeto Next.js separado, com tooling/lint próprios; o lint
+  // da raiz não deve descer nele (especialmente em artefatos de build .next).
+  { ignores: ['dist', 'dist-electron', 'release', 'node_modules', 'sprites_extracted', 'landing'] },
 );

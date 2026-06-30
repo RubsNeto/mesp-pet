@@ -65,6 +65,18 @@ export function PetManager() {
   const [visibleTerminals, setVisibleTerminals] = useState<Set<string>>(() => new Set());
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({ open: false });
   const [autoStartEnabled, setAutoStartEnabled] = useState(false);
+  // Modo foco/silêncio: suprime notificações e comportamentos aleatórios.
+  const [focusMode, setFocusMode] = useState(false);
+  // Último estado já notificado por pet (evita notificações repetidas).
+  const lastNotifiedRef = useRef<Record<string, string>>({});
+
+  // Carrega e escuta o modo foco (pode ser alternado pelo tray/atalho global).
+  useEffect(() => {
+    if (!window.mesp?.getFocusMode) return;
+    void window.mesp.getFocusMode().then(setFocusMode);
+    const off = window.mesp.onFocusMode?.((enabled) => setFocusMode(enabled));
+    return () => { off?.(); };
+  }, []);
 
   // Carrega estado atual do auto-start.
   useEffect(() => {
@@ -80,6 +92,43 @@ export function PetManager() {
       setAutoStartEnabled(newState);
     });
   }, [autoStartEnabled]);
+
+  // Notificação ambiente do SO: avisa quando o agente termina, falha ou pede
+  // input — mas só quando faz sentido (fora do modo foco) e sem repetir o
+  // mesmo estado. O main só exibe se a janela não estiver em foco.
+  const NOTIFY_MSG: Partial<Record<PetState, { title: string; body: string }>> = useMemo(
+    () => ({
+      waiting: { title: '🐾 MESP precisa de você', body: 'O agente está aguardando sua resposta.' },
+      success: { title: '✅ Tarefa concluída', body: 'O agente terminou de trabalhar.' },
+      error: { title: '⚠️ Algo deu errado', body: 'O agente reportou um erro.' },
+    }),
+    [],
+  );
+
+  const maybeNotify = useCallback(
+    (petId: string, state: PetState) => {
+      const msg = NOTIFY_MSG[state];
+      if (!msg) {
+        // Estados "tranquilos" liberam o marcador para a próxima notificação.
+        if (state === 'idle' || state === 'thinking' || state === 'working') {
+          lastNotifiedRef.current[petId] = '';
+        }
+        return;
+      }
+      if (focusMode) return;
+      if (!window.mesp?.notify) return;
+      if (lastNotifiedRef.current[petId] === state) return;
+      lastNotifiedRef.current[petId] = state;
+      void window.mesp.notify(msg);
+    },
+    [focusMode, NOTIFY_MSG],
+  );
+
+  const toggleFocusMode = useCallback(() => {
+    const next = !focusMode;
+    setFocusMode(next);
+    if (window.mesp?.setFocusMode) void window.mesp.setFocusMode(next);
+  }, [focusMode]);
 
   const petsRef = useRef(pets);
   petsRef.current = pets;
@@ -164,7 +213,7 @@ export function PetManager() {
   );
 
   // Auto behavior via extracted hook.
-  usePetBehavior({ pets, setPetState, setPetFacing, nudgePet });
+  usePetBehavior({ pets, setPetState, setPetFacing, nudgePet, quiet: focusMode });
 
   // Interactions: hearts e toys.
   const { hearts, spawnHeart, removeHeart, toys, spawnToy, removeToy } = useInteractions({
@@ -364,6 +413,11 @@ export function PetManager() {
         onClick: toggleAutoStart,
       },
       {
+        label: focusMode ? 'Modo foco: ligado' : 'Modo foco: desligado',
+        icon: focusMode ? '🔕' : '🔔',
+        onClick: toggleFocusMode,
+      },
+      {
         label: 'Resetar pets',
         icon: '🔄',
         onClick: () => {
@@ -388,7 +442,7 @@ export function PetManager() {
         },
       },
     ];
-  }, [contextMenu, pets, addPet, removePet, setPetState, updatePet, showTerminal, spawnToy, celebratePet, autoStartEnabled, toggleAutoStart, chooseWorkDir]);
+  }, [contextMenu, pets, addPet, removePet, setPetState, updatePet, showTerminal, spawnToy, celebratePet, autoStartEnabled, toggleAutoStart, chooseWorkDir, focusMode, toggleFocusMode]);
 
   // ----- Render ---------------------------------------------------------------
 
@@ -422,6 +476,8 @@ export function PetManager() {
           onClose={() => hideTerminal(targetPet.id)}
           onPetStateChange={(state) => {
             setPetState(targetPet.id, state);
+            // Notificação ambiente (suprimida no modo foco / janela em foco).
+            maybeNotify(targetPet.id, state);
             // Quando CLI termina com sucesso, gera corações.
             if (state === 'success') {
               const pet = petsRef.current.find((p) => p.id === targetPet.id);

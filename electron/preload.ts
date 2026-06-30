@@ -77,6 +77,32 @@ const api = {
   checkCommand(command: string): Promise<boolean> {
     return ipcRenderer.invoke('app:check-command', command);
   },
+
+  // ----- Notificações & always-on --------------------------------------------
+
+  /** Mostra uma notificação do SO. Por padrão só dispara se a janela não
+   *  estiver em foco. Retorna true se a notificação foi exibida. */
+  notify(opts: { title: string; body?: string; force?: boolean }): Promise<boolean> {
+    return ipcRenderer.invoke('app:notify', opts);
+  },
+  /** Lê o estado atual do modo foco (silêncio). */
+  getFocusMode(): Promise<boolean> {
+    return ipcRenderer.invoke('app:get-focus-mode');
+  },
+  /** Liga/desliga o modo foco. */
+  setFocusMode(enabled: boolean): Promise<boolean> {
+    return ipcRenderer.invoke('app:set-focus-mode', enabled);
+  },
+  /** Notifica mudanças no modo foco (disparadas pelo tray/atalho global). */
+  onFocusMode(cb: (enabled: boolean) => void): () => void {
+    const handler = (_e: unknown, enabled: boolean) => cb(enabled);
+    ipcRenderer.on('app:focus-mode', handler);
+    return () => ipcRenderer.removeListener('app:focus-mode', handler);
+  },
+  /** Mostra/esconde a janela dos pets. */
+  toggleVisibility(): Promise<boolean> {
+    return ipcRenderer.invoke('app:toggle-visibility');
+  },
   /** Abre o diálogo nativo de seleção de pasta. Retorna o caminho ou null. */
   selectFolder(defaultPath?: string): Promise<string | null> {
     return ipcRenderer.invoke('dialog:select-folder', defaultPath);

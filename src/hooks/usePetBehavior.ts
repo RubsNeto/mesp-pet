@@ -10,11 +10,17 @@ interface UsePetBehaviorOptions {
   setPetState: (petId: string, state: PetState) => void;
   setPetFacing: (petId: string, facing: 'left' | 'right') => void;
   nudgePet: (petId: string, dx: number, dy: number) => void;
+  /** Modo foco: suprime comportamentos aleatórios (passeios, sentar, pulinhos). */
+  quiet?: boolean;
 }
 
-export function usePetBehavior({ pets, setPetState, setPetFacing, nudgePet }: UsePetBehaviorOptions): void {
+export function usePetBehavior({ pets, setPetState, setPetFacing, nudgePet, quiet = false }: UsePetBehaviorOptions): void {
   const petsRef = useRef(pets);
   petsRef.current = pets;
+
+  // Lê quiet via ref para não reiniciar os timers ao alternar o modo foco.
+  const quietRef = useRef(quiet);
+  quietRef.current = quiet;
 
   // Auto-sleep after 60s of inactivity.
   useEffect(() => {
@@ -23,7 +29,7 @@ export function usePetBehavior({ pets, setPetState, setPetFacing, nudgePet }: Us
       petsRef.current.forEach((p) => {
         if (p.manualSleep) return;
         if (p.state !== 'idle' && p.state !== 'sitting') return;
-        if (p.task && (p.task.status === 'thinking' || p.task.status === 'working')) return;
+        if (p.task && (p.task.status === 'thinking' || p.task.status === 'working' || p.task.status === 'waiting')) return;
         if (now - p.lastActivityAt > 60_000) {
           setPetState(p.id, 'sleeping');
         }
@@ -53,9 +59,10 @@ export function usePetBehavior({ pets, setPetState, setPetFacing, nudgePet }: Us
     };
 
     const behaviorTimer = setInterval(() => {
+      if (quietRef.current) return; // modo foco: pet fica quieto
       petsRef.current.forEach((p) => {
         if (p.state !== 'idle') return;
-        if (p.task && (p.task.status === 'thinking' || p.task.status === 'working')) return;
+        if (p.task && (p.task.status === 'thinking' || p.task.status === 'working' || p.task.status === 'waiting')) return;
 
         const roll = Math.random();
 

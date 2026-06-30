@@ -10,6 +10,12 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import type { PetEntity, PetState } from '../types';
 import { AI_PRESETS, findPresetByCommand, getPresetById } from '../services/aiPresets';
+import {
+  stripAnsi,
+  matchState,
+  matchThinking,
+  getMarkersForCommand,
+} from '../services/stateDetect';
 
 export interface KiroChatPanelProps {
   pet: PetEntity;
@@ -214,6 +220,14 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
       const key = e.key.toLowerCase();
 
       if ((e.ctrlKey || e.metaKey) && key === 'v') {
+        // Importante: o xterm, ao receber `false` do custom handler, NÃO chama
+        // preventDefault no keydown. Sem isso, o navegador dispara o evento
+        // `paste` nativo e o xterm cola o conteúdo do clipboard de novo — o que
+        // duplica a colagem (no Windows o clipboard de uma imagem traz bitmap
+        // E texto). Chamamos preventDefault para que o nosso paste seja a única
+        // fonte e a imagem/texto entre uma só vez.
+        e.preventDefault();
+        e.stopPropagation();
         void pasteIntoTerminal(term);
         return false;
       }
@@ -351,10 +365,9 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
         });
     };
 
-    // Detector heurístico de estado a partir do output do agente.
-    // Funciona com Kiro, Claude Code, Aider, Gemini e outros que usam
-    // padrões similares (spinner Braille para "thinking", ✓/✗ para resultado).
-    // Mantém timer pra voltar para idle após N ms sem novidade.
+    // Detector de estado plugável por preset. As regexes vivem no módulo puro
+    // ../services/stateDetect (testado em tests/stateDetect.test.mjs). Aqui só
+    // ficam os timers de transição e o buffer de linhas.
     let stateTimer: ReturnType<typeof setTimeout> | null = null;
     let safetyTimer: ReturnType<typeof setTimeout> | null = null;
     let currentDetectedState: PetState = 'idle';
@@ -372,32 +385,33 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
       const backToIdleMs =
         next === 'success' ? 2500 :
         next === 'error' ? 3000 :
-        next === 'working' ? 6000 :
+        next === 'waiting' ? 120000 : // aguardando o usuário: persiste bastante
+        next === 'working' ? 8000 :
         12000; // thinking
       stateTimer = setTimeout(() => {
         currentDetectedState = 'idle';
         petStateChangeRef.current?.('idle');
       }, backToIdleMs);
 
-      // Safety: nunca deixar travado fora de idle por mais de 30s.
+      // Safety: nunca deixar travado fora de idle por mais de N s (mais longo
+      // para 'waiting', que legitimamente pode durar bastante).
+      const safetyMs = next === 'waiting' ? 180000 : 30000;
       safetyTimer = setTimeout(() => {
         if (currentDetectedState !== 'idle') {
           currentDetectedState = 'idle';
           petStateChangeRef.current?.('idle');
         }
-      }, 30000);
+      }, safetyMs);
     };
 
     // Detecta padrões linha-a-linha. Acumula chunks até bater \n e processa.
+    const markers = getMarkersForCommand(commandInfo.cmd);
     const detectState = (raw: string) => {
-      // Remove códigos ANSI para regex limpo.
-      // eslint-disable-next-line no-control-regex
-      const cleaned = raw.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '');
+      const cleaned = stripAnsi(raw);
       lineBuffer += cleaned;
 
-      // Detecta spinner (Braille) IMEDIATAMENTE com palavras de "thinking" comuns.
-      // Cobre Kiro, Claude Code, Aider, Gemini, etc.
-      if (/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷]\s*(Thinking|Pensando|Processing|Working|Generating|Analyzing|Loading)/i.test(cleaned)) {
+      // Spinner de "thinking" chega sem newline — detecta imediatamente.
+      if (matchThinking(cleaned, markers)) {
         setState('thinking');
         return;
       }
@@ -416,19 +430,14 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
         const trimmed = line.trim();
         if (!trimmed) continue;
 
-        // Erro: linha começa com ✗ ou contém "Error:" no início (case-sensitive).
-        if (/^[✗❌]/.test(trimmed) || /^(Error|ERROR):/.test(trimmed)) {
-          setState('error');
+        const detected = matchState(trimmed, markers);
+        if (detected) {
+          setState(detected);
           continue;
         }
 
-        // Resposta completa: padrão "Credits: X • Time: Ys" ou ✓ no início.
-        if (/credits:.*time:.*s/i.test(trimmed) || /^✓/.test(trimmed)) {
-          setState('success');
-          continue;
-        }
-
-        // Texto substancial enquanto pensando -> respondendo.
+        // Sem marcador explícito: se estava "pensando" e veio texto
+        // substancial, o agente começou a responder -> working.
         if (currentDetectedState === 'thinking' && trimmed.length > 20) {
           setState('working');
         }

@@ -18,11 +18,12 @@
 //   - Cap do número de runs concorrentes.
 //   - safeSend ignora `webContents.send` quando a janela já foi destruída.
 
-import { app, BrowserWindow, ipcMain, screen, Menu, dialog, clipboard } from 'electron';
+import { app, BrowserWindow, ipcMain, screen, Menu, dialog, clipboard, Notification, Tray, nativeImage, globalShortcut } from 'electron';
 import { spawn, ChildProcessWithoutNullStreams } from 'node:child_process';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
+import * as zlib from 'node:zlib';
 import * as pty from '@homebridge/node-pty-prebuilt-multiarch';
 
 // Em produção a janela carrega dist/index.html.
@@ -364,6 +365,41 @@ ipcMain.handle('app:set-auto-start', (_evt, enabledRaw: unknown) => {
   return app.getLoginItemSettings().openAtLogin;
 });
 
+// ----- Notificações do SO ----------------------------------------------------
+
+// Mostra uma notificação nativa. Por padrão só notifica quando a janela NÃO
+// está em foco (não adianta avisar o que o usuário já está olhando). Clicar
+// na notificação traz a janela do MESP para frente.
+ipcMain.handle('app:notify', (_evt, payloadRaw: unknown): boolean => {
+  if (!Notification.isSupported()) return false;
+  if (!payloadRaw || typeof payloadRaw !== 'object') return false;
+  const payload = payloadRaw as Record<string, unknown>;
+
+  const title = isString(payload.title, 200) ? payload.title : 'MESP';
+  const body =
+    typeof payload.body === 'string' && payload.body.length <= 1000 ? payload.body : '';
+  const force = payload.force === true;
+
+  if (!force && mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused()) {
+    return false;
+  }
+
+  try {
+    const n = new Notification({ title, body, silent: false });
+    n.on('click', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.showInactive();
+        mainWindow.setAlwaysOnTop(true, 'screen-saver');
+        mainWindow.focus();
+      }
+    });
+    n.show();
+    return true;
+  } catch {
+    return false;
+  }
+});
+
 // ----- Comando externo "one-shot" -------------------------------------------
 
 ipcMain.handle(
@@ -650,13 +686,169 @@ ipcMain.handle('terminal:kill', (_evt, petIdRaw: unknown) => {
 // Sem menu nativo; o pet tem seu próprio menu via context menu HTML.
 Menu.setApplicationMenu(null);
 
+// ---------------------------------------------------------------------------
+//  Tray, modo foco e atalho global (always-on respeitável)
+// ---------------------------------------------------------------------------
+
+let tray: Tray | null = null;
+let windowVisible = true;
+let focusMode = false;
+
+// --- Gerador de ícone PNG (sem assets externos) ----------------------------
+// node-pty/electron-builder não embute um ícone de tray garantido em todas as
+// plataformas; geramos um PNG 32x32 em runtime com zlib (built-in), evitando
+// dependência de arquivo. Desenha um "MESP" simples: corpo ciano + olho.
+
+function crc32(buf: Buffer): number {
+  let c = ~0;
+  for (let i = 0; i < buf.length; i += 1) {
+    c ^= buf[i]!;
+    for (let k = 0; k < 8; k += 1) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
+  }
+  return (~c) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(data.length, 0);
+  const typeBuf = Buffer.from(type, 'ascii');
+  const crcBuf = Buffer.alloc(4);
+  crcBuf.writeUInt32BE(crc32(Buffer.concat([typeBuf, data])), 0);
+  return Buffer.concat([len, typeBuf, data, crcBuf]);
+}
+
+function encodePng(width: number, height: number, rgba: Buffer): Buffer {
+  const sig = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 6; // color type RGBA
+  const stride = width * 4;
+  const raw = Buffer.alloc((stride + 1) * height);
+  for (let y = 0; y < height; y += 1) {
+    raw[y * (stride + 1)] = 0; // filter none
+    rgba.copy(raw, y * (stride + 1) + 1, y * stride, y * stride + stride);
+  }
+  const idat = zlib.deflateSync(raw);
+  return Buffer.concat([
+    sig,
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', idat),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+function makeTrayImage(): Electron.NativeImage {
+  const S = 32;
+  const buf = Buffer.alloc(S * S * 4, 0);
+  const put = (x: number, y: number, r: number, g: number, b: number) => {
+    if (x < 0 || y < 0 || x >= S || y >= S) return;
+    const i = (y * S + x) * 4;
+    buf[i] = r; buf[i + 1] = g; buf[i + 2] = b; buf[i + 3] = 255;
+  };
+  const bodyR = 12;
+  for (let y = 0; y < S; y += 1) {
+    for (let x = 0; x < S; x += 1) {
+      const d = Math.hypot(x - 16, y - 17);
+      if (d <= bodyR) {
+        if (d > bodyR - 2) put(x, y, 22, 32, 51); // contorno
+        else put(x, y, 111, 207, 238); // corpo ciano
+      }
+    }
+  }
+  // Olho ciclope: esclera branca + pupila escura.
+  for (let y = 0; y < S; y += 1) {
+    for (let x = 0; x < S; x += 1) {
+      const de = Math.hypot(x - 16, y - 14);
+      if (de <= 4.2) put(x, y, 255, 255, 255);
+      if (de <= 2.0) put(x, y, 22, 32, 51);
+    }
+  }
+  return nativeImage.createFromBuffer(encodePng(S, S, buf));
+}
+
+function toggleWindowVisibility(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isVisible()) {
+    mainWindow.hide();
+    windowVisible = false;
+  } else {
+    mainWindow.showInactive();
+    mainWindow.setAlwaysOnTop(true, 'screen-saver');
+    windowVisible = true;
+  }
+  updateTrayMenu();
+}
+
+function setFocusMode(v: boolean): void {
+  focusMode = v;
+  safeSend('app:focus-mode', focusMode);
+  updateTrayMenu();
+}
+
+function updateTrayMenu(): void {
+  if (!tray) return;
+  const menu = Menu.buildFromTemplate([
+    { label: windowVisible ? 'Esconder pets' : 'Mostrar pets', click: () => toggleWindowVisibility() },
+    {
+      label: focusMode ? '🔕 Modo foco: LIGADO' : '🔔 Modo foco: desligado',
+      type: 'checkbox',
+      checked: focusMode,
+      click: () => setFocusMode(!focusMode),
+    },
+    { type: 'separator' },
+    { label: 'Atalhos: Ctrl+Shift+M (mostrar/esconder) · Ctrl+Shift+F (foco)', enabled: false },
+    { type: 'separator' },
+    { label: 'Sair do MESP', click: () => app.quit() },
+  ]);
+  tray.setContextMenu(menu);
+}
+
+function createTray(): void {
+  try {
+    tray = new Tray(makeTrayImage());
+  } catch {
+    tray = null;
+    return;
+  }
+  tray.setToolTip('MESP Pet');
+  updateTrayMenu();
+  // Clique simples mostra/esconde (Windows/Linux); no macOS abre o menu.
+  tray.on('click', () => toggleWindowVisibility());
+}
+
+// IPC do modo foco (sincroniza tray <-> renderer).
+ipcMain.handle('app:get-focus-mode', () => focusMode);
+ipcMain.handle('app:set-focus-mode', (_evt, v: unknown) => {
+  setFocusMode(v === true);
+  return focusMode;
+});
+ipcMain.handle('app:toggle-visibility', () => {
+  toggleWindowVisibility();
+  return windowVisible;
+});
+
 app.whenReady().then(() => {
   loadDotEnv();
+  // Identidade para notificações nativas no Windows.
+  if (process.platform === 'win32') {
+    app.setAppUserModelId('io.mesp.pet');
+  }
   // Ativa auto-start com o Windows por padrão
   if (!app.getLoginItemSettings().openAtLogin) {
     app.setLoginItemSettings({ openAtLogin: true });
   }
   createWindow();
+  createTray();
+
+  // Atalhos globais: mostrar/esconder e alternar modo foco.
+  try {
+    globalShortcut.register('CommandOrControl+Shift+M', () => toggleWindowVisibility());
+    globalShortcut.register('CommandOrControl+Shift+F', () => setFocusMode(!focusMode));
+  } catch {
+    /* alguns ambientes Linux bloqueiam atalhos globais; ignora */
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -674,6 +866,11 @@ app.on('window-all-closed', () => {
 
 // Cleanup: mata todos os PTYs e processos antes de sair, evitando órfãos.
 app.on('before-quit', () => {
+  try { globalShortcut.unregisterAll(); } catch { /* noop */ }
+  if (tray) {
+    try { tray.destroy(); } catch { /* noop */ }
+    tray = null;
+  }
   for (const child of runningProcesses.values()) {
     try { child.kill(); } catch { /* noop */ }
   }

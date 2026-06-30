@@ -8,6 +8,7 @@ export type PetState =
   | 'walking'
   | 'thinking'
   | 'working'
+  | 'waiting'
   | 'success'
   | 'error'
   | 'sleeping'
@@ -17,7 +18,7 @@ export type PetState =
 export type PetFacing = 'left' | 'right';
 
 /** Status de uma execução/tarefa que o pet está acompanhando. */
-export type TaskStatus = 'thinking' | 'working' | 'success' | 'error' | 'idle';
+export type TaskStatus = 'thinking' | 'working' | 'waiting' | 'success' | 'error' | 'idle';
 
 export interface PetTask {
   id: string;
