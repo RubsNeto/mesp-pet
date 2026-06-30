@@ -12,7 +12,12 @@ import { usePassThrough } from '../hooks/usePassThrough';
 import { usePetBehavior } from '../hooks/usePetBehavior';
 import { useInteractions } from '../hooks/useInteractions';
 import { savePetState, loadPetState, clearPetState } from '../services/persistence';
+import { loadSettings, onSettingsChanged } from '../services/settingsStore';
+import { shouldNotify } from '../services/settingsCore';
 import { generateTraits, DEFAULT_TRAITS } from '../procedural/traits';
+import { CommandPalette } from './CommandPalette';
+import { BroadcastBar } from './BroadcastBar';
+import type { PaletteCommand } from '../services/commandPalette';
 
 // Limite máximo de pets simultâneos para evitar uso descontrolado de memória.
 // 10 é mais que suficiente pra brincar; cada pet ocupa ~1MB com sprites cacheados.
@@ -67,8 +72,38 @@ export function PetManager() {
   const [autoStartEnabled, setAutoStartEnabled] = useState(false);
   // Modo foco/silêncio: suprime notificações e comportamentos aleatórios.
   const [focusMode, setFocusMode] = useState(false);
+  // HUD sobre o pet (controlado nas settings).
+  const [showHud, setShowHud] = useState<boolean>(() => loadSettings().appearance.showHud);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [broadcastOpen, setBroadcastOpen] = useState(false);
+  const headRef = useRef<Record<string, string>>({});
   // Último estado já notificado por pet (evita notificações repetidas).
   const lastNotifiedRef = useRef<Record<string, string>>({});
+  // Inicio de ocupacao por pet, p/ calcular duracao da tarefa nas notificacoes.
+  const busySinceRef = useRef<Record<string, number>>({});
+
+  useEffect(() => onSettingsChanged((s) => setShowHud(s.appearance.showHud)), []);
+
+  // Ctrl/Cmd+K abre/fecha a paleta de comandos.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Aplica o tema (claro/escuro) no documento.
+  useEffect(() => {
+    const apply = (s: { appearance: { theme: string } }) => {
+      try { document.documentElement.dataset.theme = s.appearance.theme; } catch { /* noop */ }
+    };
+    apply(loadSettings());
+    return onSettingsChanged(apply);
+  }, []);
 
   // Carrega e escuta o modo foco (pode ser alternado pelo tray/atalho global).
   useEffect(() => {
@@ -107,18 +142,24 @@ export function PetManager() {
 
   const maybeNotify = useCallback(
     (petId: string, state: PetState) => {
+      const now = Date.now();
+      if (state === 'thinking' || state === 'working' || state === 'waiting') {
+        if (!busySinceRef.current[petId]) busySinceRef.current[petId] = now;
+        // Novo ciclo de atividade libera o dedupe (exceto waiting).
+        if (state !== 'waiting') lastNotifiedRef.current[petId] = '';
+      }
       const msg = NOTIFY_MSG[state];
       if (!msg) {
-        // Estados "tranquilos" liberam o marcador para a próxima notificação.
-        if (state === 'idle' || state === 'thinking' || state === 'working') {
-          lastNotifiedRef.current[petId] = '';
-        }
+        if (state === 'idle') busySinceRef.current[petId] = 0;
         return;
       }
-      if (focusMode) return;
-      if (!window.mesp?.notify) return;
+      if (focusMode || !window.mesp?.notify) return;
       if (lastNotifiedRef.current[petId] === state) return;
+      const since = busySinceRef.current[petId] || 0;
+      const durationMs = since ? now - since : 0;
+      if (!shouldNotify(loadSettings(), state as 'waiting' | 'success' | 'error', durationMs)) return;
       lastNotifiedRef.current[petId] = state;
+      if (state === 'success' || state === 'error') busySinceRef.current[petId] = 0;
       void window.mesp.notify(msg);
     },
     [focusMode, NOTIFY_MSG],
@@ -355,6 +396,32 @@ export function PetManager() {
     [setPetState, spawnHeart],
   );
 
+  // Envia o mesmo texto (prompt) para o terminal de todos os pets.
+  const broadcastPrompt = useCallback((text: string) => {
+    if (!text.trim() || !window.mesp?.terminalWrite) return;
+    petsRef.current.forEach((p) => {
+      showTerminal(p.id);
+      void window.mesp!.terminalWrite(p.id, text + '\r');
+    });
+  }, [showTerminal]);
+
+  // Reacao a commit: detecta novo HEAD do git por pasta e faz o pet comemorar.
+  useEffect(() => {
+    if (!window.mesp?.gitHead) return;
+    const id = setInterval(() => {
+      petsRef.current.forEach((p) => {
+        if (!p.workDir || !window.mesp?.gitHead) return;
+        void window.mesp.gitHead(p.workDir).then((head) => {
+          if (!head) return;
+          const prev = headRef.current[p.id];
+          headRef.current[p.id] = head;
+          if (prev && prev !== head) celebratePet(p.id);
+        });
+      });
+    }, 45000);
+    return () => clearInterval(id);
+  }, [celebratePet, showTerminal]);
+
   const chooseWorkDir = useCallback(
     (petId: string) => {
       if (!window.mesp?.selectFolder) return;
@@ -444,6 +511,20 @@ export function PetManager() {
     ];
   }, [contextMenu, pets, addPet, removePet, setPetState, updatePet, showTerminal, spawnToy, celebratePet, autoStartEnabled, toggleAutoStart, chooseWorkDir, focusMode, toggleFocusMode]);
 
+  const paletteCommands = useMemo<PaletteCommand[]>(() => {
+    const first = pets[0];
+    return [
+      { id: 'new', label: 'Novo MESP', hint: 'adicionar pet', disabled: pets.length >= MAX_PETS, run: () => addPet() },
+      { id: 'panel', label: 'Abrir painel do agente', hint: first ? first.id : '', disabled: !first, run: () => { if (first) showTerminal(first.id); } },
+      { id: 'focus', label: focusMode ? 'Modo foco: desligar' : 'Modo foco: ligar', hint: 'silenciar/ativar', run: toggleFocusMode },
+      { id: 'visibility', label: 'Mostrar/ocultar pets', hint: 'Ctrl+Shift+M', run: () => { if (window.mesp?.toggleVisibility) void window.mesp.toggleVisibility(); } },
+      { id: 'ball', label: 'Dropar bolinha', run: () => spawnToy(window.innerWidth / 2, window.innerHeight / 2) },
+      { id: 'broadcast', label: 'Broadcast: enviar a todos', hint: 'mesmo prompt p/ todos', disabled: pets.length < 1, run: () => setBroadcastOpen(true) },
+      { id: 'reset', label: 'Resetar pets', hint: 'apaga estado salvo', run: () => { clearPetState(); window.location.reload(); } },
+      { id: 'quit', label: 'Fechar app', run: () => { if (window.mesp) void window.mesp.quit(); else window.close(); } },
+    ];
+  }, [pets, focusMode, addPet, showTerminal, toggleFocusMode, spawnToy]);
+
   // ----- Render ---------------------------------------------------------------
 
   return (
@@ -452,6 +533,7 @@ export function PetManager() {
         <Pet
           key={pet.id}
           pet={pet}
+          showHud={showHud}
           onMove={movePet}
           onClick={handlePetClick}
           onDoubleClick={handlePetDoubleClick}
@@ -495,6 +577,14 @@ export function PetManager() {
           }}
         />
       ))}
+
+      {paletteOpen && (
+        <CommandPalette commands={paletteCommands} onClose={() => setPaletteOpen(false)} />
+      )}
+
+      {broadcastOpen && (
+        <BroadcastBar onSubmit={broadcastPrompt} onClose={() => setBroadcastOpen(false)} />
+      )}
 
       {contextMenu.open && (
         <ContextMenu

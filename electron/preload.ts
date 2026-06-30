@@ -168,6 +168,36 @@ const api = {
   },
 
   /** Indica que estamos rodando dentro do Electron. */
+  // ----- Contexto de projeto & export ----------------------------------------
+
+  /** Le os arquivos de regras (AGENTS.md/CLAUDE.md/...) da pasta do projeto. */
+  readProjectRules(workDir: string): Promise<Array<{ name: string; content: string }>> {
+    return ipcRenderer.invoke('project:read-rules', workDir);
+  },
+  /** Grava um arquivo de regras do projeto. */
+  writeProjectRules(opts: { workDir: string; name: string; content: string }): Promise<boolean> {
+    return ipcRenderer.invoke('project:write-rules', opts);
+  },
+  /** Status git best-effort da pasta do projeto (ou null se nao for repo/git ausente). */
+  gitStatus(workDir: string): Promise<{ branch: string; changed: number; files: string[] } | null> {
+    return ipcRenderer.invoke('project:git-status', workDir);
+  },
+  /** Salva um texto em arquivo via dialogo nativo (export de transcript/notas). */
+  saveTextFile(opts: { content: string; defaultName?: string }): Promise<boolean> {
+    return ipcRenderer.invoke('app:save-text-file', opts);
+  },
+  /** git diff --stat da pasta do projeto (ou null). */
+  gitDiff(workDir: string): Promise<string | null> {
+    return ipcRenderer.invoke('project:git-diff', workDir);
+  },
+  /** HEAD curto (hash do ultimo commit) da pasta do projeto (ou null). */
+  gitHead(workDir: string): Promise<string | null> {
+    return ipcRenderer.invoke('project:git-head', workDir);
+  },
+  /** Abre uma URL http(s) no navegador padrao. */
+  openExternal(url: string): Promise<boolean> {
+    return ipcRenderer.invoke('app:open-external', url);
+  },
   isElectron: true as const,
   platform: process.platform,
 };

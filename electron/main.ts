@@ -18,7 +18,7 @@
 //   - Cap do número de runs concorrentes.
 //   - safeSend ignora `webContents.send` quando a janela já foi destruída.
 
-import { app, BrowserWindow, ipcMain, screen, Menu, dialog, clipboard, Notification, Tray, nativeImage, globalShortcut } from 'electron';
+import { app, BrowserWindow, ipcMain, screen, Menu, dialog, clipboard, Notification, Tray, nativeImage, globalShortcut, shell } from 'electron';
 import { spawn, ChildProcessWithoutNullStreams } from 'node:child_process';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
@@ -684,6 +684,193 @@ ipcMain.handle('terminal:kill', (_evt, petIdRaw: unknown) => {
 });
 
 // Sem menu nativo; o pet tem seu próprio menu via context menu HTML.
+// ----- Contexto de projeto: regras (AGENTS.md/CLAUDE.md/...) e git ----------
+
+const RULES_FILES = [
+  'AGENTS.md',
+  'CLAUDE.md',
+  '.cursorrules',
+  'GEMINI.md',
+  '.windsurfrules',
+  '.github/copilot-instructions.md',
+];
+const MAX_RULES_BYTES = 200_000;
+
+interface GitStatusResult {
+  branch: string;
+  changed: number;
+  files: string[];
+}
+
+// Garante que `target` esta dentro de `dir` (defesa contra path traversal).
+function isInside(dir: string, target: string): boolean {
+  const rel = path.relative(dir, target);
+  return rel.length > 0 && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
+ipcMain.handle('project:read-rules', (_evt, workDirRaw: unknown) => {
+  const workDir = isString(workDirRaw, 4096) ? workDirRaw : null;
+  if (!workDir) return [] as Array<{ name: string; content: string }>;
+  const results: Array<{ name: string; content: string }> = [];
+  for (const name of RULES_FILES) {
+    const full = path.join(workDir, name);
+    if (!isInside(workDir, full)) continue;
+    try {
+      if (!fs.existsSync(full)) continue;
+      const stat = fs.statSync(full);
+      if (!stat.isFile() || stat.size > MAX_RULES_BYTES) continue;
+      results.push({ name, content: fs.readFileSync(full, 'utf-8') });
+    } catch {
+      /* ignora arquivo ilegivel */
+    }
+  }
+  return results;
+});
+
+ipcMain.handle('project:write-rules', (_evt, payloadRaw: unknown) => {
+  if (!payloadRaw || typeof payloadRaw !== 'object') return false;
+  const p = payloadRaw as Record<string, unknown>;
+  const workDir = isString(p.workDir, 4096) ? p.workDir : null;
+  const name = isString(p.name, 128) ? p.name : null;
+  if (!workDir || !name || !RULES_FILES.includes(name)) return false;
+  if (typeof p.content !== 'string' || p.content.length > MAX_RULES_BYTES) return false;
+  const full = path.join(workDir, name);
+  if (!isInside(workDir, full)) return false;
+  try {
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, p.content, 'utf-8');
+    return true;
+  } catch {
+    return false;
+  }
+});
+
+function parseGitStatus(out: string): GitStatusResult {
+  const lines = out.split(/\r?\n/).filter(Boolean);
+  let branch = '';
+  let changed = 0;
+  const files: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith('##')) {
+      const m = line.match(/^## ([^.\s]+)/);
+      branch = m ? m[1]! : line.slice(3);
+      continue;
+    }
+    changed += 1;
+    if (files.length < 50) files.push(line.trim());
+  }
+  return { branch, changed, files };
+}
+
+ipcMain.handle('project:git-status', (_evt, workDirRaw: unknown) => {
+  const workDir = isString(workDirRaw, 4096) ? workDirRaw : null;
+  if (!workDir) return Promise.resolve<GitStatusResult | null>(null);
+  return new Promise<GitStatusResult | null>((resolve) => {
+    let done = false;
+    const finalize = (v: GitStatusResult | null) => {
+      if (!done) {
+        done = true;
+        resolve(v);
+      }
+    };
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn('git', ['status', '--porcelain=v1', '--branch'], {
+        cwd: workDir,
+        shell: false,
+        env: { ...process.env },
+      });
+    } catch {
+      finalize(null);
+      return;
+    }
+    let out = '';
+    child.stdout.on('data', (c) => {
+      out += c.toString();
+      if (out.length > 100_000) {
+        try { child.kill(); } catch { /* noop */ }
+      }
+    });
+    child.on('error', () => finalize(null));
+    child.on('close', (code) => finalize(code === 0 ? parseGitStatus(out) : null));
+    setTimeout(() => {
+      try { child.kill(); } catch { /* noop */ }
+      finalize(null);
+    }, 3000);
+  });
+});
+
+// Salva um texto em arquivo escolhido pelo usuario (export de transcript/notas).
+ipcMain.handle('app:save-text-file', async (_evt, payloadRaw: unknown) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  if (!payloadRaw || typeof payloadRaw !== 'object') return false;
+  const p = payloadRaw as Record<string, unknown>;
+  const content = typeof p.content === 'string' ? p.content : '';
+  const defaultName = isString(p.defaultName, 256) ? p.defaultName : 'mesp-export.md';
+  const result = await dialog.showSaveDialog(mainWindow, { defaultPath: defaultName });
+  if (result.canceled || !result.filePath) return false;
+  try {
+    fs.writeFileSync(result.filePath, content.slice(0, 5_000_000), 'utf-8');
+    return true;
+  } catch {
+    return false;
+  }
+});
+// git diff --stat da pasta do projeto (best-effort).
+ipcMain.handle('project:git-diff', (_evt, workDirRaw: unknown) => {
+  const workDir = isString(workDirRaw, 4096) ? workDirRaw : null;
+  if (!workDir) return Promise.resolve<string | null>(null);
+  return new Promise<string | null>((resolve) => {
+    let done = false;
+    const finalize = (v: string | null) => { if (!done) { done = true; resolve(v); } };
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn('git', ['diff', '--stat', '--no-color'], { cwd: workDir, shell: false, env: { ...process.env } });
+    } catch {
+      finalize(null);
+      return;
+    }
+    let out = '';
+    child.stdout.on('data', (c) => {
+      out += c.toString();
+      if (out.length > 50_000) { try { child.kill(); } catch { /* noop */ } }
+    });
+    child.on('error', () => finalize(null));
+    child.on('close', (code) => finalize(code === 0 ? out.trim() : null));
+    setTimeout(() => { try { child.kill(); } catch { /* noop */ } finalize(null); }, 3000);
+  });
+});
+
+// HEAD curto (hash do ultimo commit) da pasta do projeto.
+ipcMain.handle('project:git-head', (_evt, workDirRaw: unknown) => {
+  const workDir = isString(workDirRaw, 4096) ? workDirRaw : null;
+  if (!workDir) return Promise.resolve<string | null>(null);
+  return new Promise<string | null>((resolve) => {
+    let done = false;
+    const finalize = (v: string | null) => { if (!done) { done = true; resolve(v); } };
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn('git', ['rev-parse', '--short', 'HEAD'], { cwd: workDir, shell: false, env: { ...process.env } });
+    } catch {
+      finalize(null);
+      return;
+    }
+    let out = '';
+    child.stdout.on('data', (c) => { out += c.toString(); });
+    child.on('error', () => finalize(null));
+    child.on('close', (code) => finalize(code === 0 ? out.trim() : null));
+    setTimeout(() => { try { child.kill(); } catch { /* noop */ } finalize(null); }, 2000);
+  });
+});
+
+// Abre uma URL http(s) no navegador padrao (links clicaveis do terminal).
+ipcMain.handle('app:open-external', (_evt, urlRaw: unknown) => {
+  const url = isString(urlRaw, 4096) ? urlRaw : null;
+  if (!url || !/^https?:\/\//i.test(url)) return false;
+  void shell.openExternal(url);
+  return true;
+});
+
 Menu.setApplicationMenu(null);
 
 // ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import type { PetEntity, PetState } from '../types';
 import { AI_PRESETS, findPresetByCommand, getPresetById } from '../services/aiPresets';
@@ -16,6 +17,16 @@ import {
   matchThinking,
   getMarkersForCommand,
 } from '../services/stateDetect';
+import { applyTransition, attachCost, trimRuns, activeRun } from '../services/runLog';
+import { buildPrimer } from '../services/primer';
+import { loadContext } from '../services/contextStore';
+import { budgetExceeded } from '../services/settingsCore';
+import type { RunRecord } from '../services/runLog';
+import { parseCostLine, aggregateCost, formatCost } from '../services/costParse';
+import { loadSettings, onSettingsChanged } from '../services/settingsStore';
+import { ContextTab } from './ContextTab';
+import { HistoryTab } from './HistoryTab';
+import { SettingsSection } from './SettingsSection';
 
 export interface KiroChatPanelProps {
   pet: PetEntity;
@@ -92,11 +103,24 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
   const [editArgs, setEditArgs] = useState('chat');
   const [selectedPresetId, setSelectedPresetId] = useState<string>('kiro');
   const [installedPresets, setInstalledPresets] = useState<Record<string, boolean>>({});
+  // Cockpit: sub-aba ativa do overlay + execucoes (runs) + transcript p/ export.
+  const [panelTab, setPanelTab] = useState<'config' | 'context' | 'history'>('config');
+  const [runs, setRuns] = useState<RunRecord[]>(() => loadRuns(pet.id));
+  const runsRef = useRef(runs);
+  runsRef.current = runs;
+  const transcriptRef = useRef('');
+  const primerDoneRef = useRef(false);
+  const budgetNotifiedRef = useRef(false);
+  const stuckNotifiedRef = useRef(false);
+  const lastOutputAtRef = useRef(0);
+  const updateRunsRef = useRef<(updater: (r: RunRecord[]) => RunRecord[]) => void>(() => {});
 
   const currentPreset = useMemo(
     () => findPresetByCommand(commandInfo.cmd, commandInfo.args),
     [commandInfo.cmd, commandInfo.args],
   );
+  // Custo acumulado da sessao (soma das execucoes), formatado p/ o header.
+  const aggCost = useMemo(() => formatCost(aggregateCost(runs)), [runs]);
 
   // Ref estável para onPetStateChange — evita re-spawn do PTY a cada render
   // do PetManager (a prop costuma ser arrow inline).
@@ -118,6 +142,100 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
   // Spawn pendente — o efeito monta os listeners de imediato, mas só dispara o
   // PTY quando o painel aparece pela 1ª vez, garantindo dimensões reais.
   const spawnFnRef = useRef<(() => void) | null>(null);
+
+  // Atualiza a lista de execucoes (imutavel) e persiste por pet.
+  const updateRuns = useCallback((updater: (r: RunRecord[]) => RunRecord[]) => {
+    setRuns((prev) => {
+      const next = trimRuns(updater(prev));
+      runsRef.current = next;
+      saveRuns(pet.id, next);
+      return next;
+    });
+  }, [pet.id]);
+  useLayoutEffect(() => {
+    updateRunsRef.current = updateRuns;
+  }, [updateRuns]);
+
+  const insertIntoTerminal = useCallback((text: string) => {
+    const term = termRef.current;
+    if (!term || !text) return;
+    term.paste(text);
+    term.focus();
+    setShowConfig(false);
+  }, []);
+
+  const clearRuns = useCallback(() => {
+    setRuns([]);
+    runsRef.current = [];
+    saveRuns(pet.id, []);
+  }, [pet.id]);
+
+  const exportTranscript = useCallback(() => {
+    if (!window.mesp?.saveTextFile) return;
+    const clean = stripAnsi(transcriptRef.current || '');
+    const header = `# MESP transcript - ${pet.id}\n\nComando: ${commandInfo.cmd} ${commandInfo.args.join(' ')}\nData: ${new Date().toISOString()}\n\n`;
+    const body = '```\n' + clean.slice(-200000) + '\n```\n';
+    void window.mesp.saveTextFile({ content: header + body, defaultName: `mesp-${pet.id}-${Date.now()}.md` });
+  }, [pet.id, commandInfo.cmd, commandInfo.args]);
+
+  // Aplica a fonte do terminal a partir das settings (e reage a mudancas).
+  useEffect(() => {
+    const apply = () => {
+      const term = termRef.current;
+      if (!term) return;
+      try { term.options.fontSize = loadSettings().appearance.terminalFontSize; } catch { /* noop */ }
+      try { fitRef.current?.fit(); } catch { /* noop */ }
+    };
+    apply();
+    return onSettingsChanged(apply);
+  }, []);
+
+  // Auto-primer: ao conectar, injeta contexto do projeto (se habilitado).
+  useEffect(() => {
+    if (status !== 'connected' || primerDoneRef.current) return;
+    primerDoneRef.current = true;
+    const s = loadSettings();
+    if (!s.behavior.autoPrimer || !pet.workDir) return;
+    const primer = buildPrimer(loadContext(pet.workDir));
+    if (primer) {
+      window.setTimeout(() => termRef.current?.paste(primer), 400);
+    }
+  }, [status, pet.workDir]);
+
+  // Alerta de orcamento: notifica uma vez quando o custo passa do limite.
+  useEffect(() => {
+    const usd = aggregateCost(runs).usd || 0;
+    const s = loadSettings();
+    if (budgetExceeded(s, usd) && !budgetNotifiedRef.current) {
+      budgetNotifiedRef.current = true;
+      if (window.mesp?.notify) {
+        void window.mesp.notify({
+          title: 'Orcamento estourado',
+          body: `Custo da sessao: $${usd.toFixed(2)} (limite $${s.notifications.costBudgetUsd}).`,
+          force: true,
+        });
+      }
+    }
+  }, [runs]);
+
+  // Deteccao de "travado": agente ocupado sem produzir saida por N minutos.
+  useEffect(() => {
+    const id = setInterval(() => {
+      const s = loadSettings();
+      const mins = s.notifications.stuckAlertMin;
+      if (!mins) { stuckNotifiedRef.current = false; return; }
+      const open = activeRun(runsRef.current);
+      if (!open) { stuckNotifiedRef.current = false; return; }
+      const idleMs = Date.now() - (lastOutputAtRef.current || open.startedAt);
+      if (idleMs > mins * 60000 && !stuckNotifiedRef.current) {
+        stuckNotifiedRef.current = true;
+        if (window.mesp?.notify) {
+          void window.mesp.notify({ title: 'Agente parado?', body: `Sem saida ha ${Math.round(idleMs / 60000)} min.` });
+        }
+      }
+    }, 30000);
+    return () => clearInterval(id);
+  }, []);
 
   // Carrega config do .env. Só depois disso o spawn é tentado.
   useEffect(() => {
@@ -208,6 +326,12 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
 
     const fit = new FitAddon();
     term.loadAddon(fit);
+    term.loadAddon(
+      new WebLinksAddon((_e, uri) => {
+        if (window.mesp?.openExternal) void window.mesp.openExternal(uri);
+        else window.open(uri, '_blank');
+      }),
+    );
     term.open(containerRef.current);
     fit.fit();
 
@@ -325,6 +449,8 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
       const cmdLine = `\x1b[90m$ ${commandInfo.cmd}${commandInfo.args.length ? ' ' + commandInfo.args.join(' ') : ''}\x1b[0m\r\n`;
       term.write(cmdLine);
 
+      restorePreviousBuffer(term, petId);
+
       if (pet.workDir) {
         term.write(`\x1b[90m  cwd: ${pet.workDir}\x1b[0m\r\n`);
       }
@@ -377,6 +503,7 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
       if (next === currentDetectedState) return;
       currentDetectedState = next;
       petStateChangeRef.current?.(next);
+      updateRunsRef.current((r) => applyTransition(r, next, Date.now()));
 
       if (stateTimer) clearTimeout(stateTimer);
       if (safetyTimer) clearTimeout(safetyTimer);
@@ -430,6 +557,9 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
         const trimmed = line.trim();
         if (!trimmed) continue;
 
+        const cost = parseCostLine(trimmed);
+        if (cost) updateRunsRef.current((r) => attachCost(r, cost));
+
         const detected = matchState(trimmed, markers);
         if (detected) {
           setState(detected);
@@ -447,11 +577,15 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
     const offStdout = window.mesp.onTerminalStdout(({ petId: pid, data }) => {
       if (pid !== petId) return;
       term.write(data);
+      transcriptRef.current = (transcriptRef.current + data).slice(-500000);
+      lastOutputAtRef.current = Date.now();
       detectState(data);
     });
     const offStderr = window.mesp.onTerminalStderr(({ petId: pid, data }) => {
       if (pid !== petId) return;
       term.write(data);
+      transcriptRef.current = (transcriptRef.current + data).slice(-500000);
+      lastOutputAtRef.current = Date.now();
       detectState(data);
     });
     const offExit = window.mesp.onTerminalExit(({ petId: pid, code, error }) => {
@@ -553,6 +687,10 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
 
   // Posição do painel (em state pra permitir drag pelo header).
   const [pos, setPos] = useState(() => computePosition());
+  const [size, setSize] = useState(() => loadPanelSize());
+  const resizeStateRef = useRef<{ pointerId: number; startX: number; startY: number; startW: number; startH: number } | null>(null);
+  const sizeRef = useRef(size);
+  sizeRef.current = size;
   const dragStateRef = useRef<{ pointerId: number; offX: number; offY: number } | null>(null);
 
   const onHeaderPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -573,7 +711,7 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
     if (!d || d.pointerId !== e.pointerId) return;
     const winW = window.innerWidth;
     const winH = window.innerHeight;
-    const x = Math.max(0, Math.min(winW - PANEL_WIDTH, e.clientX - d.offX));
+    const x = Math.max(0, Math.min(winW - sizeRef.current.w, e.clientX - d.offX));
     const y = Math.max(0, Math.min(winH - 40, e.clientY - d.offY));
     setPos({ x, y });
   }, []);
@@ -588,14 +726,59 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
     }
   }, []);
 
+  const onResizeDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizeStateRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startW: size.w,
+      startH: size.h,
+    };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }, [size.w, size.h]);
+
+  const onResizeMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const r = resizeStateRef.current;
+    if (!r || r.pointerId !== e.pointerId) return;
+    const w = clampNum(r.startW + (e.clientX - r.startX), 420, window.innerWidth - 20);
+    const h = clampNum(r.startH + (e.clientY - r.startY), 300, window.innerHeight - 20);
+    setSize({ w, h });
+  }, []);
+
+  const onResizeUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const r = resizeStateRef.current;
+    if (r && r.pointerId === e.pointerId) {
+      try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* noop */ }
+      resizeStateRef.current = null;
+    }
+  }, []);
+
+  // Persiste o tamanho do painel quando muda.
+  useEffect(() => {
+    savePanelSize(size);
+  }, [size]);
+
+  // Salva o scrollback do terminal periodicamente e ao desmontar.
+  useEffect(() => {
+    const id = setInterval(() => {
+      saveTermBuffer(pet.id, stripAnsi(transcriptRef.current).replace(/\r/g, ''));
+    }, 4000);
+    return () => {
+      clearInterval(id);
+      saveTermBuffer(pet.id, stripAnsi(transcriptRef.current).replace(/\r/g, ''));
+    };
+  }, [pet.id]);
+
   return (
     <div
       className="kiro-terminal interactive"
       style={{
         left: pos.x,
         top: pos.y,
-        width: PANEL_WIDTH,
-        height: PANEL_HEIGHT,
+        width: size.w,
+        height: size.h,
         display: visible ? undefined : 'none',
       }}
       role="dialog"
@@ -613,6 +796,7 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
           {currentPreset ? `${currentPreset.icon} ${currentPreset.name}` : 'AI Agent'}
           <span className="muted">— {pet.id}</span>
         </div>
+        {aggCost && <span className="terminal-cost" title="Custo acumulado desta sessao">{aggCost}</span>}
         <span className={`terminal-status ${status}`}>
           {status === 'connected' ? '● conectado' : status === 'connecting' ? '◌ conectando…' : '○ desconectado'}
         </span>
@@ -648,7 +832,22 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
       </div>
 
       {showConfig && (
-        <div className="kiro-terminal-config">
+        <div className="kiro-cockpit">
+          <div className="cockpit-tabs">
+            <button className={`cockpit-tab${panelTab === 'config' ? ' active' : ''}`} onClick={() => setPanelTab('config')}>Config</button>
+            <button className={`cockpit-tab${panelTab === 'context' ? ' active' : ''}`} onClick={() => setPanelTab('context')}>Contexto</button>
+            <button className={`cockpit-tab${panelTab === 'history' ? ' active' : ''}`} onClick={() => setPanelTab('history')}>Historico</button>
+            <button className="cockpit-close" onClick={() => setShowConfig(false)} title="Voltar ao terminal" aria-label="Fechar configuracoes">{'\u2715'}</button>
+          </div>
+          {panelTab === 'config' && (
+          <>
+          <div className="kiro-terminal-config">
+          {status === 'disconnected' && (
+            <div className="onboarding-banner">
+              <strong>Vamos comecar</strong>
+              <span>1. Escolha um agente abaixo. 2. Defina a pasta de trabalho no menu do pet. 3. Salve e reconecte.</span>
+            </div>
+          )}
           <label>
             <span>Agente de IA</span>
             <div className="preset-grid">
@@ -734,6 +933,16 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
               Salvar e reconectar
             </button>
           </div>
+          </div>
+          <SettingsSection />
+          </>
+          )}
+          {panelTab === 'context' && (
+            <ContextTab workDir={pet.workDir} onInsert={insertIntoTerminal} />
+          )}
+          {panelTab === 'history' && (
+            <HistoryTab workDir={pet.workDir} runs={runs} onExport={exportTranscript} onClearRuns={clearRuns} />
+          )}
         </div>
       )}
 
@@ -755,8 +964,89 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
         }}
         title="Ctrl+V cola texto ou imagem · Ctrl+Shift+C copia · clique direito copia/cola"
       />
+      <div
+        className="kiro-resize-handle"
+        onPointerDown={onResizeDown}
+        onPointerMove={onResizeMove}
+        onPointerUp={onResizeUp}
+        onPointerCancel={onResizeUp}
+        title="Arrastar para redimensionar"
+      />
     </div>
   );
+}
+
+// Buffer do terminal (scrollback) persistido por pet, p/ sobreviver a reinicio.
+function termBufKey(petId: string): string {
+  return `mesp-termbuf-${petId}`;
+}
+function loadTermBuffer(petId: string): string {
+  try {
+    return localStorage.getItem(termBufKey(petId)) || '';
+  } catch {
+    return '';
+  }
+}
+function saveTermBuffer(petId: string, text: string): void {
+  try {
+    localStorage.setItem(termBufKey(petId), text.slice(-100000));
+  } catch {
+    /* ignore */
+  }
+}
+function restorePreviousBuffer(term: Terminal, petId: string): void {
+  const prev = loadTermBuffer(petId);
+  if (!prev) return;
+  const tail = prev.split('\n').slice(-200).join('\r\n');
+  term.write('\x1b[90m==== sessao anterior ====\x1b[0m\r\n');
+  term.write('\x1b[90m' + tail + '\x1b[0m\r\n');
+  term.write('\x1b[90m=========================\x1b[0m\r\n');
+}
+
+const PANEL_SIZE_KEY = 'mesp-panel-size';
+function clampNum(v: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, v));
+}
+function loadPanelSize(): { w: number; h: number } {
+  try {
+    const raw = localStorage.getItem(PANEL_SIZE_KEY);
+    if (!raw) return { w: PANEL_WIDTH, h: PANEL_HEIGHT };
+    const o = JSON.parse(raw);
+    return {
+      w: typeof o.w === 'number' ? o.w : PANEL_WIDTH,
+      h: typeof o.h === 'number' ? o.h : PANEL_HEIGHT,
+    };
+  } catch {
+    return { w: PANEL_WIDTH, h: PANEL_HEIGHT };
+  }
+}
+function savePanelSize(size: { w: number; h: number }): void {
+  try {
+    localStorage.setItem(PANEL_SIZE_KEY, JSON.stringify(size));
+  } catch {
+    /* ignore */
+  }
+}
+
+function runsStorageKey(petId: string): string {
+  return `mesp-runs-${petId}`;
+}
+function loadRuns(petId: string): RunRecord[] {
+  try {
+    const raw = localStorage.getItem(runsStorageKey(petId));
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? (arr as RunRecord[]) : [];
+  } catch {
+    return [];
+  }
+}
+function saveRuns(petId: string, runs: RunRecord[]): void {
+  try {
+    localStorage.setItem(runsStorageKey(petId), JSON.stringify(runs));
+  } catch {
+    /* ignore */
+  }
 }
 
 function computePosition(): { x: number; y: number } {

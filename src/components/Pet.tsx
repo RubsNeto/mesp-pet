@@ -30,6 +30,8 @@ export interface PetProps {
   onPet?: (petId: string, x: number, y: number) => void;
   /** Callback quando o usuário clica rápido várias vezes (susto). */
   onScare?: (petId: string) => void;
+  /** Mostrar o HUD (status/tempo) sobre o pet. */
+  showHud?: boolean;
 }
 
 interface DragState {
@@ -59,7 +61,7 @@ function formatElapsed(totalSec: number): string {
   return `${m}m${String(s).padStart(2, '0')}s`;
 }
 
-function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onContextMenu, onPet, onScare }: PetProps) {
+function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onContextMenu, onPet, onScare, showHud = true }: PetProps) {
   const { frame } = usePetAnimation(pet.state, pet.traits);
   const spriteSet = pet.traits ? getSpritesForTraits(pet.traits) : null;
   const flipsMap = spriteSet?.flips ?? SPRITE_FLIPS_ON_RIGHT;
@@ -420,7 +422,7 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
       )}
 
       {/* HUD ambiente: status + tempo decorrido, legível de relance. */}
-      {isBusy && (
+      {isBusy && showHud && (
         <div className={`pet-hud hud-${pet.state}`} aria-hidden>
           <span className="pet-hud-label">{HUD_LABEL[pet.state] ?? ''}</span>
           {elapsed > 0 && <span className="pet-hud-time">{formatElapsed(elapsed)}</span>}
