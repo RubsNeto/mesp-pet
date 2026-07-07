@@ -26,6 +26,10 @@ const traitsSrc = fs.readFileSync(
   path.join(ROOT, 'src/procedural/traits.ts'),
   'utf8',
 );
+const catalogSrc = fs.readFileSync(
+  path.join(ROOT, 'src/procedural/traitsCatalog.mjs'),
+  'utf8',
+);
 
 test('persistence.ts persiste traits', () => {
   assert.ok(
@@ -82,14 +86,14 @@ test('traits.ts inclui deserializeTraits e DEFAULT_PALETTE com chaves esperadas'
 });
 
 test('traits.ts gera famílias múltiplas (não apenas a azul)', () => {
-  // Pelo menos sky, rose, mint pra garantir variedade.
+  // Familias vivem no catalogo (fonte unica). Pelo menos sky, rose, mint...
   for (const fam of ['sky', 'rose', 'mint', 'lemon', 'lilac']) {
-    assert.match(traitsSrc, new RegExp(`name: '${fam}'`), `família ${fam} não declarada`);
+    assert.match(catalogSrc, new RegExp(`name: '${fam}'`), `família ${fam} não declarada`);
   }
 });
 
 test('traits.ts tem pesos para acessório e spot', () => {
-  assert.match(traitsSrc, /ACCESSORY_WEIGHTS/);
+  // A geracao usa picks ponderados; SPOT_WEIGHTS + weightedPick continuam.
   assert.match(traitsSrc, /SPOT_WEIGHTS/);
   assert.match(traitsSrc, /weightedPick/);
 });

@@ -13,10 +13,13 @@ import { usePetBehavior } from '../hooks/usePetBehavior';
 import { useInteractions } from '../hooks/useInteractions';
 import { savePetState, loadPetState, clearPetState } from '../services/persistence';
 import { loadSettings, onSettingsChanged } from '../services/settingsStore';
+import { loadPrimaryTraits, savePrimaryTraits } from '../services/primaryStore';
 import { shouldNotify } from '../services/settingsCore';
 import { generateTraits, DEFAULT_TRAITS } from '../procedural/traits';
 import { CommandPalette } from './CommandPalette';
 import { BroadcastBar } from './BroadcastBar';
+import { MespCustomizer } from './MespCustomizer';
+import type { MespTraits } from '../procedural/traits';
 import type { PaletteCommand } from '../services/commandPalette';
 
 // Limite máximo de pets simultâneos para evitar uso descontrolado de memória.
@@ -76,6 +79,11 @@ export function PetManager() {
   const [showHud, setShowHud] = useState<boolean>(() => loadSettings().appearance.showHud);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [broadcastOpen, setBroadcastOpen] = useState(false);
+  // Customizador: aberto + qual pet e' o alvo da edicao.
+  const [customizer, setCustomizer] = useState<{ open: boolean; petId: string | null }>({
+    open: false,
+    petId: null,
+  });
   const headRef = useRef<Record<string, string>>({});
   // Último estado já notificado por pet (evita notificações repetidas).
   const lastNotifiedRef = useRef<Record<string, string>>({});
@@ -436,6 +444,49 @@ export function PetManager() {
     [updatePet, showTerminal],
   );
 
+  // ----- Customizador ---------------------------------------------------------
+
+  const openCustomizer = useCallback((petId: string) => {
+    setCustomizer({ open: true, petId });
+  }, []);
+
+  // Onboarding: na primeira execucao (sem principal salvo), abre o customizador
+  // automaticamente para o primeiro pet.
+  useEffect(() => {
+    const KEY = 'mesp-onboarded-v1';
+    try {
+      if (localStorage.getItem(KEY)) return;
+      localStorage.setItem(KEY, '1');
+      if (loadPrimaryTraits()) return; // ja tem principal => nao e' 1a vez de fato
+      const first = petsRef.current[0];
+      if (first) {
+        const t = setTimeout(() => setCustomizer({ open: true, petId: first.id }), 1200);
+        return () => clearTimeout(t);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const closeCustomizer = useCallback(() => {
+    setCustomizer({ open: false, petId: null });
+  }, []);
+
+  // Traits iniciais do customizador: do pet-alvo, senao do principal salvo.
+  const customizerInitialTraits = useMemo<MespTraits>(() => {
+    const target = customizer.petId ? pets.find((p) => p.id === customizer.petId) : null;
+    return target?.traits ?? loadPrimaryTraits() ?? DEFAULT_TRAITS;
+  }, [customizer.petId, pets]);
+
+  // Salva como MESP principal E aplica ao pet-alvo ao vivo.
+  const handleSavePrimary = useCallback(
+    (traits: MespTraits) => {
+      savePrimaryTraits(traits);
+      if (customizer.petId) updatePet(customizer.petId, { traits });
+    },
+    [customizer.petId, updatePet],
+  );
+
   // ----- Context menu items ---------------------------------------------------
 
   const contextMenuItems = useMemo<Array<ContextMenuItem | 'separator'>>(() => {
@@ -454,6 +505,11 @@ export function PetManager() {
         label: 'Comemorar',
         icon: '🎉',
         onClick: () => celebratePet(targetId),
+      },
+      {
+        label: 'Customizar MESP',
+        icon: '🎨',
+        onClick: () => openCustomizer(targetId),
       },
       {
         label: target.state === 'sleeping' ? 'Acordar' : 'Dormir',
@@ -509,13 +565,14 @@ export function PetManager() {
         },
       },
     ];
-  }, [contextMenu, pets, addPet, removePet, setPetState, updatePet, showTerminal, spawnToy, celebratePet, autoStartEnabled, toggleAutoStart, chooseWorkDir, focusMode, toggleFocusMode]);
+  }, [contextMenu, pets, addPet, removePet, setPetState, updatePet, showTerminal, spawnToy, celebratePet, autoStartEnabled, toggleAutoStart, chooseWorkDir, focusMode, toggleFocusMode, openCustomizer]);
 
   const paletteCommands = useMemo<PaletteCommand[]>(() => {
     const first = pets[0];
     return [
       { id: 'new', label: 'Novo MESP', hint: 'adicionar pet', disabled: pets.length >= MAX_PETS, run: () => addPet() },
       { id: 'panel', label: 'Abrir painel do agente', hint: first ? first.id : '', disabled: !first, run: () => { if (first) showTerminal(first.id); } },
+      { id: 'customize', label: 'Customizar MESP', hint: 'aparência + principal', disabled: !first, run: () => { if (first) openCustomizer(first.id); } },
       { id: 'focus', label: focusMode ? 'Modo foco: desligar' : 'Modo foco: ligar', hint: 'silenciar/ativar', run: toggleFocusMode },
       { id: 'visibility', label: 'Mostrar/ocultar pets', hint: 'Ctrl+Shift+M', run: () => { if (window.mesp?.toggleVisibility) void window.mesp.toggleVisibility(); } },
       { id: 'ball', label: 'Dropar bolinha', run: () => spawnToy(window.innerWidth / 2, window.innerHeight / 2) },
@@ -523,7 +580,7 @@ export function PetManager() {
       { id: 'reset', label: 'Resetar pets', hint: 'apaga estado salvo', run: () => { clearPetState(); window.location.reload(); } },
       { id: 'quit', label: 'Fechar app', run: () => { if (window.mesp) void window.mesp.quit(); else window.close(); } },
     ];
-  }, [pets, focusMode, addPet, showTerminal, toggleFocusMode, spawnToy]);
+  }, [pets, focusMode, addPet, showTerminal, toggleFocusMode, spawnToy, openCustomizer]);
 
   // ----- Render ---------------------------------------------------------------
 
@@ -586,6 +643,13 @@ export function PetManager() {
         <BroadcastBar onSubmit={broadcastPrompt} onClose={() => setBroadcastOpen(false)} />
       )}
 
+      <MespCustomizer
+        open={customizer.open}
+        initialTraits={customizerInitialTraits}
+        onClose={closeCustomizer}
+        onSave={handleSavePrimary}
+      />
+
       {contextMenu.open && (
         <ContextMenu
           x={contextMenu.x}
@@ -613,12 +677,14 @@ function shortenPath(p: string): string {
 function createInitialPet(): PetEntity {
   const x = 16;
   const y = typeof window !== 'undefined' ? Math.max(0, window.innerHeight - 128 - 16) : 400;
+  // Usa o MESP "principal" customizado (se salvo); senao o azul padrao.
+  const traits = loadPrimaryTraits() ?? DEFAULT_TRAITS;
   return {
     id: newPetId(),
     position: { x, y },
     facing: 'left',
     state: 'idle',
-    traits: DEFAULT_TRAITS,
+    traits,
     task: null,
     history: [],
     showBubble: false,

@@ -53,6 +53,15 @@ const HUD_LABEL: Partial<Record<string, string>> = {
   waiting: 'precisa de você',
 };
 
+// Partículas por aura (4 cada, distribuídas por posições p0..p3 no CSS).
+const AURA_EMOJI: Record<string, string[]> = {
+  sparkles: ['✨', '✨', '⭐', '✨'],
+  hearts: ['💖', '💕', '❤️', '💗'],
+  flames: ['🔥', '🔥', '🔥', '✨'],
+  snow: ['❄️', '❄️', '✦', '❄️'],
+  leaves: ['🍃', '🍂', '🍃', '🌿'],
+};
+
 /** Formata segundos como "12s" ou "1m04s". */
 function formatElapsed(totalSec: number): string {
   if (totalSec < 60) return `${totalSec}s`;
@@ -402,11 +411,14 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
   return (
     <div
       ref={wrapperRef}
-      className={`pet-wrapper interactive state-${pet.state}${dragging ? ' dragging' : ''}${spawning ? ' pet-spawning' : ''}`}
+      className={`pet-wrapper interactive state-${pet.state}${dragging ? ' dragging' : ''}${spawning ? ' pet-spawning' : ''}${pet.traits?.animStyle && pet.traits.animStyle !== 'breathe' ? ` anim-${pet.traits.animStyle}` : ''}`}
       style={{
         left: pet.position.x,
         top: pet.position.y,
         filter: 'drop-shadow(0 6px 6px rgba(0, 0, 0, 0.35))',
+        ...(pet.traits?.scale && pet.traits.scale !== 1
+          ? { transform: `scale(${pet.traits.scale})`, transformOrigin: '50% 88%' }
+          : null),
       }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -451,12 +463,20 @@ function PetComponent({ pet, onMove, onClick, onDoubleClick, onBubbleClick, onCo
             style={{
               width: eyeConfig.size,
               height: eyeConfig.size,
+              ...(pet.traits?.palette?.pupil ? { background: pet.traits.palette.pupil } : null),
             }}
             aria-hidden
           />
         ))}
       </div>
       <div className="pet-shadow" aria-hidden />
+      {pet.traits?.aura && pet.traits.aura !== 'none' && (
+        <div className={`pet-aura aura-${pet.traits.aura}`} aria-hidden>
+          {AURA_EMOJI[pet.traits.aura]?.map((c, i) => (
+            <span key={i} className={`pet-aura-p p${i}`}>{c}</span>
+          ))}
+        </div>
+      )}
       {pet.state === 'sleeping' && (
         <div className="pet-zzz" aria-hidden>
           <span className="zzz zzz-1">Z</span>

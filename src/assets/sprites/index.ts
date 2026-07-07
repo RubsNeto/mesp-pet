@@ -8,6 +8,7 @@ import type { PetState } from '../../types';
 import {
   buildWalkingFrames,
   composeMesp,
+  eyeLayout,
   MESP_ANATOMY,
   SPRITE_W,
 } from '../../procedural/composer';
@@ -49,26 +50,25 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
-/** Cria uma EyeConfig para olhos posicionados em cx logical (1..32). */
-function makeEyeConfig(slotsLogical: Array<{ cx: number; cy: number }>): EyeConfig {
+/** Cria uma EyeConfig para olhos posicionados em cx/cy logical (0..32),
+ *  com raio logico opcional por olho (default = anatomia do olho unico). */
+function makeEyeConfig(slotsLogical: Array<{ cx: number; cy: number; rx?: number; ry?: number }>): EyeConfig {
   const a = MESP_ANATOMY;
-  const rxPx = a.eyeRx * SCALE_TO_RENDER;
-  const ryPx = a.eyeRy * SCALE_TO_RENDER;
-  const usableRx = Math.max(0, rxPx - PUPIL_DIAMETER / 2 - SAFETY_MARGIN);
-  const usableRy = Math.max(0, ryPx - PUPIL_DIAMETER / 2 - SAFETY_MARGIN);
-  const slots = slotsLogical.map((s) => ({
-    cx: round1(s.cx * SCALE_TO_RENDER),
-    cy: round1(s.cy * SCALE_TO_RENDER),
-    rx: round1(usableRx),
-    ry: round1(usableRy),
-  }));
-  return { size: PUPIL_DIAMETER, slots };
+  // Pupila menor quando ha varios olhos pequenos.
+  const minLogicalRx = Math.min(...slotsLogical.map((s) => s.rx ?? a.eyeRx));
+  const pupil = Math.max(4, Math.round(Math.min(PUPIL_DIAMETER, minLogicalRx * SCALE_TO_RENDER * 0.7)));
+  const slots = slotsLogical.map((s) => {
+    const rxPx = (s.rx ?? a.eyeRx) * SCALE_TO_RENDER;
+    const ryPx = (s.ry ?? a.eyeRy) * SCALE_TO_RENDER;
+    return {
+      cx: round1(s.cx * SCALE_TO_RENDER),
+      cy: round1(s.cy * SCALE_TO_RENDER),
+      rx: round1(Math.max(0, rxPx - pupil / 2 - SAFETY_MARGIN)),
+      ry: round1(Math.max(0, ryPx - pupil / 2 - SAFETY_MARGIN)),
+    };
+  });
+  return { size: pupil, slots };
 }
-
-// MESP é ciclope — 1 olho central.
-const DEFAULT_EYE_CONFIG: EyeConfig = makeEyeConfig([
-  { cx: MESP_ANATOMY.eyeCx, cy: MESP_ANATOMY.eyeCy },
-]);
 
 // ---------------------------------------------------------------------------
 //  Per-trait sprite generation
@@ -137,19 +137,26 @@ function buildSpriteSet(traits: MespTraits): SpriteSet {
   const flips: Record<string, boolean> = {};
   for (const u of walkingFrames) flips[u] = true;
 
-  // Mapa de pupila DOM por frame.
+  // Mapa de pupila DOM por frame. O olho 'round' (ou qualquer multi-olho) usa
+  // pupila DOM que segue o cursor; estilos especiais de olho unico sao
+  // autocontidos no sprite (sem pupila DOM).
+  const count = t.eyeCount === 2 || t.eyeCount === 3 ? t.eyeCount : 1;
+  const usesDomPupil = count > 1 || !t.eyeStyle || t.eyeStyle === 'round';
+  const openEyeCfg = usesDomPupil
+    ? makeEyeConfig(eyeLayout(count).map((s) => ({ cx: s.cx, cy: s.cy, rx: s.rx, ry: s.ry })))
+    : null;
   const eye: Record<string, EyeConfig | null> = {
-    [idle]:      DEFAULT_EYE_CONFIG,
-    [sparkle]:   DEFAULT_EYE_CONFIG,
-    [jump]:      DEFAULT_EYE_CONFIG,
-    [fall]:      DEFAULT_EYE_CONFIG,
-    [alert]:     DEFAULT_EYE_CONFIG,
-    [sit]:       DEFAULT_EYE_CONFIG,
+    [idle]:      openEyeCfg,
+    [sparkle]:   openEyeCfg,
+    [jump]:      openEyeCfg,
+    [fall]:      openEyeCfg,
+    [alert]:     openEyeCfg,
+    [sit]:       openEyeCfg,
     [blink]:     null,
     [sleep]:     null,
     [confused]:  null,
   };
-  for (const u of walkingFrames) eye[u] = DEFAULT_EYE_CONFIG;
+  for (const u of walkingFrames) eye[u] = openEyeCfg;
 
   return { frames, fps, flips, eye };
 }
@@ -159,7 +166,40 @@ const spriteCache = new Map<string, SpriteSet>();
 const MAX_CACHE_ENTRIES = 32;
 
 function traitsKey(traits: MespTraits): string {
-  return `${traits.palette.bodyMid}-${traits.palette.bodyHi}-${traits.palette.bodyLo}-${traits.accessory}-${traits.spots}-${traits.spotColor}`;
+  const p = traits.palette;
+  const accs = (traits.accessories && traits.accessories.length > 0
+    ? traits.accessories
+    : [traits.accessory]
+  ).join('+');
+  // Inclui todos os campos que o composer usa, para que edicoes finas
+  // invalidem o cache corretamente.
+  return [
+    p.outline,
+    p.bodyHi,
+    p.bodyMid,
+    p.bodyLo,
+    p.belly,
+    p.feetHi,
+    p.feetLo,
+    p.eyeWhite,
+    accs,
+    traits.spots,
+    traits.spotColor,
+    traits.eyeStyle ?? 'round',
+    traits.tuft ?? 'drop',
+    traits.mouth ?? 'none',
+    traits.blush ? `b:${traits.blushColor ?? ''}` : 'nb',
+    traits.gradient ? `g:${traits.gradientDir ?? 'vertical'}` : 'ng',
+    traits.bodyShape ?? 'squircle',
+    `e${traits.eyeCount ?? 1}`,
+    traits.brows ?? 'none',
+    traits.neck ?? 'none',
+    traits.back ?? 'none',
+    traits.held ?? 'none',
+    traits.material ?? 'matte',
+    traits.marks ?? 'none',
+    traits.outlineMode ?? 'dark',
+  ].join('-');
 }
 
 export function getSpritesForTraits(traits: MespTraits): SpriteSet {

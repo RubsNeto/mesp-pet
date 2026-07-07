@@ -29,9 +29,10 @@ test('traits.ts gera estrutura válida e tem pesos para acessório/spot', () => 
   assert.ok(src.includes('export function generateTraits'), 'generateTraits não encontrado');
   assert.ok(src.includes('weightedPick'), 'weightedPick (pesos) não usado');
   assert.ok(src.includes('export function deserializeTraits'), 'deserializeTraits não encontrado');
-  // Pelo menos as 8 famílias de cor.
-  const familyMatch = src.match(/const FAMILIES: ColorFamily\[\] = \[/);
-  assert.ok(familyMatch, 'FAMILIES não declarado');
+  // Familias vivem no catalogo (fonte unica); traits.ts as reexporta.
+  assert.ok(src.includes("from './traitsCatalog'"), 'traits.ts não importa do traitsCatalog');
+  const catalogSrc = fs.readFileSync(path.join(ROOT, 'src/procedural/traitsCatalog.mjs'), 'utf8');
+  assert.ok(catalogSrc.includes('export const FAMILIES'), 'FAMILIES não declarado no catálogo');
 });
 
 test('persistence.ts salva e restaura traits', () => {
