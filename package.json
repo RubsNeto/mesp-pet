@@ -1,7 +1,7 @@
 {
   "name": "mesp-pet",
   "version": "0.1.0",
-  "description": "MESP - pixel art desktop pet/companion for Kiro CLI built with Electron + Vite + React + TypeScript",
+  "description": "MESP Code - pixel art coding companion powered by OpenCode and 9Router",
   "private": true,
   "main": "dist-electron/main.js",
   "author": "MESP",
@@ -17,7 +17,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --test tests/summarize.test.mjs tests/kiroBridge.spawn.test.mjs tests/procedural.test.mjs tests/sanitize.test.mjs tests/persistence.test.mjs tests/composer.test.mjs tests/stateDetect.test.mjs tests/costParse.test.mjs tests/runLog.test.mjs tests/contextStore.test.mjs tests/settingsStore.test.mjs tests/commandPalette.test.mjs tests/primer.test.mjs tests/traitsCatalog.test.mjs tests/primaryStore.test.mjs tests/presetsStore.test.mjs",
+    "test": "node --test tests/summarize.test.mjs tests/kiroBridge.spawn.test.mjs tests/procedural.test.mjs tests/sanitize.test.mjs tests/persistence.test.mjs tests/composer.test.mjs tests/stateDetect.test.mjs tests/costParse.test.mjs tests/runLog.test.mjs tests/contextStore.test.mjs tests/settingsStore.test.mjs tests/commandPalette.test.mjs tests/primer.test.mjs tests/traitsCatalog.test.mjs tests/primaryStore.test.mjs tests/presetsStore.test.mjs tests/mespCodeCore.test.mjs",
     "package": "npm run build && electron-builder",
     "package:dir": "npm run build && electron-builder --dir",
     "rebuild-native": "node scripts/patch-gyp.js && electron-builder install-app-deps"
@@ -27,6 +27,10 @@
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-web-links": "^0.11.0",
     "@xterm/xterm": "^5.5.0",
+    "9router": "0.5.40",
+    "node": "22.17.1",
+    "npm": "11.18.0",
+    "opencode-ai": "1.18.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
@@ -57,10 +61,25 @@
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/9router/**",
+      "!node_modules/opencode-darwin-*/**",
+      "!node_modules/opencode-linux-*/**",
+      "!node_modules/opencode-windows-*/**"
     ],
     "asarUnpack": [
-      "**/node_modules/@homebridge/node-pty-prebuilt-multiarch/**"
+      "**/node_modules/**"
+    ],
+    "extraResources": [
+      {
+        "from": "node_modules/9router",
+        "to": "runtime/9router",
+        "filter": [
+          "app/**/*",
+          "LICENSE",
+          "package.json"
+        ]
+      }
     ],
     "directories": {
       "output": "release"

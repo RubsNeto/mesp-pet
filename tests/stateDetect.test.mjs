@@ -10,9 +10,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const modUrl = pathToFileURL(
-  path.resolve(__dirname, '../src/services/stateDetect.mjs'),
-).href;
+const modUrl = pathToFileURL(path.resolve(__dirname, '../src/services/stateDetect.mjs')).href;
 
 const {
   stripAnsi,
@@ -88,7 +86,16 @@ test('presetIdForCommand mapeia comandos conhecidos', () => {
   assert.equal(presetIdForCommand('aider'), 'aider');
   assert.equal(presetIdForCommand('gh'), 'gh-copilot');
   assert.equal(presetIdForCommand('cursor-agent'), 'cursor');
+  assert.equal(presetIdForCommand('9code'), 'opencode');
+  assert.equal(presetIdForCommand('opencode'), 'opencode');
   assert.equal(presetIdForCommand('desconhecido'), null);
+});
+
+test('OpenCode: detecta permissao, atividade de tool e erro do 9Router', () => {
+  const opencode = getMarkersForCommand('9code');
+  assert.equal(matchState('Allow once', opencode), 'waiting');
+  assert.equal(matchState('Edit src/App.tsx', opencode), 'working');
+  assert.equal(matchState('9Router error: provider unavailable', opencode), 'error');
 });
 
 test('Kiro: detecta success pelo rodapé "Credits ... Time ...s"', () => {

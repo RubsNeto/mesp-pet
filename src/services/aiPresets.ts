@@ -14,6 +14,14 @@ export interface AIPreset {
 
 export const AI_PRESETS: AIPreset[] = [
   {
+    id: 'mesp-code',
+    name: 'MESP Code',
+    description: 'OpenCode conectado ao 9Router, com modelos sincronizados automaticamente',
+    command: '9code',
+    args: [],
+    icon: 'M',
+  },
+  {
     id: 'claude',
     name: 'Claude Code',
     description: 'Anthropic Claude — agente de código',

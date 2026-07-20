@@ -23,6 +23,64 @@ export interface KiroRunResult {
   error?: string;
 }
 
+export interface MespCodeEvent {
+  petId: string;
+  requestId: string;
+  kind: 'started' | 'event' | 'text' | 'permission' | 'exit';
+  mode?: 'fast' | 'plan' | 'assisted' | 'autonomous';
+  engine?: '9router' | 'opencode' | 'opencode-server';
+  event?: Record<string, unknown>;
+  text?: string;
+  code?: number | null;
+  error?: string;
+  cancelled?: boolean;
+  sessionInvalid?: boolean;
+  durationMs?: number;
+  firstTokenMs?: number;
+  sessionId?: string | null;
+  permission?: {
+    id: string;
+    action: string;
+    resources: string[];
+    remember: string[];
+    tool?: string;
+  };
+}
+
+export interface MespCodeDiffFile {
+  file: string;
+  patch: string;
+  additions: number;
+  deletions: number;
+  status: string;
+}
+
+export type ProjectCheckName = 'typecheck' | 'lint' | 'test' | 'build' | 'check';
+
+export interface MespCodeVerifyEvent {
+  petId: string;
+  verificationId: string;
+  messageId: string;
+  kind: 'started' | 'check-started' | 'check-output' | 'check-exit' | 'exit';
+  checks?: ProjectCheckName[];
+  check?: ProjectCheckName;
+  stream?: 'stdout' | 'stderr';
+  text?: string;
+  code?: number | null;
+  durationMs?: number;
+  timedOut?: boolean;
+  truncated?: boolean;
+  passed?: boolean;
+  cancelled?: boolean;
+  results?: Array<{
+    check: ProjectCheckName;
+    code: number | null;
+    durationMs: number;
+    timedOut: boolean;
+    truncated: boolean;
+  }>;
+}
+
 const api = {
   /** Executa um comando externo (Kiro CLI ou outro). */
   runKiro(opts: KiroRunOptions): Promise<KiroRunResult> {
@@ -63,6 +121,120 @@ const api = {
     kiroDefaultArgs: string;
   }> {
     return ipcRenderer.invoke('app:get-config');
+  },
+  /** Metadados seguros do OpenCode/9Router (nunca inclui a API key). */
+  getOpenCodeStatus(force?: boolean): Promise<{
+    model: string | null;
+    modelCount: number;
+    providerPrefixes: string[];
+    models: string[];
+    routerState: 'unknown' | 'ready' | 'unauthorized' | 'unreachable' | 'misconfigured';
+    routerMessage: string;
+    routerCheckedAt: number | null;
+    runtime: {
+      opencode: 'bundled' | 'system' | 'custom' | 'missing';
+      node: 'bundled' | 'system' | 'custom' | 'missing';
+      npm: 'bundled' | 'system' | 'custom' | 'missing';
+      router: 'bundled' | 'external' | 'starting' | 'unavailable';
+      routerBundledAvailable: boolean;
+      portableReady: boolean;
+      setupRequired: boolean;
+    };
+  }> {
+    return ipcRenderer.invoke('opencode:get-status', force === true);
+  },
+  /** Abre o painel local do 9Router em uma janela isolada do Electron. */
+  open9RouterDashboard(): Promise<{ ok: boolean; error?: string }> {
+    return ipcRenderer.invoke('opencode:open-router-dashboard');
+  },
+  /** Envia uma mensagem pelo motor headless do OpenCode. */
+  sendMespCode(opts: {
+    petId: string;
+    requestId: string;
+    prompt: string;
+    model: string;
+    mode: 'fast' | 'plan' | 'assisted' | 'autonomous';
+    sessionId?: string | null;
+    cwd?: string;
+    history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+    limits?: { maxDurationMs: number; maxTokens: number; maxToolCalls: number };
+  }): Promise<{ ok: boolean; error?: string }> {
+    return ipcRenderer.invoke('mesp-code:send', opts);
+  },
+  /** Interrompe a resposta atual do MESP Code. */
+  cancelMespCode(petId: string, requestId: string): Promise<boolean> {
+    return ipcRenderer.invoke('mesp-code:cancel', { petId, requestId });
+  },
+  /** Responde a uma autorizacao pendente do modo Assistido. */
+  replyMespCodePermission(opts: {
+    petId: string;
+    requestId: string;
+    permissionId: string;
+    reply: 'once' | 'always' | 'reject';
+  }): Promise<{ ok: boolean; error?: string }> {
+    return ipcRenderer.invoke('mesp-code:permission-reply', opts);
+  },
+  /** Retorna as mudancas de uma sessao, com conteudo sensivel filtrado no main. */
+  getMespCodeDiff(opts: {
+    sessionId: string;
+    messageId?: string;
+    cwd: string;
+  }): Promise<{ ok: boolean; files?: MespCodeDiffFile[]; truncated?: boolean; error?: string }> {
+    return ipcRenderer.invoke('mesp-code:get-diff', opts);
+  },
+  /** Reverte as mudancas a partir de uma mensagem, apos confirmacao no renderer. */
+  revertMespCode(opts: {
+    sessionId: string;
+    messageId: string;
+    cwd: string;
+  }): Promise<{ ok: boolean; error?: string }> {
+    return ipcRenderer.invoke('mesp-code:revert', opts);
+  },
+  /** Stream estruturado do OpenCode em formato JSON. */
+  onMespCodeEvent(cb: (data: MespCodeEvent) => void): () => void {
+    const handler = (_e: unknown, data: MespCodeEvent) => cb(data);
+    ipcRenderer.on('mesp-code:event', handler);
+    return () => ipcRenderer.removeListener('mesp-code:event', handler);
+  },
+  /** Descobre scripts de verificacao conhecidos no package.json do projeto. */
+  getProjectChecks(cwd: string): Promise<{
+    ok: boolean;
+    checks: ProjectCheckName[];
+    error?: string;
+  }> {
+    return ipcRenderer.invoke('mesp-code:get-project-checks', cwd);
+  },
+  /** Executa scripts conhecidos, em serie e com limites no processo principal. */
+  verifyMespCode(opts: {
+    petId: string;
+    verificationId: string;
+    messageId: string;
+    cwd: string;
+    checks: ProjectCheckName[];
+  }): Promise<{
+    ok: boolean;
+    passed?: boolean;
+    cancelled?: boolean;
+    error?: string;
+    results?: Array<{
+      check: ProjectCheckName;
+      code: number | null;
+      durationMs: number;
+      timedOut: boolean;
+      truncated: boolean;
+    }>;
+  }> {
+    return ipcRenderer.invoke('mesp-code:verify', opts);
+  },
+  /** Interrompe a verificacao de projeto em andamento. */
+  cancelMespCodeVerification(petId: string, verificationId: string): Promise<boolean> {
+    return ipcRenderer.invoke('mesp-code:verify-cancel', { petId, verificationId });
+  },
+  /** Eventos de progresso dos quality gates. */
+  onMespCodeVerifyEvent(cb: (data: MespCodeVerifyEvent) => void): () => void {
+    const handler = (_e: unknown, data: MespCodeVerifyEvent) => cb(data);
+    ipcRenderer.on('mesp-code:verify-event', handler);
+    return () => ipcRenderer.removeListener('mesp-code:verify-event', handler);
   },
 
   /** Verifica se o app está configurado para iniciar com o sistema. */
@@ -161,8 +333,11 @@ const api = {
     return () => ipcRenderer.removeListener('terminal:stderr', handler);
   },
   /** Listener de exit do terminal. */
-  onTerminalExit(cb: (data: { petId: string; code: number | null; error?: string }) => void): () => void {
-    const handler = (_e: unknown, data: { petId: string; code: number | null; error?: string }) => cb(data);
+  onTerminalExit(
+    cb: (data: { petId: string; code: number | null; error?: string }) => void,
+  ): () => void {
+    const handler = (_e: unknown, data: { petId: string; code: number | null; error?: string }) =>
+      cb(data);
     ipcRenderer.on('terminal:exit', handler);
     return () => ipcRenderer.removeListener('terminal:exit', handler);
   },

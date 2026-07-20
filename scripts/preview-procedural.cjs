@@ -1,4 +1,3 @@
-/* eslint-disable */
 // scripts/preview-procedural.cjs
 //
 // Gera PNGs de prévia do MESP renderizado proceduralmente, sem precisar abrir

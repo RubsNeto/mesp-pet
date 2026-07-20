@@ -27,6 +27,10 @@ import { loadSettings, onSettingsChanged } from '../services/settingsStore';
 import { ContextTab } from './ContextTab';
 import { HistoryTab } from './HistoryTab';
 import { SettingsSection } from './SettingsSection';
+import { getSpritesForTraits } from '../assets/sprites';
+import { subscribeMousePosition } from '../hooks/useMousePosition';
+import { MespCodeChat } from './MespCodeChat';
+import type { MespCodeStatus } from './MespCodeChat';
 
 export interface KiroChatPanelProps {
   pet: PetEntity;
@@ -42,8 +46,40 @@ export interface KiroChatPanelProps {
 const PANEL_WIDTH = 820;
 const PANEL_HEIGHT = 540;
 const MARGIN = 12;
+const HEADER_SPRITE_SCALE = 54 / 96;
 
 type TermStatus = 'disconnected' | 'connecting' | 'connected';
+
+const PET_STATE_LABELS: Record<PetState, string> = {
+  idle: 'pronto',
+  walking: 'explorando',
+  thinking: 'pensando',
+  working: 'trabalhando',
+  waiting: 'precisa de voce',
+  success: 'concluido',
+  error: 'atencao',
+  sleeping: 'descansando',
+  sitting: 'observando',
+};
+
+const ROUTE_PROVIDER_NAMES: Record<string, string> = {
+  cx: 'Codex',
+  kr: 'Kiro',
+  gh: 'GitHub',
+};
+
+function describeModel(model: string | null | undefined): { provider: string; model: string } {
+  if (!model) return { provider: '9Router', model: 'modelo automatico' };
+  const clean = model.replace(/^9router\//i, '');
+  const [prefix, ...rest] = clean.split('/');
+  if (rest.length > 0) {
+    return {
+      provider: ROUTE_PROVIDER_NAMES[prefix] || prefix.toUpperCase(),
+      model: rest.join('/'),
+    };
+  }
+  return { provider: '9Router', model: clean };
+}
 
 // ----- Copiar / colar -------------------------------------------------------
 
@@ -94,15 +130,16 @@ async function pasteIntoTerminal(term: Terminal): Promise<void> {
 export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroChatPanelProps) {
   const [status, setStatus] = useState<TermStatus>('disconnected');
   const [commandInfo, setCommandInfo] = useState<{ cmd: string; args: string[] }>({
-    cmd: 'kiro-cli',
-    args: ['chat'],
+    cmd: '9code',
+    args: [],
   });
   const [configLoaded, setConfigLoaded] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
-  const [editCmd, setEditCmd] = useState('kiro-cli');
-  const [editArgs, setEditArgs] = useState('chat');
-  const [selectedPresetId, setSelectedPresetId] = useState<string>('kiro');
+  const [editCmd, setEditCmd] = useState('9code');
+  const [editArgs, setEditArgs] = useState('');
+  const [selectedPresetId, setSelectedPresetId] = useState<string>('mesp-code');
   const [installedPresets, setInstalledPresets] = useState<Record<string, boolean>>({});
+  const [openCodeStatus, setOpenCodeStatus] = useState<MespCodeStatus | null>(null);
   // Cockpit: sub-aba ativa do overlay + execucoes (runs) + transcript p/ export.
   const [panelTab, setPanelTab] = useState<'config' | 'context' | 'history'>('config');
   const [runs, setRuns] = useState<RunRecord[]>(() => loadRuns(pet.id));
@@ -119,6 +156,35 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
     () => findPresetByCommand(commandInfo.cmd, commandInfo.args),
     [commandInfo.cmd, commandInfo.args],
   );
+  const isMespCode =
+    currentPreset?.id === 'mesp-code' ||
+    /(^|[\\/])(?:9code|opencode)(?:\.(?:cmd|exe))?$/i.test(commandInfo.cmd);
+  const mespSpriteSet = getSpritesForTraits(pet.traits);
+  // O mascote compacto sempre usa o frame de olho aberto. O estado continua
+  // visivel pelo badge, glow e pelo pet principal, sem sumir durante piscadas.
+  const mespFrame = mespSpriteSet.frames.idle[0]!;
+  const mespEye = mespSpriteSet.eye[mespFrame] ?? null;
+  const modelInfo = describeModel(openCodeStatus?.model);
+  const headerConnection = isMespCode
+    ? openCodeStatus?.routerState === 'ready'
+      ? { className: 'connected', label: 'conectado' }
+      : openCodeStatus?.routerState === 'unknown' || !openCodeStatus
+        ? { className: 'connecting', label: 'verificando...' }
+        : openCodeStatus.routerState === 'unauthorized'
+          ? { className: 'disconnected', label: 'autenticacao recusada' }
+          : openCodeStatus.routerState === 'misconfigured'
+            ? { className: 'disconnected', label: 'nao configurado' }
+            : { className: 'disconnected', label: 'indisponivel' }
+    : {
+        className: status,
+        label:
+          status === 'connected'
+            ? 'conectado'
+            : status === 'connecting'
+              ? 'conectando...'
+              : 'desconectado',
+      };
+  const workspaceName = pet.workDir?.split(/[\\/]/).filter(Boolean).pop() || 'diretorio atual';
   // Custo acumulado da sessao (soma das execucoes), formatado p/ o header.
   const aggCost = useMemo(() => formatCost(aggregateCost(runs)), [runs]);
 
@@ -130,6 +196,8 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
   }, [onPetStateChange]);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const headerAvatarRef = useRef<HTMLDivElement>(null);
+  const headerPupilRefs = useRef<Array<HTMLSpanElement | null>>([]);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const connectedRef = useRef(false);
@@ -143,15 +211,50 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
   // PTY quando o painel aparece pela 1ª vez, garantindo dimensões reais.
   const spawnFnRef = useRef<(() => void) | null>(null);
 
+  // Replica o comportamento da pupila do personagem no mascote do painel:
+  // mesma cor, brilho, proporcao e deslocamento em direcao ao cursor.
+  useEffect(() => {
+    if (!mespEye) return;
+    const update = (mouseX: number, mouseY: number) => {
+      const avatar = headerAvatarRef.current;
+      if (!avatar) return;
+      const rect = avatar.getBoundingClientRect();
+      const pupilSize = mespEye.size * HEADER_SPRITE_SCALE;
+      for (let index = 0; index < mespEye.slots.length; index += 1) {
+        const slot = mespEye.slots[index]!;
+        const pupil = headerPupilRefs.current[index];
+        if (!pupil) continue;
+        const centerX = 1 + slot.cx * HEADER_SPRITE_SCALE;
+        const centerY = 1 + slot.cy * HEADER_SPRITE_SCALE;
+        let dx = mouseX - (rect.left + centerX);
+        let dy = mouseY - (rect.top + centerY);
+        const distance = Math.hypot(dx, dy);
+        const factor = distance > 0 ? Math.min(1, distance / 80) : 0;
+        if (distance > 0) {
+          dx = (dx / distance) * factor;
+          dy = (dy / distance) * factor;
+        }
+        const left = centerX + dx * slot.rx * HEADER_SPRITE_SCALE - pupilSize / 2;
+        const top = centerY + dy * slot.ry * HEADER_SPRITE_SCALE - pupilSize / 2;
+        pupil.style.left = `${left}px`;
+        pupil.style.top = `${top}px`;
+      }
+    };
+    return subscribeMousePosition(update);
+  }, [mespEye]);
+
   // Atualiza a lista de execucoes (imutavel) e persiste por pet.
-  const updateRuns = useCallback((updater: (r: RunRecord[]) => RunRecord[]) => {
-    setRuns((prev) => {
-      const next = trimRuns(updater(prev));
-      runsRef.current = next;
-      saveRuns(pet.id, next);
-      return next;
-    });
-  }, [pet.id]);
+  const updateRuns = useCallback(
+    (updater: (r: RunRecord[]) => RunRecord[]) => {
+      setRuns((prev) => {
+        const next = trimRuns(updater(prev));
+        runsRef.current = next;
+        saveRuns(pet.id, next);
+        return next;
+      });
+    },
+    [pet.id],
+  );
   useLayoutEffect(() => {
     updateRunsRef.current = updateRuns;
   }, [updateRuns]);
@@ -175,7 +278,10 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
     const clean = stripAnsi(transcriptRef.current || '');
     const header = `# MESP transcript - ${pet.id}\n\nComando: ${commandInfo.cmd} ${commandInfo.args.join(' ')}\nData: ${new Date().toISOString()}\n\n`;
     const body = '```\n' + clean.slice(-200000) + '\n```\n';
-    void window.mesp.saveTextFile({ content: header + body, defaultName: `mesp-${pet.id}-${Date.now()}.md` });
+    void window.mesp.saveTextFile({
+      content: header + body,
+      defaultName: `mesp-${pet.id}-${Date.now()}.md`,
+    });
   }, [pet.id, commandInfo.cmd, commandInfo.args]);
 
   // Aplica a fonte do terminal a partir das settings (e reage a mudancas).
@@ -183,8 +289,16 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
     const apply = () => {
       const term = termRef.current;
       if (!term) return;
-      try { term.options.fontSize = loadSettings().appearance.terminalFontSize; } catch { /* noop */ }
-      try { fitRef.current?.fit(); } catch { /* noop */ }
+      try {
+        term.options.fontSize = loadSettings().appearance.terminalFontSize;
+      } catch {
+        /* noop */
+      }
+      try {
+        fitRef.current?.fit();
+      } catch {
+        /* noop */
+      }
     };
     apply();
     return onSettingsChanged(apply);
@@ -218,19 +332,53 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
     }
   }, [runs]);
 
+  // O launcher 9code atualiza este arquivo ao iniciar. Relemos apenas os
+  // metadados publicos para refletir modelos novos sem reiniciar o MESP.
+  useEffect(() => {
+    if (!visible || !isMespCode || !window.mesp?.getOpenCodeStatus) return;
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const next = await window.mesp!.getOpenCodeStatus();
+        if (!cancelled) setOpenCodeStatus(next);
+      } catch {
+        if (!cancelled) setOpenCodeStatus(null);
+      }
+    };
+    void refresh();
+    const id = window.setInterval(refresh, 15000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [visible, isMespCode, status]);
+
+  useEffect(() => {
+    if (isMespCode) setStatus('connected');
+  }, [isMespCode]);
+
   // Deteccao de "travado": agente ocupado sem produzir saida por N minutos.
   useEffect(() => {
     const id = setInterval(() => {
       const s = loadSettings();
       const mins = s.notifications.stuckAlertMin;
-      if (!mins) { stuckNotifiedRef.current = false; return; }
+      if (!mins) {
+        stuckNotifiedRef.current = false;
+        return;
+      }
       const open = activeRun(runsRef.current);
-      if (!open) { stuckNotifiedRef.current = false; return; }
+      if (!open) {
+        stuckNotifiedRef.current = false;
+        return;
+      }
       const idleMs = Date.now() - (lastOutputAtRef.current || open.startedAt);
       if (idleMs > mins * 60000 && !stuckNotifiedRef.current) {
         stuckNotifiedRef.current = true;
         if (window.mesp?.notify) {
-          void window.mesp.notify({ title: 'Agente parado?', body: `Sem saida ha ${Math.round(idleMs / 60000)} min.` });
+          void window.mesp.notify({
+            title: 'Agente parado?',
+            body: `Sem saida ha ${Math.round(idleMs / 60000)} min.`,
+          });
         }
       }
     }, 30000);
@@ -243,18 +391,21 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
       setConfigLoaded(true); // browser puro, segue com defaults
       return;
     }
-    void window.mesp.getConfig().then((cfg) => {
-      const args = (cfg.kiroTaskPrefix || '').split(' ').filter(Boolean);
-      const cmd = cfg.kiroCommand || 'kiro-cli';
-      setCommandInfo({ cmd, args });
-      setEditCmd(cmd);
-      setEditArgs(args.join(' '));
-      const preset = findPresetByCommand(cmd, args);
-      setSelectedPresetId(preset?.id ?? 'custom');
-      setConfigLoaded(true);
-    }).catch(() => {
-      setConfigLoaded(true);
-    });
+    void window.mesp
+      .getConfig()
+      .then((cfg) => {
+        const args = (cfg.kiroTaskPrefix || '').split(' ').filter(Boolean);
+        const cmd = cfg.kiroCommand || '9code';
+        setCommandInfo({ cmd, args });
+        setEditCmd(cmd);
+        setEditArgs(args.join(' '));
+        const preset = findPresetByCommand(cmd, args);
+        setSelectedPresetId(preset?.id ?? 'custom');
+        setConfigLoaded(true);
+      })
+      .catch(() => {
+        setConfigLoaded(true);
+      });
   }, []);
 
   // Quando abre o painel de config, detecta quais CLIs estão instaladas.
@@ -276,7 +427,9 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
       if (!cancelled) setInstalledPresets(results);
     };
     void detect();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [showConfig]);
 
   const handlePresetChange = useCallback((presetId: string) => {
@@ -299,28 +452,28 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
       scrollback: 5000,
       allowProposedApi: true,
       theme: {
-        // Catppuccin Mocha
-        background: '#1e1e2e',
-        foreground: '#cdd6f4',
-        cursor: '#f5e0dc',
-        cursorAccent: '#1e1e2e',
-        selectionBackground: 'rgba(245, 224, 220, 0.2)',
-        black: '#45475a',
-        red: '#f38ba8',
-        green: '#a6e3a1',
-        yellow: '#f9e2af',
-        blue: '#89b4fa',
-        magenta: '#f5c2e7',
-        cyan: '#94e2d5',
-        white: '#bac2de',
-        brightBlack: '#585b70',
-        brightRed: '#f38ba8',
-        brightGreen: '#a6e3a1',
-        brightYellow: '#f9e2af',
-        brightBlue: '#89b4fa',
-        brightMagenta: '#f5c2e7',
-        brightCyan: '#94e2d5',
-        brightWhite: '#a6adc8',
+        // MESP Night: alto contraste, acentos do pet e fundo OLED suave.
+        background: '#111321',
+        foreground: '#dce1f7',
+        cursor: '#82d9f7',
+        cursorAccent: '#111321',
+        selectionBackground: 'rgba(130, 217, 247, 0.2)',
+        black: '#24283b',
+        red: '#f58aa8',
+        green: '#8ee6b2',
+        yellow: '#f3ce83',
+        blue: '#82b8f7',
+        magenta: '#c7a0f5',
+        cyan: '#82d9f7',
+        white: '#dce1f7',
+        brightBlack: '#66708f',
+        brightRed: '#ff9db8',
+        brightGreen: '#a6f0c3',
+        brightYellow: '#ffe09d',
+        brightBlue: '#9cc9ff',
+        brightMagenta: '#dabaff',
+        brightCyan: '#a5e9ff',
+        brightWhite: '#f4f6ff',
       },
     });
 
@@ -415,7 +568,11 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
   useEffect(() => {
     if (!visible) return;
     const t = setTimeout(() => {
-      try { fitRef.current?.fit(); } catch { /* noop */ }
+      try {
+        fitRef.current?.fit();
+      } catch {
+        /* noop */
+      }
       termRef.current?.focus();
       // Faz o spawn agora, já com as dimensões reais do painel.
       spawnFnRef.current?.();
@@ -428,6 +585,7 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
   // valores padrão (kiro-cli) que podem não existir e mostrar "desconectado".
   useEffect(() => {
     if (!configLoaded) return;
+    if (isMespCode) return;
     if (!window.mesp?.terminalSpawn) return;
     const term = termRef.current;
     if (!term) return;
@@ -445,7 +603,11 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
       connectedRef.current = false;
       setStatus('connecting');
       // Recalcula as dimensões imediatamente antes do spawn.
-      try { fitRef.current?.fit(); } catch { /* noop */ }
+      try {
+        fitRef.current?.fit();
+      } catch {
+        /* noop */
+      }
       const cmdLine = `\x1b[90m$ ${commandInfo.cmd}${commandInfo.args.length ? ' ' + commandInfo.args.join(' ') : ''}\x1b[0m\r\n`;
       term.write(cmdLine);
 
@@ -455,8 +617,8 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
         term.write(`\x1b[90m  cwd: ${pet.workDir}\x1b[0m\r\n`);
       }
 
-      void window.mesp!
-        .terminalSpawn({
+      void window
+        .mesp!.terminalSpawn({
           petId,
           command: commandInfo.cmd,
           args: commandInfo.args,
@@ -480,7 +642,11 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
             // o fit mudou as dimensões entre a chamada de spawn e o resolve — sem
             // isso, esse resize se perderia (o resizeRef só existe a partir daqui)
             // e o agente continuaria achando que tem o tamanho antigo.
-            try { fitRef.current?.fit(); } catch { /* noop */ }
+            try {
+              fitRef.current?.fit();
+            } catch {
+              /* noop */
+            }
             void window.mesp!.terminalResize(petId, term.cols, term.rows);
             // Foca o terminal logo após conectar.
             setTimeout(() => term.focus(), 30);
@@ -510,11 +676,15 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
 
       // Timer "natural" pra voltar pra idle.
       const backToIdleMs =
-        next === 'success' ? 2500 :
-        next === 'error' ? 3000 :
-        next === 'waiting' ? 120000 : // aguardando o usuário: persiste bastante
-        next === 'working' ? 8000 :
-        12000; // thinking
+        next === 'success'
+          ? 2500
+          : next === 'error'
+            ? 3000
+            : next === 'waiting'
+              ? 120000 // aguardando o usuário: persiste bastante
+              : next === 'working'
+                ? 8000
+                : 12000; // thinking
       stateTimer = setTimeout(() => {
         currentDetectedState = 'idle';
         petStateChangeRef.current?.('idle');
@@ -547,9 +717,7 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
       const newlineIdx = lineBuffer.lastIndexOf('\n');
       if (newlineIdx === -1 && lineBuffer.length < 300) return;
 
-      const completeLines = newlineIdx >= 0
-        ? lineBuffer.slice(0, newlineIdx)
-        : lineBuffer;
+      const completeLines = newlineIdx >= 0 ? lineBuffer.slice(0, newlineIdx) : lineBuffer;
       lineBuffer = newlineIdx >= 0 ? lineBuffer.slice(newlineIdx + 1) : '';
 
       const lines = completeLines.split('\n');
@@ -622,7 +790,7 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
         void window.mesp.terminalKill(petId);
       }
     };
-  }, [pet.id, pet.workDir, commandInfo.cmd, commandInfo.args, configLoaded]);
+  }, [pet.id, pet.workDir, commandInfo.cmd, commandInfo.args, configLoaded, isMespCode]);
 
   // Esc fecha quando o terminal não tem foco; quando tem, deixa o ESC ir pro
   // processo (apps interativas usam ESC).
@@ -645,7 +813,11 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
     setStatus('connecting');
     term.reset();
     // Recalcula as dimensões antes do spawn (o painel está visível aqui).
-    try { fitRef.current?.fit(); } catch { /* noop */ }
+    try {
+      fitRef.current?.fit();
+    } catch {
+      /* noop */
+    }
     const cmdLine = `\x1b[90m$ ${commandInfo.cmd}${commandInfo.args.length ? ' ' + commandInfo.args.join(' ') : ''}\x1b[0m\r\n`;
     term.write(cmdLine);
     if (pet.workDir) {
@@ -670,11 +842,17 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
           resizeRef.current = (cols: number, rows: number) => {
             void window.mesp!.terminalResize(pet.id, cols, rows);
           };
-          try { fitRef.current?.fit(); } catch { /* noop */ }
+          try {
+            fitRef.current?.fit();
+          } catch {
+            /* noop */
+          }
           void window.mesp!.terminalResize(pet.id, term.cols, term.rows);
           setTimeout(() => term.focus(), 30);
         } else {
-          term.write(`\r\n\x1b[31m✗ Falha ao reconectar: ${res.error || 'desconhecido'}\x1b[0m\r\n`);
+          term.write(
+            `\r\n\x1b[31m✗ Falha ao reconectar: ${res.error || 'desconhecido'}\x1b[0m\r\n`,
+          );
           setStatus('disconnected');
         }
       });
@@ -688,23 +866,32 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
   // Posição do painel (em state pra permitir drag pelo header).
   const [pos, setPos] = useState(() => computePosition());
   const [size, setSize] = useState(() => loadPanelSize());
-  const resizeStateRef = useRef<{ pointerId: number; startX: number; startY: number; startW: number; startH: number } | null>(null);
+  const resizeStateRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startW: number;
+    startH: number;
+  } | null>(null);
   const sizeRef = useRef(size);
   sizeRef.current = size;
   const dragStateRef = useRef<{ pointerId: number; offX: number; offY: number } | null>(null);
 
-  const onHeaderPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    // Não inicia drag se clicou em um botão dentro do header.
-    if ((e.target as HTMLElement).closest('button')) return;
-    if (e.button !== 0) return;
-    e.preventDefault();
-    dragStateRef.current = {
-      pointerId: e.pointerId,
-      offX: e.clientX - pos.x,
-      offY: e.clientY - pos.y,
-    };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }, [pos.x, pos.y]);
+  const onHeaderPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      // Não inicia drag se clicou em um botão dentro do header.
+      if ((e.target as HTMLElement).closest('button')) return;
+      if (e.button !== 0) return;
+      e.preventDefault();
+      dragStateRef.current = {
+        pointerId: e.pointerId,
+        offX: e.clientX - pos.x,
+        offY: e.clientY - pos.y,
+      };
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    },
+    [pos.x, pos.y],
+  );
 
   const onHeaderPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const d = dragStateRef.current;
@@ -721,23 +908,28 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
     if (d && d.pointerId === e.pointerId) {
       try {
         (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-      } catch { /* noop */ }
+      } catch {
+        /* noop */
+      }
       dragStateRef.current = null;
     }
   }, []);
 
-  const onResizeDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    resizeStateRef.current = {
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      startY: e.clientY,
-      startW: size.w,
-      startH: size.h,
-    };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }, [size.w, size.h]);
+  const onResizeDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      resizeStateRef.current = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        startW: size.w,
+        startH: size.h,
+      };
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    },
+    [size.w, size.h],
+  );
 
   const onResizeMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const r = resizeStateRef.current;
@@ -750,7 +942,11 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
   const onResizeUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const r = resizeStateRef.current;
     if (r && r.pointerId === e.pointerId) {
-      try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* noop */ }
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {
+        /* noop */
+      }
       resizeStateRef.current = null;
     }
   }, []);
@@ -773,7 +969,7 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
 
   return (
     <div
-      className="kiro-terminal interactive"
+      className={`kiro-terminal interactive${isMespCode ? ' mesp-code-terminal' : ''}`}
       style={{
         left: pos.x,
         top: pos.y,
@@ -785,170 +981,297 @@ export function KiroChatPanel({ pet, visible, onClose, onPetStateChange }: KiroC
       aria-label={`Terminal MESP ${pet.id}`}
     >
       <div
-        className="kiro-terminal-header"
+        className={`kiro-terminal-header${isMespCode ? ' mesp-code-header' : ''}`}
         onPointerDown={onHeaderPointerDown}
         onPointerMove={onHeaderPointerMove}
         onPointerUp={onHeaderPointerUp}
         onPointerCancel={onHeaderPointerUp}
       >
-        <div className="kiro-terminal-title">
-          <span className={`terminal-dot status-${status}`} />
-          {currentPreset ? `${currentPreset.icon} ${currentPreset.name}` : 'AI Agent'}
-          <span className="muted">— {pet.id}</span>
+        {isMespCode ? (
+          <div className="mesp-code-brand">
+            <div
+              ref={headerAvatarRef}
+              className={`mesp-code-avatar state-${pet.state}`}
+              aria-label={`MESP ${PET_STATE_LABELS[pet.state]}`}
+            >
+              <span className="mesp-code-avatar-glow" aria-hidden="true" />
+              <img
+                src={mespFrame}
+                alt=""
+                className="mesp-code-avatar-sprite pixelated"
+                draggable={false}
+              />
+              {mespEye?.slots.map((slot, index) => {
+                const pupilSize = mespEye.size * HEADER_SPRITE_SCALE;
+                return (
+                  <span
+                    key={`${index}-${slot.cx}-${slot.cy}`}
+                    ref={(element) => {
+                      headerPupilRefs.current[index] = element;
+                    }}
+                    className="pet-pupil mesp-code-pupil"
+                    aria-hidden="true"
+                    style={{
+                      width: pupilSize,
+                      height: pupilSize,
+                      left: slot.cx * HEADER_SPRITE_SCALE - pupilSize / 2 + 1,
+                      top: slot.cy * HEADER_SPRITE_SCALE - pupilSize / 2 + 1,
+                      ...(pet.traits?.palette?.pupil
+                        ? { background: pet.traits.palette.pupil }
+                        : null),
+                    }}
+                  />
+                );
+              })}
+              {pet.state === 'waiting' && (
+                <span className="mesp-code-attention" aria-hidden="true">
+                  !
+                </span>
+              )}
+            </div>
+            <div className="mesp-code-copy">
+              <div className="mesp-code-title-row">
+                <strong>MESP CODE</strong>
+                <span className={`mesp-code-state state-${pet.state}`} aria-live="polite">
+                  {PET_STATE_LABELS[pet.state]}
+                </span>
+              </div>
+              <div
+                className="mesp-code-meta"
+                title={openCodeStatus?.model || 'Modelo gerenciado pelo 9Router'}
+              >
+                <span className="mesp-code-provider">{modelInfo.provider}</span>
+                <span aria-hidden="true">/</span>
+                <span className="mesp-code-model">{modelInfo.model}</span>
+                {openCodeStatus && openCodeStatus.modelCount > 0 && (
+                  <span className="mesp-code-model-count">{openCodeStatus.modelCount} modelos</span>
+                )}
+                <span className="mesp-code-workspace">{workspaceName}</span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="kiro-terminal-title">
+            <span className={`terminal-dot status-${status}`} />
+            {currentPreset ? `${currentPreset.icon} ${currentPreset.name}` : 'AI Agent'}
+            <span className="muted">— {pet.id}</span>
+          </div>
+        )}
+        <div className="terminal-header-actions">
+          {aggCost && (
+            <span className="terminal-cost" title="Custo acumulado desta sessao">
+              {aggCost}
+            </span>
+          )}
+          <span className={`terminal-status ${headerConnection.className}`} aria-live="polite">
+            {headerConnection.label}
+          </span>
+          <button
+            className="btn-icon"
+            onClick={() => setShowConfig((v) => !v)}
+            title="Configurar comando"
+            aria-label="Configurar comando"
+          >
+            ⚙
+          </button>
+          {!isMespCode && (
+            <>
+              <button
+                className="btn-icon"
+                onClick={kill}
+                title="Matar processo"
+                aria-label="Matar processo"
+                disabled={status !== 'connected'}
+              >
+                ⏹
+              </button>
+              <button
+                className="btn-icon"
+                onClick={reconnect}
+                title="Reconectar"
+                aria-label="Reconectar"
+                disabled={status === 'connecting'}
+              >
+                ↻
+              </button>
+            </>
+          )}
+          <button className="btn-icon" onClick={onClose} title="Fechar (Esc)" aria-label="Fechar">
+            ×
+          </button>
         </div>
-        {aggCost && <span className="terminal-cost" title="Custo acumulado desta sessao">{aggCost}</span>}
-        <span className={`terminal-status ${status}`}>
-          {status === 'connected' ? '● conectado' : status === 'connecting' ? '◌ conectando…' : '○ desconectado'}
-        </span>
-        <button
-          className="btn-icon"
-          onClick={() => setShowConfig((v) => !v)}
-          title="Configurar comando"
-          aria-label="Configurar comando"
-        >
-          ⚙
-        </button>
-        <button
-          className="btn-icon"
-          onClick={kill}
-          title="Matar processo"
-          aria-label="Matar processo"
-          disabled={status !== 'connected'}
-        >
-          ⏹
-        </button>
-        <button
-          className="btn-icon"
-          onClick={reconnect}
-          title="Reconectar"
-          aria-label="Reconectar"
-          disabled={status === 'connecting'}
-        >
-          ↻
-        </button>
-        <button className="btn-icon" onClick={onClose} title="Fechar (Esc)" aria-label="Fechar">
-          ×
-        </button>
       </div>
 
       {showConfig && (
         <div className="kiro-cockpit">
           <div className="cockpit-tabs">
-            <button className={`cockpit-tab${panelTab === 'config' ? ' active' : ''}`} onClick={() => setPanelTab('config')}>Config</button>
-            <button className={`cockpit-tab${panelTab === 'context' ? ' active' : ''}`} onClick={() => setPanelTab('context')}>Contexto</button>
-            <button className={`cockpit-tab${panelTab === 'history' ? ' active' : ''}`} onClick={() => setPanelTab('history')}>Historico</button>
-            <button className="cockpit-close" onClick={() => setShowConfig(false)} title="Voltar ao terminal" aria-label="Fechar configuracoes">{'\u2715'}</button>
-          </div>
-          {panelTab === 'config' && (
-          <>
-          <div className="kiro-terminal-config">
-          {status === 'disconnected' && (
-            <div className="onboarding-banner">
-              <strong>Vamos comecar</strong>
-              <span>1. Escolha um agente abaixo. 2. Defina a pasta de trabalho no menu do pet. 3. Salve e reconecte.</span>
-            </div>
-          )}
-          <label>
-            <span>Agente de IA</span>
-            <div className="preset-grid">
-              {AI_PRESETS.map((preset) => {
-                const installed = installedPresets[preset.id];
-                const isCustom = preset.id === 'custom';
-                const isSelected = selectedPresetId === preset.id;
-                return (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    className={`preset-card${isSelected ? ' selected' : ''}${
-                      installed === false && !isCustom ? ' not-installed' : ''
-                    }`}
-                    onClick={() => handlePresetChange(preset.id)}
-                    title={
-                      isCustom
-                        ? preset.description
-                        : installed === false
-                          ? `${preset.description} (não detectado na PATH)`
-                          : preset.description
-                    }
-                  >
-                    <span className="preset-icon">{preset.icon}</span>
-                    <span className="preset-name">{preset.name}</span>
-                    {!isCustom && installed === true && <span className="preset-badge">✓</span>}
-                    {!isCustom && installed === false && <span className="preset-badge missing">!</span>}
-                  </button>
-                );
-              })}
-            </div>
-          </label>
-          <label>
-            <span>Comando</span>
-            <input
-              type="text"
-              value={editCmd}
-              onChange={(e) => {
-                setEditCmd(e.target.value);
-                setSelectedPresetId('custom');
-              }}
-              placeholder="ex: claude, aider, gemini..."
-              spellCheck={false}
-            />
-          </label>
-          <label>
-            <span>Argumentos</span>
-            <input
-              type="text"
-              value={editArgs}
-              onChange={(e) => {
-                setEditArgs(e.target.value);
-                setSelectedPresetId('custom');
-              }}
-              placeholder="(opcional)"
-              spellCheck={false}
-            />
-          </label>
-          <div className="config-actions">
-            <span className="config-preview">
-              <code>
-                {editCmd} {editArgs}
-              </code>
-            </span>
-            {currentPreset?.installUrl && installedPresets[currentPreset.id] === false && (
-              <a
-                href={currentPreset.installUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn"
-              >
-                Como instalar
-              </a>
-            )}
             <button
-              className="btn primary"
-              onClick={() => {
-                const newArgs = editArgs.split(' ').filter(Boolean);
-                setCommandInfo({ cmd: editCmd, args: newArgs });
-                setShowConfig(false);
-              }}
+              className={`cockpit-tab${panelTab === 'config' ? ' active' : ''}`}
+              onClick={() => setPanelTab('config')}
             >
-              Salvar e reconectar
+              Config
+            </button>
+            <button
+              className={`cockpit-tab${panelTab === 'context' ? ' active' : ''}`}
+              onClick={() => setPanelTab('context')}
+            >
+              Contexto
+            </button>
+            <button
+              className={`cockpit-tab${panelTab === 'history' ? ' active' : ''}`}
+              onClick={() => setPanelTab('history')}
+            >
+              Historico
+            </button>
+            <button
+              className="cockpit-close"
+              onClick={() => setShowConfig(false)}
+              title="Voltar ao terminal"
+              aria-label="Fechar configuracoes"
+            >
+              {'\u2715'}
             </button>
           </div>
-          </div>
-          <SettingsSection />
-          </>
+          {panelTab === 'config' && (
+            <>
+              <div className="kiro-terminal-config">
+                {status === 'disconnected' && (
+                  <div className="onboarding-banner">
+                    <strong>Vamos comecar</strong>
+                    <span>
+                      1. Escolha um agente abaixo. 2. Defina a pasta de trabalho no menu do pet. 3.
+                      Salve e reconecte.
+                    </span>
+                  </div>
+                )}
+                <div className="config-field">
+                  <span>Agente de IA</span>
+                  <div className="preset-grid">
+                    {AI_PRESETS.map((preset) => {
+                      const installed = installedPresets[preset.id];
+                      const isCustom = preset.id === 'custom';
+                      const isSelected = selectedPresetId === preset.id;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          className={`preset-card${isSelected ? ' selected' : ''}${
+                            installed === false && !isCustom ? ' not-installed' : ''
+                          }`}
+                          onClick={() => handlePresetChange(preset.id)}
+                          title={
+                            isCustom
+                              ? preset.description
+                              : installed === false
+                                ? `${preset.description} (não detectado na PATH)`
+                                : preset.description
+                          }
+                        >
+                          {preset.id === 'mesp-code' ? (
+                            <span className="preset-icon mesp-preset-icon" aria-hidden="true">
+                              <img src={mespFrame} alt="" className="pixelated" draggable={false} />
+                            </span>
+                          ) : (
+                            <span className="preset-icon">{preset.icon}</span>
+                          )}
+                          <span className="preset-name">{preset.name}</span>
+                          {!isCustom && installed === true && (
+                            <span className="preset-badge">✓</span>
+                          )}
+                          {!isCustom && installed === false && (
+                            <span className="preset-badge missing">!</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <label>
+                  <span>Comando</span>
+                  <input
+                    type="text"
+                    value={editCmd}
+                    onChange={(e) => {
+                      setEditCmd(e.target.value);
+                      setSelectedPresetId('custom');
+                    }}
+                    placeholder="ex: claude, aider, gemini..."
+                    spellCheck={false}
+                  />
+                </label>
+                <label>
+                  <span>Argumentos</span>
+                  <input
+                    type="text"
+                    value={editArgs}
+                    onChange={(e) => {
+                      setEditArgs(e.target.value);
+                      setSelectedPresetId('custom');
+                    }}
+                    placeholder="(opcional)"
+                    spellCheck={false}
+                  />
+                </label>
+                <div className="config-actions">
+                  <span className="config-preview">
+                    <code>
+                      {editCmd} {editArgs}
+                    </code>
+                  </span>
+                  {currentPreset?.installUrl && installedPresets[currentPreset.id] === false && (
+                    <a
+                      href={currentPreset.installUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn"
+                    >
+                      Como instalar
+                    </a>
+                  )}
+                  <button
+                    className="btn primary"
+                    onClick={() => {
+                      const newArgs = editArgs.split(' ').filter(Boolean);
+                      setCommandInfo({ cmd: editCmd, args: newArgs });
+                      setShowConfig(false);
+                    }}
+                  >
+                    Salvar e reconectar
+                  </button>
+                </div>
+              </div>
+              <SettingsSection />
+            </>
           )}
           {panelTab === 'context' && (
             <ContextTab workDir={pet.workDir} onInsert={insertIntoTerminal} />
           )}
           {panelTab === 'history' && (
-            <HistoryTab workDir={pet.workDir} runs={runs} onExport={exportTranscript} onClearRuns={clearRuns} />
+            <HistoryTab
+              workDir={pet.workDir}
+              runs={runs}
+              onExport={exportTranscript}
+              onClearRuns={clearRuns}
+            />
           )}
         </div>
       )}
 
+      {isMespCode && (
+        <MespCodeChat
+          petId={pet.id}
+          workDir={pet.workDir}
+          visible={visible}
+          status={openCodeStatus}
+          onStatusChange={setOpenCodeStatus}
+          onPetStateChange={(state) => petStateChangeRef.current?.(state)}
+        />
+      )}
+
       <div
         ref={containerRef}
-        className="kiro-terminal-xterm"
+        className={`kiro-terminal-xterm${isMespCode ? ' mesp-code-xterm-hidden' : ''}`}
+        aria-hidden={isMespCode}
         onClick={() => termRef.current?.focus()}
         onContextMenu={(e) => {
           // Clique direito: copia se há seleção; senão cola (texto ou imagem).

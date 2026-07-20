@@ -53,7 +53,10 @@ const SPINNER = '[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷⣦⣄�
 export const GENERIC_MARKERS = {
   // Spinner + palavra de processamento, ou "…"/reticências de raciocínio.
   thinking: [
-    new RegExp(`${SPINNER}\\s*(thinking|pensando|processing|processando|working|trabalhando|generating|gerando|analyzing|analisando|loading|carregando|reasoning|reflecting|computing|esc to interrupt)`, 'i'),
+    new RegExp(
+      `${SPINNER}\\s*(thinking|pensando|processing|processando|working|trabalhando|generating|gerando|analyzing|analisando|loading|carregando|reasoning|reflecting|computing|esc to interrupt)`,
+      'i',
+    ),
     /\b(thinking|reasoning|analyzing|pensando|processando|gerando)(…|\.{3})\s*$/i,
   ],
   // Linhas que indicam produção ativa de resultado (após o thinking).
@@ -97,25 +100,36 @@ export const GENERIC_MARKERS = {
  * @type {Record<string, Partial<typeof GENERIC_MARKERS>>}
  */
 export const PRESET_MARKERS = {
+  opencode: {
+    waiting: [
+      /\b(allow once|allow always|reject)\b/i,
+      /\b(permission required|requesting permission)\b/i,
+      /\bselect (an option|a permission)\b/i,
+    ],
+    thinking: [
+      /\b(thinking|reasoning|analyzing)\b.*\b(esc|interrupt)\b/i,
+      /\bbuild\s*[Â·•]\s*\S+/i,
+    ],
+    working: [
+      /^\s*(read|write|edit|bash|glob|grep|list|patch|task)\b/i,
+      /\b(tool|command)\s+(call|running|executing)\b/i,
+    ],
+    success: [/\b(session|task) (complete|completed)\b/i],
+    error: [/\b(opencode|9router)\s+(error|failed)\b/i],
+  },
   claude: {
     waiting: [
       /\b(do you want to (make this edit|create|run|proceed))/i,
       /❯\s*\d+\.\s*(yes|no|sim|não)/i,
       /\b(allow this (action|command|tool))\b/i,
     ],
-    thinking: [
-      new RegExp(`${SPINNER}\\s*(\\w+ing)`, 'i'),
-      /\(esc to interrupt\)/i,
-    ],
+    thinking: [new RegExp(`${SPINNER}\\s*(\\w+ing)`, 'i'), /\(esc to interrupt\)/i],
   },
   kiro: {
     success: [/credits?:.*time:.*s/i],
   },
   aider: {
-    waiting: [
-      /\((y)es\/(n)o(\/all|\/don't ask)?\)\s*\[?.*\]?\s*$/i,
-      /^>\s*$/,
-    ],
+    waiting: [/\((y)es\/(n)o(\/all|\/don't ask)?\)\s*\[?.*\]?\s*$/i, /^>\s*$/],
   },
   gemini: {},
   codex: {},
@@ -145,6 +159,7 @@ export function mergeMarkers(presetMarkers) {
 /** Resolve o id de preset a partir do comando configurado. */
 export function presetIdForCommand(command) {
   const cmd = String(command || '').toLowerCase();
+  if (cmd.includes('9code') || cmd.includes('opencode')) return 'opencode';
   if (cmd.includes('claude')) return 'claude';
   if (cmd.includes('kiro')) return 'kiro';
   if (cmd.includes('aider')) return 'aider';

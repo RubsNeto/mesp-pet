@@ -1,0 +1,126 @@
+name: Publicar instalador Windows
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag da release (vazio usa a versao do package.json)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Testar, empacotar e publicar
+    runs-on: windows-latest
+    env:
+      MANUAL_TAG: ${{ inputs.tag }}
+      PUSH_TAG: ${{ github.ref_name }}
+
+    steps:
+      - name: Baixar codigo
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validar versao da release
+        shell: pwsh
+        run: |
+          $packageVersion = (Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json).version
+          $tag = if ($env:GITHUB_EVENT_NAME -eq 'push') {
+            $env:PUSH_TAG
+          } elseif (-not [string]::IsNullOrWhiteSpace($env:MANUAL_TAG)) {
+            $env:MANUAL_TAG.Trim()
+          } else {
+            "v$packageVersion"
+          }
+
+          if ($tag -notmatch '^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+            throw "Tag invalida: use o formato vMAJOR.MINOR.PATCH (ex.: v0.1.0)."
+          }
+
+          if ($tag -ne "v$packageVersion") {
+            throw "A tag $tag nao corresponde a versao $packageVersion do package.json."
+          }
+
+          "RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_VERSION=$packageVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Executar testes
+        run: npm test
+
+      - name: Verificar TypeScript
+        run: npm run typecheck
+
+      - name: Verificar lint
+        run: npm run lint
+
+      - name: Gerar instalador
+        run: npm run package
+
+      - name: Validar artefatos
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem -LiteralPath release -File -Filter '*.exe')
+          if ($installers.Count -ne 1) {
+            throw "Era esperado exatamente um instalador .exe; encontrados: $($installers.Count)."
+          }
+
+          if ($installers[0].Length -eq 0) {
+            throw "O instalador gerado esta vazio."
+          }
+
+      - name: Guardar artefato da execucao
+        uses: actions/upload-artifact@v4
+        with:
+          name: MESP-Pet-Windows-${{ env.RELEASE_VERSION }}
+          path: |
+            release/*.exe
+            release/*.blockmap
+            release/latest*.yml
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Publicar GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          & gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            throw "A release $env:RELEASE_TAG ja existe. Atualize a versao para publicar um novo instalador."
+          }
+
+          $assets = @(
+            Get-ChildItem -LiteralPath release -File |
+              Where-Object {
+                $_.Extension -in '.exe', '.blockmap' -or $_.Name -like 'latest*.yml'
+              } |
+              Select-Object -ExpandProperty FullName
+          )
+
+          if ($assets.Count -eq 0) {
+            throw "Nenhum artefato de release foi encontrado."
+          }
+
+          & gh release create $env:RELEASE_TAG @assets `
+            --repo $env:GITHUB_REPOSITORY `
+            --target $env:GITHUB_SHA `
+            --title "MESP Pet $env:RELEASE_VERSION" `
+            --generate-notes
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Nao foi possivel publicar a GitHub Release."
+          }

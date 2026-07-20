@@ -1,9 +1,9 @@
-import js from '@eslint/js';
-import tseslint from 'typescript-eslint';
-import reactHooks from 'eslint-plugin-react-hooks';
-import globals from 'globals';
+const js = require('@eslint/js');
+const tseslint = require('typescript-eslint');
+const reactHooks = require('eslint-plugin-react-hooks');
+const globals = require('globals');
 
-export default tseslint.config(
+module.exports = tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -30,7 +30,13 @@ export default tseslint.config(
   },
   // Scripts CommonJS rodados pelo Node diretamente (sem transpilação): permitem require().
   {
-    files: ['scripts/**/*.{cjs,js}', 'tests/**/*.cjs', '**/*.cjs', 'gen-icons.cjs'],
+    files: [
+      'scripts/**/*.{cjs,js}',
+      'tests/**/*.cjs',
+      '**/*.cjs',
+      'gen-icons.cjs',
+      'eslint.config.js',
+    ],
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
       '@typescript-eslint/no-unused-expressions': 'off',

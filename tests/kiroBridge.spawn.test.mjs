@@ -1,29 +1,51 @@
 // tests/kiroBridge.spawn.test.mjs
 //
-// Garante que o padrão de spawn usado no main do Electron (shell:true no
-// Windows, child_process.spawn) funciona com comandos reais do sistema.
+// Garante que o padrão de spawn sem shell usado no main do Electron funciona
+// com comandos reais do sistema, inclusive o npm no Windows.
 // Não importa o módulo do main (que depende do Electron); replica o trecho
 // crítico para validar que o ambiente do usuário consegue executar comandos.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+
+function resolveTestCommand(cmd, args) {
+  if (cmd === 'node') return { command: process.execPath, args };
+  if (cmd !== 'npm' || process.platform !== 'win32') return { command: cmd, args };
+  const candidates = [
+    process.env.npm_execpath,
+    path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+  ];
+  const npmCli = candidates.find((candidate) => candidate && existsSync(candidate));
+  return npmCli
+    ? { command: process.execPath, args: [npmCli, ...args] }
+    : { command: 'npm.cmd', args };
+}
 
 function runCmd(cmd, args) {
   return new Promise((resolve) => {
     let stdout = '';
     let stderr = '';
-    const child = spawn(cmd, args, {
-      shell: process.platform === 'win32',
+    let finished = false;
+    const finish = (result) => {
+      if (finished) return;
+      finished = true;
+      resolve(result);
+    };
+    const resolved = resolveTestCommand(cmd, args);
+    const child = spawn(resolved.command, resolved.args, {
+      shell: false,
       env: { ...process.env },
     });
     child.stdout.on('data', (c) => (stdout += c.toString()));
     child.stderr.on('data', (c) => (stderr += c.toString()));
     child.on('error', (err) =>
-      resolve({ ok: false, code: null, stdout, stderr, error: err.message })
+      finish({ ok: false, code: null, stdout, stderr, error: err.message })
     );
     child.on('close', (code) =>
-      resolve({ ok: code === 0, code, stdout, stderr })
+      finish({ ok: code === 0, code, stdout, stderr })
     );
   });
 }
