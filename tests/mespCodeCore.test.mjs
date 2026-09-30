@@ -11,9 +11,11 @@ import {
   extractSSEData,
   hasActiveRouterConnections,
   isMespCodeMode,
+  isMespTokenLimitExceeded,
   isLoopbackRouterURL,
   modelIdFor9Router,
   normalizeProjectChecks,
+  normalizeMespTokenLimit,
   normalizeStoredMespMessages,
   normalizeStoredMespQueue,
   parseDotEnvValue,
@@ -34,6 +36,16 @@ test('accepts only supported MESP modes', () => {
   assert.equal(isMespCodeMode('assisted'), true);
   assert.equal(isMespCodeMode('autonomous'), true);
   assert.equal(isMespCodeMode('build'), false);
+});
+
+test('supports an explicit unlimited token setting without weakening finite limits', () => {
+  assert.equal(normalizeMespTokenLimit(0), 0);
+  assert.equal(normalizeMespTokenLimit(500), 1_000);
+  assert.equal(normalizeMespTokenLimit(500_000), 200_000);
+  assert.equal(normalizeMespTokenLimit('unlimited'), 25_000);
+  assert.equal(isMespTokenLimitExceeded(1_000_000, 0), false);
+  assert.equal(isMespTokenLimitExceeded(25_001, 25_000), true);
+  assert.equal(isMespTokenLimitExceeded(25_000, 25_000), false);
 });
 
 test('resolves OpenCode env references without accepting malformed placeholders', () => {
@@ -70,7 +82,10 @@ test('accepts only local HTTP router URLs for the integrated runtime', () => {
 
 test('detects whether the integrated router still needs a provider', () => {
   assert.equal(hasActiveRouterConnections({ connections: [] }), false);
-  assert.equal(hasActiveRouterConnections({ connections: [{ id: 'one', isActive: false }] }), false);
+  assert.equal(
+    hasActiveRouterConnections({ connections: [{ id: 'one', isActive: false }] }),
+    false,
+  );
   assert.equal(hasActiveRouterConnections({ connections: [{ id: 'one', isActive: true }] }), true);
   assert.equal(hasActiveRouterConnections({ connections: [{ id: 'legacy' }] }), true);
   assert.equal(hasActiveRouterConnections({}), null);
@@ -278,7 +293,10 @@ test('queue insertion is bounded and duplicate-safe, and dequeue is sequential',
 
   const next = takeNextQueuedTask(withSecond.queue, { occupied: false, paused: false });
   assert.equal(next.task.id, 'task-1');
-  assert.deepEqual(next.queue.map((task) => task.id), ['task-2']);
+  assert.deepEqual(
+    next.queue.map((task) => task.id),
+    ['task-2'],
+  );
   assert.equal(takeNextQueuedTask(next.queue, { occupied: true }).task, null);
   assert.equal(takeNextQueuedTask(next.queue, { paused: true }).task, null);
 });

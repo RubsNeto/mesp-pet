@@ -7,6 +7,23 @@ export function isMespCodeMode(value) {
   return MESP_CODE_MODES.includes(value);
 }
 
+export function normalizeMespTokenLimit(value, fallback = 25_000) {
+  if (value === 0) return 0;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  return Math.max(1_000, Math.min(200_000, Math.floor(value)));
+}
+
+export function isMespTokenLimitExceeded(total, limit) {
+  return (
+    typeof total === 'number' &&
+    Number.isFinite(total) &&
+    typeof limit === 'number' &&
+    Number.isFinite(limit) &&
+    limit > 0 &&
+    total > limit
+  );
+}
+
 export function resolveOpenCodeConfigValue(value, environment = {}) {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -45,8 +62,7 @@ export function isLoopbackRouterURL(value) {
     const url = new globalThis.URL(value);
     const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
     return (
-      (url.protocol === 'http:' || url.protocol === 'https:') &&
-      LOOPBACK_ROUTER_HOSTS.has(hostname)
+      (url.protocol === 'http:' || url.protocol === 'https:') && LOOPBACK_ROUTER_HOSTS.has(hostname)
     );
   } catch {
     return false;
@@ -69,8 +85,7 @@ export function hasActiveRouterConnections(payload) {
       : null;
   if (!connections) return null;
   return connections.some(
-    (connection) =>
-      connection && typeof connection === 'object' && connection.isActive !== false,
+    (connection) => connection && typeof connection === 'object' && connection.isActive !== false,
   );
 }
 
@@ -174,12 +189,7 @@ export function takeNextQueuedTask(queue, options = {}) {
   return { queue: current.slice(1), task: current[0] };
 }
 
-export function shouldPauseQueueAfterVerification({
-  automatic,
-  passed,
-  cancelled,
-  pendingCount,
-}) {
+export function shouldPauseQueueAfterVerification({ automatic, passed, cancelled, pendingCount }) {
   return Boolean(automatic && !passed && !cancelled && pendingCount > 0);
 }
 
@@ -551,7 +561,10 @@ export function publicOpenCodeEvent(event) {
       const read = finiteTokenCount(cache.read);
       const write = finiteTokenCount(cache.write);
       if (read !== undefined || write !== undefined) {
-        publicTokens.cache = { ...(read === undefined ? {} : { read }), ...(write === undefined ? {} : { write }) };
+        publicTokens.cache = {
+          ...(read === undefined ? {} : { read }),
+          ...(write === undefined ? {} : { write }),
+        };
       }
     }
     publicPart.tokens = publicTokens;

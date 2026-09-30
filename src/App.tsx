@@ -1,11 +1,11 @@
 // src/App.tsx
-import { PetManager } from './components/PetManager';
+import { TopDock } from './components/TopDock';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 export function App() {
   return (
     <ErrorBoundary>
-      <PetManager />
+      <TopDock />
     </ErrorBoundary>
   );
 }

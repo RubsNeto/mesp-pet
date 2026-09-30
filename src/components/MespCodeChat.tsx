@@ -136,6 +136,9 @@ interface StoredChat {
 }
 
 interface MespCodeChatProps {
+  preferredModel?: string;
+  onModelChange?: (model: string) => void;
+  externalPrompt?: { id: string; text: string };
   petId: string;
   workDir: string | null;
   visible: boolean;
@@ -353,12 +356,15 @@ function withTimeline(message: ChatMessage, entry: TimelineEntry): ChatMessage {
 }
 
 export function MespCodeChat({
+  preferredModel,
+  onModelChange,
   petId,
   workDir,
   visible,
   status,
   onStatusChange,
   onPetStateChange,
+  externalPrompt,
 }: MespCodeChatProps) {
   const initialRef = useRef(loadStoredChat(petId, workDir));
   const [messages, setMessages] = useState<ChatMessage[]>(initialRef.current.messages);
@@ -368,7 +374,7 @@ export function MespCodeChat({
     initialRef.current.sessionMode,
   );
   const [selectedModel, setSelectedModel] = useState<string | null>(
-    initialRef.current.selectedModel,
+    preferredModel || initialRef.current.selectedModel,
   );
   const [mode, setMode] = useState<MespCodeMode>(initialRef.current.mode);
   const [limits, setLimits] = useState<MespCodeLimits>(initialRef.current.limits);
@@ -388,6 +394,10 @@ export function MespCodeChat({
   const [modelQuery, setModelQuery] = useState('');
   const [modelFilter, setModelFilter] = useState<ModelFilter>('all');
   const [refreshing, setRefreshing] = useState(false);
+  const [routerDiscoveryNotice, setRouterDiscoveryNotice] = useState<{
+    tone: 'success' | 'error';
+    text: string;
+  } | null>(null);
   const [setupOpening, setSetupOpening] = useState(false);
   const [setupError, setSetupError] = useState('');
   const [confirmAutonomous, setConfirmAutonomous] = useState(false);
@@ -419,6 +429,7 @@ export function MespCodeChat({
   const stateChangeRef = useRef(onPetStateChange);
   const statusChangeRef = useRef(onStatusChange);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const routerDiscoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   stateChangeRef.current = onPetStateChange;
   statusChangeRef.current = onStatusChange;
   workDirRef.current = workDir;
@@ -443,6 +454,21 @@ export function MespCodeChat({
     });
   }, [models, modelFilter, modelQuery]);
   const occupied = busy || verifyingMessageId !== null || pendingAutoVerify !== null;
+  const appliedPreferredModel = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      !preferredModel ||
+      preferredModel === appliedPreferredModel.current ||
+      occupied ||
+      !models.includes(preferredModel)
+    )
+      return;
+    appliedPreferredModel.current = preferredModel;
+    setSelectedModel(preferredModel);
+  }, [preferredModel, occupied, models]);
+  useEffect(() => {
+    if (selectedModel && models.includes(selectedModel)) onModelChange?.(selectedModel);
+  }, [selectedModel, models, onModelChange]);
 
   useEffect(() => {
     if (!status || models.length === 0) return;
@@ -615,9 +641,7 @@ export function MespCodeChat({
 
     const verification = activeVerificationRef.current;
     if (verification) {
-      void window.mesp
-        ?.cancelMespCodeVerification?.(petId, verification.id)
-        .catch(() => undefined);
+      void window.mesp?.cancelMespCodeVerification?.(petId, verification.id).catch(() => undefined);
     }
     const requestId = activeRequestRef.current;
     if (requestId) {
@@ -712,11 +736,7 @@ export function MespCodeChat({
       if (data.kind === 'event' && data.event) {
         const event = data.event;
         const eventSession = typeof event.sessionID === 'string' ? event.sessionID : null;
-        if (
-          eventSession &&
-          !wasCancelled &&
-          activeCwdRef.current === workDirRef.current
-        ) {
+        if (eventSession && !wasCancelled && activeCwdRef.current === workDirRef.current) {
           setSessionId(eventSession);
           setSessionCwd(activeCwdRef.current);
           setSessionMode(activeModeRef.current);
@@ -742,10 +762,7 @@ export function MespCodeChat({
 
         if (eventType === 'message_updated') {
           const eventMessage = asRecord(event.message);
-          if (
-            eventMessage?.role === 'user' &&
-            typeof eventMessage.id === 'string'
-          ) {
+          if (eventMessage?.role === 'user' && typeof eventMessage.id === 'string') {
             const userMessageId = eventMessage.id;
             setMessages((previous) =>
               previous.map((message) =>
@@ -880,11 +897,7 @@ export function MespCodeChat({
       }
       if (data.kind === 'exit') {
         setPermission(null);
-        if (
-          data.sessionId &&
-          !data.sessionInvalid &&
-          activeCwdRef.current === workDirRef.current
-        ) {
+        if (data.sessionId && !data.sessionInvalid && activeCwdRef.current === workDirRef.current) {
           setSessionId(data.sessionId);
           setSessionCwd(activeCwdRef.current);
           setSessionMode(activeModeRef.current);
@@ -1015,19 +1028,62 @@ export function MespCodeChat({
       if (verification && window.mesp?.cancelMespCodeVerification) {
         void window.mesp.cancelMespCodeVerification(petId, verification.id);
       }
+      if (routerDiscoveryTimerRef.current) clearTimeout(routerDiscoveryTimerRef.current);
     };
   }, [petId]);
 
-  const refreshModels = useCallback(async (force = false) => {
-    if (!window.mesp?.getOpenCodeStatus || refreshing) return;
-    setRefreshing(true);
-    try {
-      const next = await window.mesp.getOpenCodeStatus(force);
-      if (mountedRef.current) onStatusChange(next);
-    } finally {
-      if (mountedRef.current) setRefreshing(false);
+  const refreshModels = useCallback(
+    async (force = false) => {
+      if (!window.mesp?.getOpenCodeStatus || refreshing) return null;
+      setRefreshing(true);
+      try {
+        const next = await window.mesp.getOpenCodeStatus(force);
+        if (mountedRef.current) onStatusChange(next);
+        return next;
+      } catch {
+        return null;
+      } finally {
+        if (mountedRef.current) setRefreshing(false);
+      }
+    },
+    [onStatusChange, refreshing],
+  );
+
+  const discoverRouterConnection = useCallback(async () => {
+    if (refreshing) return;
+    if (routerDiscoveryTimerRef.current) clearTimeout(routerDiscoveryTimerRef.current);
+    setRouterDiscoveryNotice(null);
+    const previousModelCount = status?.modelCount ?? 0;
+    const next = await refreshModels(true);
+    if (!mountedRef.current) return;
+
+    let notice: { tone: 'success' | 'error'; text: string };
+    if (!next) {
+      notice = { tone: 'error', text: 'Nao foi possivel consultar o 9Router.' };
+    } else if (next.modelCount > previousModelCount) {
+      const added = next.modelCount - previousModelCount;
+      notice = {
+        tone: 'success',
+        text: `${added} novo${added === 1 ? '' : 's'} modelo${added === 1 ? '' : 's'} encontrado${added === 1 ? '' : 's'}.`,
+      };
+    } else if (next.routerState === 'ready') {
+      notice = {
+        tone: 'success',
+        text: `Conexoes atualizadas. ${next.modelCount} modelo${next.modelCount === 1 ? '' : 's'} disponiveis.`,
+      };
+    } else if (next.routerState === 'misconfigured') {
+      notice = { tone: 'error', text: 'Nenhuma conexao ativa foi encontrada no 9Router.' };
+    } else {
+      notice = { tone: 'error', text: next.routerMessage || '9Router indisponivel.' };
     }
-  }, [onStatusChange, refreshing]);
+
+    setRouterDiscoveryNotice(notice);
+    setAnnouncement(notice.text);
+    routerDiscoveryTimerRef.current = setTimeout(() => {
+      if (mountedRef.current) setRouterDiscoveryNotice(null);
+      routerDiscoveryTimerRef.current = null;
+    }, 5_000);
+  }, [refreshModels, refreshing, status?.modelCount]);
 
   const openRouterSetup = useCallback(async () => {
     if (!window.mesp?.open9RouterDashboard || setupOpening) return;
@@ -1464,122 +1520,146 @@ export function MespCodeChat({
     void runVerification(message, true);
   }, [busy, messages, pendingAutoVerify, runVerification, verifyingMessageId]);
 
-  const startPrompt = useCallback(async (task: QueuedPrompt) => {
-    if (
-      submittingRef.current ||
-      activeRequestRef.current ||
-      activeVerificationRef.current ||
-      task.cwd !== workDirRef.current
-    ) {
-      if (task.cwd !== workDirRef.current) {
-        setAnnouncement('Tarefa ignorada porque a pasta do projeto mudou.');
-      }
-      return;
-    }
-    submittingRef.current = true;
-    const requestId = id('run');
-    const userMessage: ChatMessage = {
-      id: id('user'),
-      role: 'user',
-      text: task.prompt,
-      tools: [],
-      status: 'done',
-      mode: task.mode,
-      cwd: task.cwd,
-    };
-    const assistantMessage: ChatMessage = {
-      id: id('assistant'),
-      role: 'assistant',
-      text: '',
-      tools: [],
-      status: 'streaming',
-      mode: task.mode,
-      model: task.model,
-      cwd: task.cwd,
-    };
-    const canResumeSession =
-      task.mode !== 'fast' && sessionMode === task.mode && sessionCwd === task.cwd;
-    if (task.mode !== mode) {
-      setMode(task.mode);
-      setSessionId(null);
-      setSessionCwd(task.cwd);
-      setSessionMode(null);
-    }
-    setSelectedModel(task.model);
-    activeAssistantRef.current = assistantMessage.id;
-    activeRequestRef.current = requestId;
-    activeCwdRef.current = task.cwd;
-    activeModeRef.current = task.mode;
-    cancellingRequestRef.current = null;
-    seenTokenPartsRef.current = new Set();
-    firstTokenSeenRef.current = false;
-    setMessages((previous) => [...previous, userMessage, assistantMessage]);
-    setInput('');
-    setModelOpen(false);
-    setLimitsOpen(false);
-    setBusy(true);
-    setCancelling(false);
-    stateChangeRef.current?.('thinking');
-
-    if (!window.mesp?.sendMespCode) {
-      finishWithError('Abra o MESP pelo aplicativo desktop para conversar.', requestId);
-      return;
-    }
-    try {
-      const result = await window.mesp.sendMespCode({
-        petId,
-        requestId,
-        prompt: task.prompt,
-        model: task.model,
-        mode: task.mode,
-        sessionId: canResumeSession ? sessionId : null,
-        cwd: task.cwd || undefined,
-        history: task.mode === 'fast' ? recentHistory(messages) : undefined,
-        limits: task.limits,
-      });
-      if (!result.ok) {
-        finishWithError(result.error || 'Nao foi possivel iniciar o OpenCode.', requestId);
-      }
-    } catch (error) {
-      finishWithError((error as Error).message, requestId);
-    }
-  }, [finishWithError, messages, mode, petId, sessionCwd, sessionId, sessionMode]);
-
-  const send = useCallback(() => {
-    const prompt = input.trim();
-    if (!prompt) return;
-    if (status?.runtime?.setupRequired) {
-      setAnnouncement('Configure pelo menos um provedor antes de enviar uma tarefa.');
-      return;
-    }
-    if (!effectiveModel) {
-      finishWithError('Nenhum modelo do 9Router esta disponivel.');
-      return;
-    }
-    const task: QueuedPrompt = {
-      id: id('queue'),
-      prompt,
-      mode,
-      model: effectiveModel,
-      limits: { ...limits },
-      cwd: workDir,
-      createdAt: Date.now(),
-    };
-    if (occupied || submittingRef.current || queuePaused || queueRef.current.length > 0) {
-      const queued = enqueueUniqueTask(queueRef.current, task, 10);
-      if (!queued.added) {
-        setAnnouncement('A fila ja possui o limite de 10 tarefas.');
+  const startPrompt = useCallback(
+    async (task: QueuedPrompt) => {
+      if (
+        submittingRef.current ||
+        activeRequestRef.current ||
+        activeVerificationRef.current ||
+        task.cwd !== workDirRef.current
+      ) {
+        if (task.cwd !== workDirRef.current) {
+          setAnnouncement('Tarefa ignorada porque a pasta do projeto mudou.');
+        }
         return;
       }
-      const nextQueue = [...queued.queue] as QueuedPrompt[];
-      queueRef.current = nextQueue;
-      setQueue(nextQueue);
+      submittingRef.current = true;
+      const requestId = id('run');
+      const userMessage: ChatMessage = {
+        id: id('user'),
+        role: 'user',
+        text: task.prompt,
+        tools: [],
+        status: 'done',
+        mode: task.mode,
+        cwd: task.cwd,
+      };
+      const assistantMessage: ChatMessage = {
+        id: id('assistant'),
+        role: 'assistant',
+        text: '',
+        tools: [],
+        status: 'streaming',
+        mode: task.mode,
+        model: task.model,
+        cwd: task.cwd,
+      };
+      const canResumeSession =
+        task.mode !== 'fast' && sessionMode === task.mode && sessionCwd === task.cwd;
+      if (task.mode !== mode) {
+        setMode(task.mode);
+        setSessionId(null);
+        setSessionCwd(task.cwd);
+        setSessionMode(null);
+      }
+      setSelectedModel(task.model);
+      activeAssistantRef.current = assistantMessage.id;
+      activeRequestRef.current = requestId;
+      activeCwdRef.current = task.cwd;
+      activeModeRef.current = task.mode;
+      cancellingRequestRef.current = null;
+      seenTokenPartsRef.current = new Set();
+      firstTokenSeenRef.current = false;
+      setMessages((previous) => [...previous, userMessage, assistantMessage]);
       setInput('');
-      setAnnouncement('Tarefa adicionada a fila.');
-      return;
-    }
-    void startPrompt(task);
-  }, [effectiveModel, finishWithError, input, limits, mode, occupied, queuePaused, startPrompt, status?.runtime?.setupRequired, workDir]);
+      setModelOpen(false);
+      setLimitsOpen(false);
+      setBusy(true);
+      setCancelling(false);
+      stateChangeRef.current?.('thinking');
+
+      if (!window.mesp?.sendMespCode) {
+        finishWithError('Abra o MESP pelo aplicativo desktop para conversar.', requestId);
+        return;
+      }
+      try {
+        const result = await window.mesp.sendMespCode({
+          petId,
+          requestId,
+          prompt: task.prompt,
+          model: task.model,
+          mode: task.mode,
+          sessionId: canResumeSession ? sessionId : null,
+          cwd: task.cwd || undefined,
+          history: task.mode === 'fast' ? recentHistory(messages) : undefined,
+          limits: task.limits,
+        });
+        if (!result.ok) {
+          finishWithError(result.error || 'Nao foi possivel iniciar o OpenCode.', requestId);
+        }
+      } catch (error) {
+        finishWithError((error as Error).message, requestId);
+      }
+    },
+    [finishWithError, messages, mode, petId, sessionCwd, sessionId, sessionMode],
+  );
+
+  const send = useCallback(
+    (promptOverride?: string) => {
+      const prompt = (promptOverride ?? input).trim();
+      if (!prompt) return;
+      if (status?.runtime?.setupRequired) {
+        setAnnouncement('Configure pelo menos um provedor antes de enviar uma tarefa.');
+        return;
+      }
+      if (!effectiveModel) {
+        finishWithError('Nenhum modelo do 9Router esta disponivel.');
+        return;
+      }
+      const task: QueuedPrompt = {
+        id: id('queue'),
+        prompt,
+        mode,
+        model: effectiveModel,
+        limits: { ...limits },
+        cwd: workDir,
+        createdAt: Date.now(),
+      };
+      if (occupied || submittingRef.current || queuePaused || queueRef.current.length > 0) {
+        const queued = enqueueUniqueTask(queueRef.current, task, 10);
+        if (!queued.added) {
+          setAnnouncement('A fila ja possui o limite de 10 tarefas.');
+          return;
+        }
+        const nextQueue = [...queued.queue] as QueuedPrompt[];
+        queueRef.current = nextQueue;
+        setQueue(nextQueue);
+        setInput('');
+        setAnnouncement('Tarefa adicionada a fila.');
+        return;
+      }
+      void startPrompt(task);
+    },
+    [
+      effectiveModel,
+      finishWithError,
+      input,
+      limits,
+      mode,
+      occupied,
+      queuePaused,
+      startPrompt,
+      status?.runtime?.setupRequired,
+      workDir,
+    ],
+  );
+
+  const consumedPromptRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!externalPrompt || consumedPromptRef.current === externalPrompt.id || !status) return;
+    consumedPromptRef.current = externalPrompt.id;
+    send(externalPrompt.text);
+  }, [externalPrompt, status, send]);
 
   useEffect(() => {
     if (submittingRef.current) return;
@@ -1744,6 +1824,15 @@ export function MespCodeChat({
             </div>
           )}
         </div>
+        <button
+          type="button"
+          className="mesp-router-discover"
+          onClick={() => void discoverRouterConnection()}
+          disabled={refreshing || setupOpening || occupied}
+          title="Procurar novas conexoes e modelos no 9Router"
+        >
+          {refreshing ? 'Procurando...' : 'Procurar conexao'}
+        </button>
         <div className="mesp-limits-control">
           <button
             type="button"
@@ -1754,7 +1843,7 @@ export function MespCodeChat({
             aria-haspopup="dialog"
           >
             Limites · {Math.round(limits.maxDurationMs / 60_000)}m ·{' '}
-            {Math.round(limits.maxTokens / 1000)}k
+            {limits.maxTokens === 0 ? 'sem limite' : `${Math.round(limits.maxTokens / 1000)}k`}
           </button>
           {limitsOpen && (
             <div className="mesp-limits-popover" role="dialog" aria-label="Limites por execucao">
@@ -1783,6 +1872,7 @@ export function MespCodeChat({
                     setLimits((current) => ({ ...current, maxTokens: Number(event.target.value) }))
                   }
                 >
+                  <option value={0}>Sem limite de tokens</option>
                   <option value={10000}>10.000 tokens</option>
                   <option value={25000}>25.000 tokens</option>
                   <option value={50000}>50.000 tokens</option>
@@ -1810,11 +1900,17 @@ export function MespCodeChat({
               <div className="mesp-quality-config">
                 <div className="mesp-quality-heading">
                   <strong>Quality gates</strong>
-                  <span>{selectedChecks.length}/{availableChecks.length}</span>
+                  <span>
+                    {selectedChecks.length}/{availableChecks.length}
+                  </span>
                 </div>
                 {availableChecks.length > 0 ? (
                   <>
-                    <div className="mesp-quality-checks" role="group" aria-label="Verificacoes do projeto">
+                    <div
+                      className="mesp-quality-checks"
+                      role="group"
+                      aria-label="Verificacoes do projeto"
+                    >
                       {PROJECT_CHECK_ORDER.filter((check) => availableChecks.includes(check)).map(
                         (check) => {
                           const checkId = `mesp-check-${petId}-${check}`;
@@ -1888,6 +1984,16 @@ export function MespCodeChat({
           <span aria-hidden="true">+</span> Nova conversa
         </button>
       </div>
+
+      {routerDiscoveryNotice && (
+        <div
+          className={`mesp-router-discovery-notice ${routerDiscoveryNotice.tone}`}
+          role={routerDiscoveryNotice.tone === 'error' ? 'alert' : 'status'}
+          aria-live="polite"
+        >
+          {routerDiscoveryNotice.text}
+        </div>
+      )}
 
       {status && status.routerState !== 'ready' && status.routerState !== 'unknown' && (
         <div
@@ -2078,32 +2184,36 @@ export function MespCodeChat({
                       <i />
                     </span>
                   ) : (
-                    <span>{message.status === 'cancelled' ? 'Resposta interrompida.' : 'Sem resposta.'}</span>
+                    <span>
+                      {message.status === 'cancelled' ? 'Resposta interrompida.' : 'Sem resposta.'}
+                    </span>
                   )}
                 </div>
-                {message.role === 'assistant' && message.timeline && message.timeline.length > 0 && (
-                  <details className="mesp-timeline">
-                    <summary>
-                      <span>Linha do tempo</span>
-                      <small>{message.timeline.length} eventos</small>
-                    </summary>
-                    <ol>
-                      {message.timeline.map((entry) => (
-                        <li className={`status-${entry.status}`} key={entry.id}>
-                          <span className="mesp-timeline-marker" aria-hidden="true" />
-                          <span>{entry.label}</span>
-                          <time dateTime={new Date(entry.at).toISOString()}>
-                            {new Date(entry.at).toLocaleTimeString('pt-BR', {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              second: '2-digit',
-                            })}
-                          </time>
-                        </li>
-                      ))}
-                    </ol>
-                  </details>
-                )}
+                {message.role === 'assistant' &&
+                  message.timeline &&
+                  message.timeline.length > 0 && (
+                    <details className="mesp-timeline">
+                      <summary>
+                        <span>Linha do tempo</span>
+                        <small>{message.timeline.length} eventos</small>
+                      </summary>
+                      <ol>
+                        {message.timeline.map((entry) => (
+                          <li className={`status-${entry.status}`} key={entry.id}>
+                            <span className="mesp-timeline-marker" aria-hidden="true" />
+                            <span>{entry.label}</span>
+                            <time dateTime={new Date(entry.at).toISOString()}>
+                              {new Date(entry.at).toLocaleTimeString('pt-BR', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit',
+                              })}
+                            </time>
+                          </li>
+                        ))}
+                      </ol>
+                    </details>
+                  )}
                 {message.role === 'assistant' && message.verification && (
                   <section
                     className={`mesp-verification status-${message.verification.status}`}
@@ -2158,7 +2268,9 @@ export function MespCodeChat({
                               <pre>{check.stderr}</pre>
                             </div>
                           )}
-                          {check.output && !check.stdout && !check.stderr && <pre>{check.output}</pre>}
+                          {check.output && !check.stdout && !check.stderr && (
+                            <pre>{check.output}</pre>
+                          )}
                           {!check.output && !check.stdout && !check.stderr && (
                             <p>Sem saida registrada.</p>
                           )}
@@ -2198,10 +2310,11 @@ export function MespCodeChat({
                         {message.tokens.toLocaleString()} tokens
                       </span>
                     ) : null}
-                    {message.model && (() => {
-                      const parts = modelParts(message.model);
-                      return <span>{`${parts.provider} · ${parts.name}`}</span>;
-                    })()}
+                    {message.model &&
+                      (() => {
+                        const parts = modelParts(message.model);
+                        return <span>{`${parts.provider} · ${parts.name}`}</span>;
+                      })()}
                   </footer>
                 )}
                 {message.role === 'assistant' &&
@@ -2293,12 +2406,12 @@ export function MespCodeChat({
             occupied
               ? 'Descreva outra tarefa para adicionar a fila...'
               : mode === 'fast'
-              ? 'Pergunte sem carregar as ferramentas do agente...'
-              : mode === 'plan'
-                ? 'Peca uma analise e um plano sem alterar o projeto...'
-                : mode === 'assisted'
-                  ? 'Descreva a tarefa; o MESP pedira aprovacao antes de agir...'
-                  : 'Descreva o objetivo; o MESP executa ate concluir...'
+                ? 'Pergunte sem carregar as ferramentas do agente...'
+                : mode === 'plan'
+                  ? 'Peca uma analise e um plano sem alterar o projeto...'
+                  : mode === 'assisted'
+                    ? 'Descreva a tarefa; o MESP pedira aprovacao antes de agir...'
+                    : 'Descreva o objetivo; o MESP executa ate concluir...'
           }
           aria-label="Mensagem para o MESP"
           rows={3}
@@ -2367,9 +2480,7 @@ export function MespCodeChat({
               ?
             </span>
             <p className="mesp-chat-eyebrow">Aprovacao necessaria</p>
-            <h2 id="mesp-permission-title">
-              Permitir {permission.tool || permission.action}?
-            </h2>
+            <h2 id="mesp-permission-title">Permitir {permission.tool || permission.action}?</h2>
             <p id="mesp-permission-description">
               O MESP pausou antes de executar esta acao. Revise os recursos envolvidos e escolha o
               alcance da permissao.
@@ -2429,7 +2540,12 @@ export function MespCodeChat({
               posteriores na mesma sessao tambem podem ser afetadas.
             </p>
             <div className="mesp-access-actions">
-              <button type="button" onClick={() => setRevertMessage(null)} disabled={reverting} autoFocus>
+              <button
+                type="button"
+                onClick={() => setRevertMessage(null)}
+                disabled={reverting}
+                autoFocus
+              >
                 Cancelar
               </button>
               <button

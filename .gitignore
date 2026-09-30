@@ -20,3 +20,7 @@ landing/dev.log
 
 .vercel
 .env*
+
+# Perfis e capturas locais usados nos testes do aplicativo.
+qa/
+screenshots/

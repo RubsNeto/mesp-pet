@@ -46,6 +46,8 @@ export interface PetEntity {
   state: PetState;
   /** Traits visuais únicos deste pet (cores, acessórios, manchas). */
   traits: MespTraits;
+  /** Dock appearance was explicitly saved by the user, including optional accessories. */
+  appearanceCustomized?: boolean;
   /** Última tarefa associada (ou null). Sempre igual a history[history.length-1]. */
   task: PetTask | null;
   /** Histórico completo de tarefas executadas para este pet. */
@@ -58,4 +60,11 @@ export interface PetEntity {
   lastActivityAt: number;
   /** Pasta de trabalho para o terminal deste pet. null = usa process.cwd(). */
   workDir: string | null;
+  agentPresetId?: string;
+  projectName?: string;
+  taskTitle?: string;
+  titlePinned?: boolean;
+  routerModel?: string;
+  hasActiveTask?: boolean;
+  completedAt?: number;
 }

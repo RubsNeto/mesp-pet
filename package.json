@@ -1,7 +1,7 @@
 {
-  "name": "mesp-pet",
+  "name": "mesp-top-dock",
   "version": "0.1.0",
-  "description": "MESP Code - pixel art coding companion powered by OpenCode and 9Router",
+  "description": "MESP companion with Coucou-style top island and per-project coding agents",
   "private": true,
   "main": "dist-electron/main.js",
   "author": "MESP",
@@ -17,10 +17,12 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --test tests/summarize.test.mjs tests/kiroBridge.spawn.test.mjs tests/procedural.test.mjs tests/sanitize.test.mjs tests/persistence.test.mjs tests/composer.test.mjs tests/stateDetect.test.mjs tests/costParse.test.mjs tests/runLog.test.mjs tests/contextStore.test.mjs tests/settingsStore.test.mjs tests/commandPalette.test.mjs tests/primer.test.mjs tests/traitsCatalog.test.mjs tests/primaryStore.test.mjs tests/presetsStore.test.mjs tests/mespCodeCore.test.mjs",
+    "test": "node --test tests/summarize.test.mjs tests/kiroBridge.spawn.test.mjs tests/procedural.test.mjs tests/sanitize.test.mjs tests/persistence.test.mjs tests/composer.test.mjs tests/stateDetect.test.mjs tests/costParse.test.mjs tests/runLog.test.mjs tests/contextStore.test.mjs tests/settingsStore.test.mjs tests/commandPalette.test.mjs tests/primer.test.mjs tests/traitsCatalog.test.mjs tests/primaryStore.test.mjs tests/presetsStore.test.mjs tests/mespCodeCore.test.mjs tests/dockCore.test.mjs tests/coucouMotion.test.mjs tests/dockHooks.test.mjs tests/dockTraits.test.mjs tests/dockTitles.test.mjs tests/dockRouter.test.mjs",
     "package": "npm run build && electron-builder",
     "package:dir": "npm run build && electron-builder --dir",
-    "rebuild-native": "node scripts/patch-gyp.js && electron-builder install-app-deps"
+    "rebuild-native": "node scripts/patch-gyp.js && electron-builder install-app-deps",
+    "test:dock": "node tests/dock.electron.cjs",
+    "test:router": "node tests/dockRouter.electron.cjs"
   },
   "dependencies": {
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
@@ -55,8 +57,8 @@
     "vite-plugin-electron-renderer": "^0.14.7"
   },
   "build": {
-    "appId": "io.mesp.pet",
-    "productName": "MESP Pet",
+    "appId": "io.mesp.topdock",
+    "productName": "MESP Top Dock",
     "npmRebuild": false,
     "files": [
       "dist/**/*",

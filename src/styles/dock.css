@@ -1,0 +1,1375 @@
+/* Coucou's black top island and quiet cards; MESP's own sprites and agents. */
+:root {
+  color-scheme: dark;
+  --surface-0: #000;
+  --surface-1: #141518;
+  --surface-2: #1d1f23;
+  --text-primary: #f5f6f8;
+  --text-secondary: #f1f2f4;
+  --text-muted: #9398a1;
+  --border-default: rgba(255, 255, 255, 0.07);
+  --border-subtle: rgba(255, 255, 255, 0.035);
+}
+
+/* Connection settings live in the same quiet island as the conversation. */
+.dock-settings {
+  height: 100%;
+  overflow-y: auto;
+  padding: 18px 20px;
+  color: #f5f6f8;
+  scrollbar-width: thin;
+  scrollbar-color: #393c43 transparent;
+}
+.dock-settings-heading,
+.dock-router-health,
+.dock-provider,
+.dock-settings-model-controls,
+.dock-settings-bottom {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dock-settings-heading {
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.dock-settings h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+.dock-settings h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+.dock-settings p {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: #a8adb7;
+  line-height: 1.5;
+}
+.top-dock .dock-settings button {
+  background: transparent;
+  border-radius: 8px;
+  transition:
+    background 0.16s,
+    color 0.16s;
+  font-size: 11px;
+}
+.dock-settings button:hover:not(:disabled) {
+  background: #292c33;
+}
+.dock-settings-refresh {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  color: #a8adb7 !important;
+}
+.dock-router-health {
+  font-size: 10px;
+  padding: 9px 11px;
+  background: #1d1f23;
+  border-radius: 10px;
+  gap: 7px;
+}
+.dock-router-health strong {
+  font-weight: 600;
+}
+.dock-router-health > span:nth-last-child(2) {
+  color: #a8adb7;
+}
+.dock-router-health button {
+  margin-left: auto;
+  padding: 4px 6px;
+  white-space: nowrap;
+}
+.dock-provider-list {
+  margin: 12px 0 17px;
+}
+.dock-provider {
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.dock-provider-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: #212329;
+  color: #e3e5e9;
+  flex-shrink: 0;
+}
+.dock-provider-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+.dock-provider-copy strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+.dock-provider-copy small {
+  font-size: 10px;
+  color: #a8adb7;
+}
+.dock-provider-state {
+  font-size: 10px;
+  color: #a8adb7;
+  white-space: nowrap;
+}
+.dock-provider-state.connected {
+  color: #84d9b6;
+}
+.dock-provider button {
+  background: #25282e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 7px 10px;
+  min-width: 90px;
+}
+.dock-settings-other {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 11px 5px;
+  margin-top: 4px;
+}
+.dock-settings-other > span {
+  font-size: 10px;
+  color: #a8adb7;
+}
+.dock-settings-model-controls {
+  margin-top: 10px;
+}
+.dock-settings-model-controls select {
+  flex: 1;
+  min-width: 0;
+  height: 33px;
+  padding: 0 8px;
+  background: #202228;
+  color: #eef0f4;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 11px;
+}
+.dock-settings-model-controls select:focus-visible {
+  outline: 1px solid #a8adb7;
+  outline-offset: 2px;
+}
+.dock-settings-apply {
+  background: #eef0f4 !important;
+  color: #17191e !important;
+  font-weight: 600 !important;
+  height: 33px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+.dock-settings-apply:hover:not(:disabled) {
+  background: #d5d9e1 !important;
+}
+.dock-settings-hint {
+  display: block;
+  color: #c1c5ce;
+  margin-top: 8px;
+  font-size: 10px;
+}
+.dock-settings-bottom {
+  justify-content: space-between;
+  margin-top: 15px;
+  font-size: 10px;
+  color: #a8adb7;
+}
+.dock-settings-bottom button {
+  font-size: 10px;
+  padding: 5px;
+}
+.dock-settings-error {
+  font-size: 11px;
+  color: #ffb5b5;
+  background: #2b1e23;
+  border-radius: 8px;
+  padding: 10px;
+  margin-top: 10px;
+}
+.dock-settings .spinning {
+  animation: dock-settings-spin 0.8s linear infinite;
+}
+@keyframes dock-settings-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (max-width: 540px) {
+  .dock-settings {
+    padding: 16px 12px;
+  }
+  .dock-provider-state {
+    display: none;
+  }
+  .dock-settings-model-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .dock-settings-model-controls select {
+    flex: auto;
+  }
+  .dock-settings-bottom {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dock-settings .spinning {
+    animation: none;
+  }
+}
+html,
+body,
+#root {
+  background: transparent !important;
+  overflow: hidden;
+  font-family: system-ui, 'Segoe UI Variable Text', 'Segoe UI', sans-serif;
+}
+.dock-wake {
+  position: fixed;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  width: 240px;
+  height: 6px;
+  z-index: 1000;
+}
+.top-dock {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 288px;
+  height: 32px;
+  background: #000;
+  border-radius: 0 0 14px 14px;
+  z-index: 1001;
+  box-shadow: 0 9px 35px rgba(0, 0, 0, 0.24);
+  color: #f5f6f8;
+  will-change: width, height;
+  border: 0;
+  overflow: visible;
+}
+.dock-clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+}
+.top-dock button {
+  font: inherit;
+  cursor: pointer;
+  color: inherit;
+  border: 0;
+}
+.top-dock button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.top-dock button:focus-visible,
+.top-dock input:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.5);
+  outline-offset: 2px;
+}
+.top-dock * {
+  border-color: rgba(255, 255, 255, 0.07) !important;
+}
+.dock-compact {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 20px 0 66px;
+  gap: 8px;
+  font-size: 10px !important;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+.dock-compact > span:first-child {
+  font-weight: 650;
+  color: #f5f6f8;
+  letter-spacing: 0.04em;
+}
+.dock-compact > span:last-child {
+  color: #9398a1;
+}
+.dock-status,
+.dock-project-dot {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #7b818b;
+}
+.state-thinking {
+  background: #8b5cf6;
+}
+.state-working {
+  background: #3b9eff;
+}
+.state-waiting {
+  background: #f5a524;
+}
+.state-error {
+  background: #f4505e;
+}
+.state-success {
+  background: #34d399;
+}
+.state-sleeping {
+  background: #677183;
+}
+.dock-character-button {
+  position: absolute;
+  left: 12px;
+  top: 0;
+  width: 46px;
+  height: 32px;
+  background: transparent;
+  z-index: 4;
+  transition:
+    left 0.4s,
+    top 0.4s,
+    opacity 0.2s;
+}
+.dock-mascot {
+  width: 46px;
+  height: 41px;
+  position: absolute;
+  left: 0;
+  top: -6px;
+  pointer-events: none;
+  transition:
+    width 0.35s,
+    height 0.35s,
+    left 0.35s,
+    top 0.35s;
+}
+.mode-hidden .dock-character-button {
+  opacity: 0;
+  pointer-events: none;
+}
+.mode-home .dock-character-button {
+  left: 10px;
+  top: 2px;
+  width: 60px;
+  height: 48px;
+}
+.mode-home .dock-mascot {
+  width: 62px;
+  height: 56px;
+  left: -1px;
+  top: -7px;
+}
+.mode-home .dock-compact,
+.mode-coucou .dock-compact {
+  opacity: 0;
+  pointer-events: none;
+}
+.mode-coucou .dock-character-button {
+  left: calc(50% - 46px);
+  top: 0;
+  width: 92px;
+  height: 100px;
+}
+.mode-coucou .dock-mascot {
+  width: 116px;
+  height: 104px;
+  left: -12px;
+  top: -12px;
+}
+.dock-greeting {
+  position: absolute;
+  inset: 106px 0 0;
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 4px;
+  opacity: 0;
+  pointer-events: none;
+  font-size: 13px;
+}
+.dock-greeting small {
+  font-size: 10px;
+  color: #9398a1;
+}
+.mode-coucou .dock-greeting {
+  opacity: 1;
+}
+.dock-expanded {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  transition: opacity 0.18s;
+  pointer-events: none;
+}
+.mode-home .dock-expanded {
+  opacity: 1;
+  pointer-events: auto;
+}
+.dock-header {
+  height: 48px;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px 6px 80px;
+  gap: 12px;
+}
+.dock-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  font-size: 11px;
+}
+.dock-title strong {
+  font-size: 12px;
+  letter-spacing: 0.03em;
+}
+.dock-title > span:nth-child(2) {
+  color: #9398a1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dock-title small {
+  color: #9398a1;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.dock-actions {
+  display: flex;
+  gap: 5px;
+}
+.dock-actions button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border-radius: 8px;
+  color: #9398a1;
+}
+.dock-actions button:hover,
+.dock-actions button[aria-pressed='true'] {
+  background: #1d1f23;
+  color: #f5f6f8;
+}
+.dock-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  padding: 0 10px 8px;
+}
+.dock-workspace {
+  position: relative;
+  background: #141518;
+  border-radius: 20px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  flex: 1;
+}
+.dock-welcome {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  text-align: center;
+}
+.dock-welcome h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 7px;
+}
+.dock-welcome p {
+  color: #9398a1;
+  font-size: 11px;
+  line-height: 1.65;
+  margin: 0 0 15px;
+}
+.dock-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 7px;
+}
+.dock-suggestions button {
+  font-size: 10px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: #1d1f23;
+  color: #b8bbc2;
+}
+.dock-suggestions button:hover {
+  background: #282b31;
+  color: #f5f6f8;
+}
+.dock-project-overlay {
+  position: absolute;
+  inset: 0;
+  background: #141518;
+  padding: 14px;
+  overflow: auto;
+  z-index: 2;
+}
+.dock-overlay-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.dock-overlay-heading button {
+  display: grid;
+  place-items: center;
+  background: transparent;
+  color: #9398a1;
+}
+.dock-project-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+.dock-project {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: #0e0f11;
+  border-radius: 12px;
+  min-height: 55px;
+  text-align: left;
+}
+.dock-project:hover,
+.dock-project.selected {
+  background: #1d1f23;
+}
+.dock-project-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dock-project-copy strong {
+  font-size: 11px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dock-project-copy small {
+  font-size: 9px;
+  color: #9398a1;
+}
+.dock-working {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border: 1.5px solid #9398a1;
+  border-right-color: transparent !important;
+  border-radius: 50%;
+  animation: dock-spin 0.9s linear infinite;
+}
+.dock-inline-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 12px auto 0;
+  padding: 8px 14px;
+  background: #1d1f23;
+  border-radius: 10px;
+  font-size: 11px !important;
+}
+.dock-composer {
+  display: flex;
+  gap: 10px;
+  margin: 0 14px;
+  background: #1d1f23;
+  border-radius: 12px;
+  padding: 6px 6px 6px 14px;
+  min-height: 42px;
+  flex-shrink: 0;
+}
+.dock-composer input {
+  font: inherit;
+  font-size: 12px;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  color: #f5f6f8;
+  outline: 0;
+  min-width: 0;
+}
+.dock-composer input:focus-visible {
+  outline: none;
+}
+.dock-composer:focus-within {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.13);
+}
+.dock-composer input::placeholder {
+  color: #9398a1;
+}
+.dock-composer button {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #f5f6f8;
+  color: #141518;
+}
+.dock-composer button:hover {
+  background: #fff;
+}
+.dock-chat-feedback {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 16px;
+  color: #c3c6cc;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.dock-chat-feedback button {
+  background: transparent;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.dock-chat-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+  font-size: 9px;
+  color: #6b7079;
+  padding: 6px 16px 8px;
+  min-height: 27px;
+}
+.dock-chat-footer button {
+  display: grid;
+  place-items: center;
+  background: transparent;
+  color: #9398a1;
+}
+.dock-chat-footer span:nth-child(2) {
+  margin-left: auto;
+}
+.dock-workspace .dock-terminal {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  border: 0 !important;
+  border-radius: 20px !important;
+  box-shadow: none !important;
+  background: #141518 !important;
+  z-index: 1 !important;
+  animation: none !important;
+  transition: none !important;
+}
+.dock-terminal .kiro-terminal-header {
+  cursor: default;
+  border: 0 !important;
+  background: #141518 !important;
+  min-height: 36px !important;
+  padding: 7px 14px !important;
+}
+.dock-terminal .kiro-resize-handle {
+  display: none !important;
+}
+.dock-terminal .kiro-terminal-xterm {
+  padding: 6px 12px 12px !important;
+  background: #141518 !important;
+}
+.dock-terminal .mesp-code-avatar {
+  display: none;
+}
+.dock-terminal .mesp-code-body,
+.dock-terminal .mesp-messages {
+  background: #141518 !important;
+}
+.dock-terminal .mesp-user {
+  background: #1d1f23 !important;
+}
+.dock-terminal .mesp-composer {
+  background: #1d1f23 !important;
+  border-color: rgba(255, 255, 255, 0.07) !important;
+}
+.dock-config-hint {
+  padding: 14px;
+  color: #9398a1;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.dock-terminal .terminal-status {
+  border: 0 !important;
+  background: transparent !important;
+  font-size: 10px;
+}
+.dock-terminal .kiro-terminal-title {
+  font-size: 11px !important;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dock-terminal .btn-icon {
+  box-shadow: none !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: #9398a1 !important;
+}
+@keyframes dock-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (max-width: 600px) {
+  .dock-title small {
+    display: none;
+  }
+  .dock-chat-footer span:nth-child(2) {
+    display: none;
+  }
+  .dock-project-grid {
+    grid-template-columns: 1fr;
+  }
+  .dock-title > span:nth-child(2) {
+    max-width: 120px;
+  }
+  .dock-header {
+    padding-left: 72px;
+  }
+  .dock-actions {
+    gap: 1px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .top-dock * {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Coucou's lead on the left, a two-row cluster of live mini MESP on the right. */
+.top-dock {
+  height: 44px;
+}
+.dock-mesp-rail {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+.dock-mesp-rail button {
+  pointer-events: auto;
+}
+.dock-character-button {
+  top: 5px;
+  height: 38px;
+}
+.dock-compact {
+  justify-content: center;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 68px;
+  padding-right: calc(52px + var(--mini-columns, 0) * 24px);
+}
+.dock-compact-title {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  text-align: left;
+  letter-spacing: 0 !important;
+}
+.dock-compact-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  color: #9398a1;
+}
+.dock-mini-button {
+  position: absolute;
+  right: calc(44px + (var(--mini-columns) - 1 - var(--mini-column)) * 24px);
+  top: calc(5px + var(--mini-row) * 18px);
+  width: 20px;
+  height: 18px;
+  background: transparent;
+  border-radius: 6px;
+}
+.dock-mini-button .dock-mascot {
+  width: 35px;
+  height: 31px;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+.dock-mini-button:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+.dock-petting-hand {
+  position: absolute;
+  z-index: 3;
+  width: 23px;
+  height: 23px;
+  left: 52%;
+  top: -2px;
+  fill: #f1f2f4;
+  stroke: #777d86;
+  stroke-width: 1.1;
+  pointer-events: none;
+  transform-origin: bottom center;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.3));
+  animation: dock-pet-stroke 0.85s ease-in-out infinite;
+}
+.mode-home .dock-character-button .dock-petting-hand {
+  width: 30px;
+  height: 30px;
+  top: 3px;
+}
+.dock-mini-button .dock-petting-hand {
+  width: 13px;
+  height: 13px;
+  top: -4px;
+}
+@keyframes dock-pet-stroke {
+  0%,
+  100% {
+    transform: translate(-8px, -3px) rotate(-18deg);
+  }
+  50% {
+    transform: translate(4px, 2px) rotate(7deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dock-petting-hand {
+    animation: none;
+  }
+}
+.dock-mini-indicator {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  right: 0;
+  bottom: 1px;
+}
+.dock-add-mesp {
+  position: absolute;
+  right: 11px;
+  top: 10px;
+  width: 23px;
+  height: 23px;
+  display: grid;
+  place-items: center;
+  background: #1d1f23;
+  border-radius: 8px;
+  color: #b0b5be !important;
+}
+.dock-add-mesp:hover {
+  background: #2a2c32;
+  color: #fff !important;
+}
+.mode-hidden .dock-mesp-rail {
+  opacity: 0;
+  visibility: hidden;
+}
+.mode-coucou .dock-mini-button,
+.mode-coucou .dock-add-mesp {
+  opacity: 0;
+  visibility: hidden;
+}
+.mode-home .dock-character-button {
+  left: 13px;
+  top: 12px;
+  height: 60px;
+  width: 65px;
+}
+.mode-home .dock-character-button .dock-mascot {
+  width: 78px;
+  height: 70px;
+  left: -7px;
+  top: -8px;
+}
+.mode-home .dock-mini-button {
+  top: calc(6px + var(--mini-row) * 25px);
+  width: 25px;
+  height: 23px;
+  right: calc(46px + (var(--mini-columns) - 1 - var(--mini-column)) * 28px);
+}
+.mode-home .dock-mini-button .dock-mascot {
+  width: 43px;
+  height: 38px;
+}
+.mode-home .dock-add-mesp {
+  top: 17px;
+  width: 26px;
+  height: 26px;
+}
+.dock-finished-mark {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  font-size: 10px;
+  color: #f5f6f8;
+  background: #1d1f23;
+  border-radius: 50%;
+  width: 15px;
+  height: 15px;
+  display: grid;
+  place-items: center;
+}
+.dock-header {
+  position: relative;
+  height: 86px;
+  min-height: 86px;
+  align-items: flex-start;
+  padding: 17px calc(58px + var(--mini-columns) * 28px) 8px 84px;
+}
+.dock-title {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+}
+.dock-task-title {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+}
+.dock-task-title strong {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dock-task-title svg {
+  color: #7b818b;
+  opacity: 0;
+  flex: 0 0 auto;
+}
+.dock-task-title:hover svg,
+.dock-task-title:focus-visible svg {
+  opacity: 1;
+}
+.dock-title small {
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.dock-task-title-input {
+  width: 100%;
+  background: #1d1f23;
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  border: 0;
+  border-radius: 5px;
+  padding: 3px 5px;
+}
+.dock-actions {
+  position: absolute;
+  top: 55px;
+  right: 12px;
+  gap: 2px;
+}
+.dock-actions button {
+  width: 23px;
+  height: 23px;
+}
+.dock-actions svg {
+  width: 13px;
+  height: 13px;
+}
+.dock-body {
+  padding: 0 10px 8px;
+}
+.dock-workspace {
+  background: #141518;
+  border-radius: 18px;
+}
+.dock-conversation {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 13px 18px 9px 28px;
+  gap: 9px;
+  background:
+    radial-gradient(ellipse at 10% 0%, rgba(255, 255, 255, 0.025), transparent 65%), #141518;
+}
+.dock-context-chip {
+  align-self: flex-start;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  font-size: 10px;
+  color: #b0b5be;
+  padding: 4px 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dock-context-agent {
+  color: #747983;
+  margin-left: 3px;
+}
+.dock-chat-log {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 2px 0;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  user-select: text;
+}
+.dock-chat-intro {
+  margin: auto;
+  text-align: center;
+  padding: 18px;
+}
+.dock-chat-intro strong {
+  color: #ebedf0;
+  font-size: 13px;
+  font-weight: 500;
+}
+.dock-chat-intro p {
+  margin: 8px 0;
+  color: #9398a1;
+  font-size: 11px;
+  line-height: 1.65;
+}
+.dock-chat-row {
+  display: flex;
+  min-width: 0;
+}
+.dock-chat-row.user {
+  justify-content: flex-end;
+  padding-left: 32px;
+}
+.dock-chat-bubble {
+  background: rgba(255, 255, 255, 0.13);
+  border-radius: 12px;
+  padding: 7px 11px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #f1f2f4;
+  max-width: 94%;
+}
+.dock-chat-reply {
+  color: #b0b5be;
+  white-space: pre-wrap;
+  font-size: 12.5px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  padding: 2px 8px 2px 0;
+  min-width: 0;
+  max-width: 100%;
+}
+.dock-chat-reply pre,
+.dock-chat-bubble pre {
+  white-space: pre-wrap;
+  background: #1d1f23;
+  border-radius: 9px;
+  padding: 10px 12px;
+  color: #dde0e6;
+  font-size: 11px;
+  overflow: auto;
+}
+.dock-typing {
+  display: flex;
+  gap: 4px;
+  padding: 4px 2px;
+}
+.dock-typing i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #9398a1;
+  animation: dock-typing 0.9s ease-in-out infinite;
+}
+.dock-typing i:nth-child(2) {
+  animation-delay: 0.14s;
+}
+.dock-typing i:nth-child(3) {
+  animation-delay: 0.28s;
+}
+@keyframes dock-typing {
+  0%,
+  100% {
+    transform: scale(0.6);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+}
+.dock-cli-welcome {
+  color: #9398a1;
+  margin: 0 0 8px;
+  font-size: 10px;
+}
+.dock-cli-welcome summary {
+  cursor: pointer;
+}
+.dock-cli-welcome pre {
+  font: inherit;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.dock-chat-guidance {
+  font-size: 10px;
+  line-height: 1.5;
+  background: #1d1f23;
+  padding: 8px 10px;
+  border-radius: 9px;
+  color: #b0b5be;
+}
+.dock-composer {
+  min-height: 38px;
+  margin: 0 14px;
+  align-items: center;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 5px 7px 5px 12px;
+  gap: 8px;
+}
+.dock-composer input {
+  font-size: 12.5px;
+}
+.dock-composer button {
+  width: 28px;
+  height: 28px;
+}
+.dock-chat-footer {
+  min-height: 34px;
+  padding: 5px 16px 8px;
+}
+.dock-chat-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.dock-chat-tabs button {
+  display: inline-flex;
+  font-size: 9px;
+  padding: 4px 7px;
+  border-radius: 6px;
+}
+.dock-chat-tabs button[aria-selected='true'] {
+  background: #1d1f23;
+  color: #f1f2f4;
+}
+.dock-more-projects {
+  font-size: 9px !important;
+  margin-left: auto;
+}
+.dock-completed-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 14px 8px;
+  padding: 7px 10px;
+  background: #1d1f23;
+  border-radius: 9px;
+  font-size: 10px !important;
+  color: #d3d6dc !important;
+  gap: 10px;
+}
+.dock-completed-banner span:first-child {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dock-completed-banner span:last-child {
+  flex-shrink: 0;
+  color: #9398a1;
+}
+.dock-new-overlay {
+  padding: 21px 24px;
+}
+.dock-expanded:has(.dock-new-overlay) .dock-composer,
+.dock-expanded:has(.dock-new-overlay) .dock-chat-footer {
+  display: none;
+}
+.dock-new-overlay .dock-overlay-heading {
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+.dock-new-overlay .dock-overlay-heading strong {
+  font-size: 15px;
+  font-weight: 550;
+}
+.dock-new-overlay .dock-overlay-heading p {
+  color: #9398a1;
+  font-size: 11px;
+  margin: 6px 0 0;
+  line-height: 1.5;
+}
+.dock-new-form {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+.dock-new-form label,
+.dock-new-folder {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  color: #a8adb6;
+  font-size: 11px;
+}
+.dock-new-form label:first-child {
+  position: relative;
+}
+.dock-optional {
+  position: absolute;
+  right: 0;
+  color: #737985;
+  font-size: 10px;
+}
+.dock-new-form input,
+.dock-new-form select,
+.dock-new-folder button {
+  background: #1d1f23;
+  color: #f1f2f4;
+  font: inherit;
+  border: 0;
+  border-radius: 9px;
+  height: 37px;
+  min-width: 0;
+  padding: 0 11px;
+}
+.dock-new-form input::placeholder {
+  color: #6d737d;
+}
+.dock-new-fields {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  gap: 12px;
+}
+.dock-new-folder button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+}
+.dock-folder-path {
+  color: #737985;
+  font-size: 10px;
+  margin: -5px 0 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.dock-use-folder {
+  align-self: flex-start;
+  color: #a8adb6 !important;
+  background: transparent;
+  padding: 0;
+  font-size: 10px !important;
+}
+.dock-new-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 7px;
+}
+.dock-new-bottom > span {
+  color: #6d737d;
+  font-size: 10px;
+}
+.dock-create-button {
+  border-radius: 9px;
+  background: #f1f2f4;
+  color: #101114 !important;
+  padding: 10px 16px;
+  font-size: 11px !important;
+  font-weight: 550 !important;
+}
+.dock-form-error {
+  color: #b0b5be;
+  font-size: 11px;
+  margin: 0;
+}
+.view-chat .dock-terminal.mesp-code-terminal .mesp-composer {
+  display: none;
+}
+@media (max-width: 600px) {
+  .dock-header {
+    padding-left: 78px;
+    padding-right: calc(48px + var(--mini-columns) * 26px);
+  }
+  .dock-task-title strong {
+    font-size: 11px;
+  }
+  .dock-title small {
+    display: flex;
+  }
+  .dock-context-agent {
+    display: none;
+  }
+  .dock-new-overlay {
+    padding: 16px;
+  }
+  .dock-conversation {
+    padding-left: 15px;
+    padding-right: 15px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dock-typing i {
+    animation: none;
+  }
+}

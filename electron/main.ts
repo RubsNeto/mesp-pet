@@ -32,6 +32,10 @@ import {
   globalShortcut,
   shell,
 } from 'electron';
+import { visibleHitRegions, type HitRegion } from '../src/services/dockCore.mjs';
+import { createDockHooks, encodedAgentCommand, type DockHookBridge } from './dockHooks.mjs';
+import { createDockTitleService, type DockTitleService } from './dockTitles.mjs';
+import { routerPage, routerConnectionSummary } from './dockRouter.mjs';
 import { spawn, spawnSync, ChildProcessWithoutNullStreams } from 'node:child_process';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
@@ -50,8 +54,10 @@ import {
   extractOpenCodeApiCredential,
   hasActiveRouterConnections,
   isMespCodeMode,
+  isMespTokenLimitExceeded,
   isLoopbackRouterURL,
   modelIdFor9Router,
+  normalizeMespTokenLimit,
   normalizeProjectChecks,
   parseDotEnvValue,
   parseOpenAIStreamData,
@@ -115,12 +121,7 @@ const DEFAULT_NINEROUTER_BASE_URL = 'http://127.0.0.1:20127/v1';
 const ROUTER_START_TIMEOUT_MS = 30_000;
 const MAX_PROJECT_CHECK_RUNS = 4;
 const MAX_PROJECT_CHECK_SUITE_DURATION_MS = 12 * 60_000;
-const LEGACY_OPENCODE_CONFIG_PATH = path.join(
-  os.homedir(),
-  '.config',
-  'opencode',
-  'opencode.json',
-);
+const LEGACY_OPENCODE_CONFIG_PATH = path.join(os.homedir(), '.config', 'opencode', 'opencode.json');
 const MESP_AGENT_CONFIG = {
   compaction: { auto: true, prune: true },
   watcher: {
@@ -209,6 +210,7 @@ const runningProcesses = new Map<string, ChildProcessWithoutNullStreams>();
 
 // Processos persistentes de terminal (um por pet) — PTY real (node-pty).
 const terminalProcesses = new Map<string, pty.IPty>();
+let dockHooks: Promise<DockHookBridge> | null = null;
 
 interface MespCodeProcessRun {
   requestId: string;
@@ -280,12 +282,7 @@ let lastModelSyncAt = 0;
 let lastModelSyncAttemptAt = 0;
 let modelSyncPromise: Promise<void> | null = null;
 let rejectedRouterCredentialHash: string | null = null;
-type RouterConnectionState =
-  | 'unknown'
-  | 'ready'
-  | 'unauthorized'
-  | 'unreachable'
-  | 'misconfigured';
+type RouterConnectionState = 'unknown' | 'ready' | 'unauthorized' | 'unreachable' | 'misconfigured';
 let routerConnectionStatus: {
   state: RouterConnectionState;
   message: string;
@@ -480,9 +477,7 @@ function mespOpenCodeConfigPath(): string {
 function readOpenCodeConfig(): Record<string, unknown> {
   const primary = mespOpenCodeConfigPath();
   const candidates =
-    primary === LEGACY_OPENCODE_CONFIG_PATH
-      ? [primary]
-      : [primary, LEGACY_OPENCODE_CONFIG_PATH];
+    primary === LEGACY_OPENCODE_CONFIG_PATH ? [primary] : [primary, LEGACY_OPENCODE_CONFIG_PATH];
   for (const candidate of candidates) {
     try {
       return JSON.parse(fs.readFileSync(candidate, 'utf-8')) as Record<string, unknown>;
@@ -532,8 +527,7 @@ function openCodeStatusFromConfig(parsed: Record<string, unknown>) {
         nodeRuntime.source === 'bundled' &&
         npmRuntime?.source === 'bundled' &&
         routerBundledAvailable,
-      setupRequired:
-        routerConnectionStatus.state === 'misconfigured' || modelIds.length === 0,
+      setupRequired: routerConnectionStatus.state === 'misconfigured' || modelIds.length === 0,
     },
   };
 }
@@ -562,9 +556,7 @@ function readOpenCodeApiCredential(providerId: string): string | null {
   const candidates = [
     process.env.OPENCODE_AUTH_JSON,
     path.join(os.homedir(), '.local', 'share', 'opencode', 'auth.json'),
-    process.env.LOCALAPPDATA
-      ? path.join(process.env.LOCALAPPDATA, 'opencode', 'auth.json')
-      : null,
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'opencode', 'auth.json') : null,
   ].filter((candidate): candidate is string => Boolean(candidate));
   for (const candidate of new Set(candidates)) {
     try {
@@ -935,11 +927,7 @@ async function sync9RouterModels(force = false): Promise<void> {
       }
       const configPath = mespOpenCodeConfigPath();
       await fs.promises.mkdir(path.dirname(configPath), { recursive: true });
-      await fs.promises.writeFile(
-        configPath,
-        `${JSON.stringify(config, null, 2)}\n`,
-        'utf-8',
-      );
+      await fs.promises.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
       lastModelSyncAt = Date.now();
       const hasIntegratedProviders =
         routerRuntimeSource === 'bundled' ? await integratedRouterHasProviders(baseURL) : null;
@@ -1097,19 +1085,43 @@ async function mespServerJson<T>(
   return (await response.json()) as T;
 }
 
+app.setPath(
+  'userData',
+  process.env.MESP_DOCK_DATA_DIR || path.join(app.getPath('appData'), 'MESP Top Dock'),
+);
+const dockInstanceLock = app.requestSingleInstanceLock();
+if (!dockInstanceLock) app.quit();
+app.on('second-instance', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.showInactive();
+  windowVisible = true;
+  safeSend('dock:reveal', null);
+  updateTrayMenu();
+});
+let dockHitRegions: HitRegion[] = [];
+let dockHitTestTimer: ReturnType<typeof setInterval> | null = null;
+ipcMain.handle('dock:set-hit-regions', (_event, value: unknown) => {
+  dockHitRegions = visibleHitRegions(value);
+});
+ipcMain.handle('dock:focus', (_event, focused: unknown) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (focused === true) mainWindow.focus();
+  else mainWindow.blur();
+});
+
 // ---------------------------------------------------------------------------
 //  Window / app lifecycle
 // ---------------------------------------------------------------------------
 
 function createWindow(): void {
   const primary = screen.getPrimaryDisplay();
-  const { width, height } = primary.workAreaSize;
+  const { width, height, x: screenX, y: screenY } = primary.bounds;
 
   mainWindow = new BrowserWindow({
     width,
     height,
-    x: 0,
-    y: 0,
+    x: screenX,
+    y: screenY,
     transparent: true,
     frame: false,
     resizable: false,
@@ -1117,7 +1129,7 @@ function createWindow(): void {
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
-    skipTaskbar: false,
+    skipTaskbar: true,
     alwaysOnTop: true,
     hasShadow: false,
     backgroundColor: '#00000000',
@@ -1158,10 +1170,35 @@ function createWindow(): void {
   }
 
   mainWindow.once('ready-to-show', () => {
-    mainWindow?.show();
+    mainWindow?.showInactive();
   });
 
+  let lastCapture = false;
+  dockHitTestTimer = setInterval(() => {
+    if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) return;
+    const bounds = mainWindow.getBounds();
+    const cursor = screen.getCursorScreenPoint();
+    const x = cursor.x - bounds.x,
+      y = cursor.y - bounds.y;
+    const capture = dockHitRegions.some(
+      (r) => x >= r.x && y >= r.y && x < r.x + r.width && y < r.y + r.height,
+    );
+    if (capture === lastCapture) return;
+    lastCapture = capture;
+    mainWindow.setIgnoreMouseEvents(!capture, { forward: true });
+  }, 16);
+  const reposition = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.setBounds(screen.getPrimaryDisplay().bounds);
+  };
+  screen.on('display-metrics-changed', reposition);
+  screen.on('display-added', reposition);
+  screen.on('display-removed', reposition);
   mainWindow.on('closed', () => {
+    if (dockHitTestTimer) clearInterval(dockHitTestTimer);
+    screen.removeListener('display-metrics-changed', reposition);
+    screen.removeListener('display-added', reposition);
+    screen.removeListener('display-removed', reposition);
     mainWindow = null;
   });
 }
@@ -1202,7 +1239,21 @@ ipcMain.handle('opencode:get-status', async (_event, forceRaw: unknown) => {
   return openCodeStatusFromConfig(readOpenCodeConfig());
 });
 
-ipcMain.handle('opencode:open-router-dashboard', async () => {
+ipcMain.handle('dock:router-connections', async () => {
+  const { baseURL } = configured9RouterOptions(readOpenCodeConfig());
+  const origin = routerOriginForApiBase(baseURL);
+  if (!origin) return null;
+  try {
+    if ((await ensure9RouterRuntime(baseURL)) === 'unavailable') return null;
+    const response = await fetch(`${origin}/api/providers`, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) return null;
+    return routerConnectionSummary(await response.json());
+  } catch {
+    return null;
+  }
+});
+
+ipcMain.handle('opencode:open-router-dashboard', async (_event, pageRaw: unknown) => {
   const { baseURL } = configured9RouterOptions(readOpenCodeConfig());
   const origin = routerOriginForApiBase(baseURL);
   if (!origin) {
@@ -1212,8 +1263,10 @@ ipcMain.handle('opencode:open-router-dashboard', async () => {
   if (runtime === 'unavailable') {
     return { ok: false, error: 'Nao foi possivel iniciar o 9Router integrado.' };
   }
-  const dashboardURL = new URL('/dashboard', `${origin}/`).toString();
+  const dashboardURL = new URL(routerPage(pageRaw), `${origin}/`).toString();
   if (routerDashboardWindow && !routerDashboardWindow.isDestroyed()) {
+    if (pageRaw && routerDashboardWindow.webContents.getURL() !== dashboardURL)
+      await routerDashboardWindow.loadURL(dashboardURL);
     if (routerDashboardWindow.isMinimized()) routerDashboardWindow.restore();
     routerDashboardWindow.show();
     routerDashboardWindow.focus();
@@ -1269,6 +1322,7 @@ ipcMain.handle('opencode:open-router-dashboard', async () => {
   dashboard.once('ready-to-show', () => dashboard.show());
   dashboard.on('closed', () => {
     if (routerDashboardWindow === dashboard) routerDashboardWindow = null;
+    safeSend('dock:router-closed', {});
   });
   try {
     await dashboard.loadURL(dashboardURL);
@@ -1305,13 +1359,8 @@ function validateMespLimits(value: unknown): MespCodeLimits {
       ? Math.max(minimum, Math.min(maximum, Math.floor(candidate)))
       : fallback;
   return {
-    maxDurationMs: clamp(
-      raw.maxDurationMs,
-      MESP_DEFAULT_LIMITS.maxDurationMs,
-      30_000,
-      30 * 60_000,
-    ),
-    maxTokens: clamp(raw.maxTokens, MESP_DEFAULT_LIMITS.maxTokens, 1_000, 200_000),
+    maxDurationMs: clamp(raw.maxDurationMs, MESP_DEFAULT_LIMITS.maxDurationMs, 30_000, 30 * 60_000),
+    maxTokens: normalizeMespTokenLimit(raw.maxTokens, MESP_DEFAULT_LIMITS.maxTokens),
     maxToolCalls: clamp(raw.maxToolCalls, MESP_DEFAULT_LIMITS.maxToolCalls, 1, 500),
   };
 }
@@ -1320,7 +1369,9 @@ function configuredMespSecrets(): string[] {
   const environmentSecrets = Object.entries(process.env)
     .filter(
       ([name, secret]) =>
-        /(?:KEY|TOKEN|SECRET|PASSWORD)/i.test(name) && typeof secret === 'string' && secret.length >= 8,
+        /(?:KEY|TOKEN|SECRET|PASSWORD)/i.test(name) &&
+        typeof secret === 'string' &&
+        secret.length >= 8,
     )
     .map(([, secret]) => secret as string);
   const config = readOpenCodeConfig();
@@ -1329,9 +1380,7 @@ function configuredMespSecrets(): string[] {
       ? (config.provider as Record<string, unknown>)
       : null;
   const provider =
-    providerRoot &&
-    providerRoot['9router'] &&
-    typeof providerRoot['9router'] === 'object'
+    providerRoot && providerRoot['9router'] && typeof providerRoot['9router'] === 'object'
       ? (providerRoot['9router'] as Record<string, unknown>)
       : null;
   const options =
@@ -1363,10 +1412,7 @@ function redactMespSecrets(value: unknown, secrets?: string[]): string {
   }
   return message
     .replace(/\bBearer\s+[^\s,;"']+/gi, 'Bearer [redacted]')
-    .replace(
-      /\b(api[_ -]?key|authorization|token)(\s*[:=]\s*)[^\s,;"']+/gi,
-      '$1$2[redacted]',
-    )
+    .replace(/\b(api[_ -]?key|authorization|token)(\s*[:=]\s*)[^\s,;"']+/gi, '$1$2[redacted]')
     .replace(/\b(?:sk|key)-[A-Za-z0-9._-]{8,}\b/g, '[redacted]');
 }
 
@@ -1384,9 +1430,7 @@ function openCodeEventError(event: Record<string, unknown>): string | undefined 
     record.data && typeof record.data === 'object'
       ? (record.data as Record<string, unknown>)
       : null;
-  return data && typeof data.message === 'string' && data.message.trim()
-    ? data.message
-    : undefined;
+  return data && typeof data.message === 'string' && data.message.trim() ? data.message : undefined;
 }
 
 function safeOpenCodeEvent(
@@ -1446,7 +1490,9 @@ async function runFastMespCode(options: {
     const resolvedError =
       run.limitError ||
       error ||
-      (!run.cancelled && code === null ? 'A resposta foi interrompida inesperadamente.' : undefined);
+      (!run.cancelled && code === null
+        ? 'A resposta foi interrompida inesperadamente.'
+        : undefined);
     safeSend('mesp-code:event', {
       petId,
       requestId,
@@ -1488,9 +1534,7 @@ async function runFastMespCode(options: {
         'misconfigured',
         'Nenhuma credencial foi configurada para enviar mensagens ao 9Router remoto.',
       );
-      throw new Error(
-        '9Router remoto sem autenticacao. Configure a credencial e tente novamente.',
-      );
+      throw new Error('9Router remoto sem autenticacao. Configure a credencial e tente novamente.');
     }
 
     await ensure9RouterRuntime(baseURL);
@@ -1503,7 +1547,7 @@ async function runFastMespCode(options: {
       body: JSON.stringify({
         model: modelIdFor9Router(model),
         messages: buildFastMessages(history, prompt),
-        max_tokens: Math.min(2048, limits.maxTokens),
+        ...(limits.maxTokens > 0 ? { max_tokens: Math.min(2048, limits.maxTokens) } : {}),
         stream: true,
         stream_options: { include_usage: true },
       }),
@@ -1669,7 +1713,9 @@ async function runAssistedMespCode(options: {
     const rawError =
       run.limitError ||
       error ||
-      (!run.cancelled && code === null ? 'O OpenCode foi interrompido inesperadamente.' : undefined);
+      (!run.cancelled && code === null
+        ? 'O OpenCode foi interrompido inesperadamente.'
+        : undefined);
     safeSend('mesp-code:event', {
       petId,
       requestId,
@@ -1694,9 +1740,7 @@ async function runAssistedMespCode(options: {
   };
   limitTimer = setTimeout(
     () =>
-      stopAtLimit(
-        `Limite de tempo atingido (${Math.round(limits.maxDurationMs / 60_000)} min).`,
-      ),
+      stopAtLimit(`Limite de tempo atingido (${Math.round(limits.maxDurationMs / 60_000)} min).`),
     limits.maxDurationMs,
   );
 
@@ -1770,7 +1814,7 @@ async function runAssistedMespCode(options: {
           if (partId) tokenParts.add(partId);
           tokenUsage = addTokenUsage(tokenUsage, tokenUsageFromOpenCodeEvent({ part }));
           emitPartEvent('step_finish', part);
-          if (tokenUsage && tokenUsage.total > limits.maxTokens) {
+          if (tokenUsage && isMespTokenLimitExceeded(tokenUsage.total, limits.maxTokens)) {
             stopAtLimit(`Limite de tokens atingido (${limits.maxTokens.toLocaleString()}).`);
           }
         }
@@ -1805,7 +1849,9 @@ async function runAssistedMespCode(options: {
       if (!permissionId) return;
       run.pendingPermissions.add(permissionId);
       const patterns = Array.isArray(properties.patterns)
-        ? properties.patterns.filter((item): item is string => typeof item === 'string').slice(0, 20)
+        ? properties.patterns
+            .filter((item): item is string => typeof item === 'string')
+            .slice(0, 20)
         : [];
       safeSend('mesp-code:event', {
         petId,
@@ -1814,7 +1860,9 @@ async function runAssistedMespCode(options: {
         permission: {
           id: permissionId,
           action:
-            typeof properties.permission === 'string' ? properties.permission.slice(0, 100) : 'acao',
+            typeof properties.permission === 'string'
+              ? properties.permission.slice(0, 100)
+              : 'acao',
           resources: patterns.map((item) => redactMespSecrets(item, runSecrets).slice(0, 1000)),
           remember: Array.isArray(properties.always)
             ? properties.always
@@ -1836,7 +1884,10 @@ async function runAssistedMespCode(options: {
       return;
     }
     if (type === 'session.idle') {
-      finish(emittedText ? 0 : 1, emittedText ? undefined : 'O modelo terminou sem produzir texto.');
+      finish(
+        emittedText ? 0 : 1,
+        emittedText ? undefined : 'O modelo terminou sem produzir texto.',
+      );
     }
   };
 
@@ -2040,7 +2091,7 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
         if (!partId || !tokenParts.has(partId)) {
           if (partId) tokenParts.add(partId);
           tokenUsage = addTokenUsage(tokenUsage, tokenUsageFromOpenCodeEvent(event));
-          if (tokenUsage && tokenUsage.total > limits.maxTokens) {
+          if (tokenUsage && isMespTokenLimitExceeded(tokenUsage.total, limits.maxTokens)) {
             stopAtLimit(`Limite de tokens atingido (${limits.maxTokens.toLocaleString()}).`);
           }
         }
@@ -2106,7 +2157,9 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
       run.limitError ||
       error ||
       (code && (structuredError || stderrBuffer.trim())) ||
-      (!run.cancelled && code === null ? 'O OpenCode foi interrompido inesperadamente.' : undefined);
+      (!run.cancelled && code === null
+        ? 'O OpenCode foi interrompido inesperadamente.'
+        : undefined);
     if (rawError) noteRouterAuthenticationError(rawError);
     const safeError = rawError ? sanitizeMespError(rawError, runSecrets) : undefined;
     safeSend('mesp-code:event', {
@@ -2149,7 +2202,8 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
 });
 
 ipcMain.handle('mesp-code:permission-reply', async (_evt, payloadRaw: unknown) => {
-  if (!payloadRaw || typeof payloadRaw !== 'object') return { ok: false, error: 'payload invalido' };
+  if (!payloadRaw || typeof payloadRaw !== 'object')
+    return { ok: false, error: 'payload invalido' };
   const payload = payloadRaw as Record<string, unknown>;
   const petId = validatePetId(payload.petId);
   const requestId = validateRunId(payload.requestId);
@@ -2219,7 +2273,8 @@ function resolveNpmRunner(): {
     ...pathEntries.map((entry) => path.join(entry, 'node_modules', 'npm', 'bin', 'npm-cli.js')),
   ].filter((candidate): candidate is string => Boolean(candidate));
   const npmCli = cliCandidates.find(
-    (candidate) => path.basename(candidate).toLowerCase() === 'npm-cli.js' && fs.existsSync(candidate),
+    (candidate) =>
+      path.basename(candidate).toLowerCase() === 'npm-cli.js' && fs.existsSync(candidate),
   );
   const nodeCandidates = [
     process.env.npm_node_execpath,
@@ -2461,11 +2516,7 @@ ipcMain.handle('mesp-code:verify', async (_evt, payloadRaw: unknown) => {
   if (projectCheckRuns.size >= MAX_PROJECT_CHECK_RUNS) {
     return { ok: false, error: 'limite global de verificacoes atingido' };
   }
-  if (
-    mespCodeProcesses.has(petId) ||
-    mespCodeFetches.has(petId) ||
-    mespCodeServerRuns.has(petId)
-  ) {
+  if (mespCodeProcesses.has(petId) || mespCodeFetches.has(petId) || mespCodeServerRuns.has(petId)) {
     return { ok: false, error: 'o MESP ainda esta respondendo' };
   }
   const npmRunner = resolveNpmRunner();
@@ -2640,9 +2691,8 @@ ipcMain.handle('mesp-code:get-diff', async (_evt, payloadRaw: unknown) => {
   }
   let cwd: string;
   try {
-    cwd = fs.existsSync(requestedCwd) && fs.statSync(requestedCwd).isDirectory()
-      ? requestedCwd
-      : '';
+    cwd =
+      fs.existsSync(requestedCwd) && fs.statSync(requestedCwd).isDirectory() ? requestedCwd : '';
   } catch {
     cwd = '';
   }
@@ -2686,7 +2736,11 @@ ipcMain.handle('mesp-code:get-diff', async (_evt, payloadRaw: unknown) => {
         status: typeof item.status === 'string' ? item.status.slice(0, 40) : 'modified',
       });
     }
-    return { ok: true, files, truncated: raw.length > files.length || totalLength >= MAX_MESP_DIFF_TOTAL_LENGTH };
+    return {
+      ok: true,
+      files,
+      truncated: raw.length > files.length || totalLength >= MAX_MESP_DIFF_TOTAL_LENGTH,
+    };
   } catch (error) {
     return { ok: false, error: sanitizeMespError(error) };
   }
@@ -2929,6 +2983,32 @@ ipcMain.handle('app:notify', (_evt, payloadRaw: unknown): boolean => {
 
 // ----- Comando externo "one-shot" -------------------------------------------
 
+let dockTitles: DockTitleService | null = null;
+ipcMain.handle('dock:generate-title', async (_event, payload: unknown) => {
+  if (!payload || typeof payload !== 'object') return null;
+  const { prompt, agent } = payload as Record<string, unknown>;
+  if (!isString(prompt, 24000) || !prompt.trim()) return null;
+  dockTitles ??= createDockTitleService({
+    directory: path.join(app.getPath('userData'), 'title-runtime'),
+    resolveCommand: (command) => {
+      const resolved = commandOnPath(command);
+      if (command === 'claude' && resolved && /\.cmd$/i.test(resolved)) {
+        const native = path.join(
+          path.dirname(resolved),
+          'node_modules',
+          '@anthropic-ai',
+          'claude-code',
+          'bin',
+          'claude.exe',
+        );
+        if (isExistingFile(native)) return native;
+      }
+      return resolved;
+    },
+  });
+  return dockTitles.generate(prompt, agent === 'claude' ? 'claude' : 'codex');
+});
+
 ipcMain.handle('kiro:run', async (event, payloadRaw: unknown) => {
   if (!payloadRaw || typeof payloadRaw !== 'object') {
     return makeRunError('payload inválido');
@@ -2970,6 +3050,7 @@ ipcMain.handle('kiro:run', async (event, payloadRaw: unknown) => {
       child = spawn(cmd, finalArgs, {
         cwd,
         shell: process.platform === 'win32',
+        windowsHide: true,
         env: { ...process.env },
       });
     } catch (err) {
@@ -3078,7 +3159,7 @@ ipcMain.handle('kiro:cancel', (_evt, runIdRaw: unknown) => {
 
 // ----- Terminal persistente (PTY real, um por pet) ---------------------------
 
-ipcMain.handle('terminal:spawn', (_evt, payloadRaw: unknown) => {
+ipcMain.handle('terminal:spawn', async (_evt, payloadRaw: unknown) => {
   if (!payloadRaw || typeof payloadRaw !== 'object') {
     return { ok: false, error: 'payload inválido' };
   }
@@ -3118,6 +3199,28 @@ ipcMain.handle('terminal:spawn', (_evt, payloadRaw: unknown) => {
   }
   const finalArgs = sanitizeArgs(args);
 
+  const dockAgent =
+    payload.dockSession === true && /^(codex|claude)(?:\.exe|\.cmd)?$/i.test(path.basename(cmd))
+      ? path
+          .basename(cmd)
+          .replace(/\.(?:exe|cmd)$/i, '')
+          .toLowerCase()
+      : null;
+  let completionEvents = false;
+  if (dockAgent) {
+    try {
+      dockHooks ??= createDockHooks(path.join(app.getPath('userData'), 'session-hooks'), (event) =>
+        safeSend('dock:agent-event', event),
+      );
+      const hooks = await dockHooks;
+      finalArgs.push(...hooks.prepare(petId, dockAgent, resolveNodeRuntime().binary));
+      completionEvents = true;
+    } catch {
+      // The terminal stays available even if its local notification bridge cannot start.
+      dockHooks = null;
+    }
+  }
+
   const cols = isFiniteNumber(payload.cols)
     ? Math.max(1, Math.min(1000, Math.floor(payload.cols)))
     : 100;
@@ -3132,7 +3235,22 @@ ipcMain.handle('terminal:spawn', (_evt, payloadRaw: unknown) => {
   // resolve o nome via PATH + PATHEXT corretamente.
   let spawnCmd = cmd;
   let spawnArgs = finalArgs;
-  if (process.platform === 'win32' && !/\.exe$/i.test(cmd)) {
+  if (process.platform === 'win32' && completionEvents) {
+    spawnCmd = path.join(
+      process.env.SystemRoot || 'C:\\Windows',
+      'System32',
+      'WindowsPowerShell',
+      'v1.0',
+      'powershell.exe',
+    );
+    const executable = /\.(exe|cmd|bat)$/i.test(cmd) ? cmd : commandOnPath(cmd) || cmd;
+    spawnArgs = [
+      '-NoLogo',
+      '-NoProfile',
+      '-EncodedCommand',
+      encodedAgentCommand(executable, finalArgs),
+    ];
+  } else if (process.platform === 'win32' && !/\.exe$/i.test(cmd)) {
     spawnCmd = process.env.ComSpec || 'cmd.exe';
     spawnArgs = ['/c', cmd, ...finalArgs];
   }
@@ -3147,6 +3265,7 @@ ipcMain.handle('terminal:spawn', (_evt, payloadRaw: unknown) => {
       env: { ...process.env, TERM: 'xterm-256color' } as { [key: string]: string },
     });
   } catch (err) {
+    void dockHooks?.then((hooks) => hooks.remove(petId));
     safeSend('terminal:exit', {
       petId,
       code: null,
@@ -3162,7 +3281,10 @@ ipcMain.handle('terminal:spawn', (_evt, payloadRaw: unknown) => {
   });
 
   ptyProcess.onExit(({ exitCode, signal }) => {
+    // A replaced process can exit after its successor starts. Keep the new session alive.
+    if (terminalProcesses.get(petId) !== ptyProcess) return;
     terminalProcesses.delete(petId);
+    void dockHooks?.then((hooks) => hooks.remove(petId));
     safeSend('terminal:exit', {
       petId,
       code: exitCode,
@@ -3170,7 +3292,7 @@ ipcMain.handle('terminal:spawn', (_evt, payloadRaw: unknown) => {
     });
   });
 
-  return { ok: true };
+  return { ok: true, completionEvents };
 });
 
 ipcMain.handle('terminal:write', (_evt, payloadRaw: unknown) => {
@@ -3215,6 +3337,7 @@ ipcMain.handle('terminal:kill', (_evt, petIdRaw: unknown) => {
     /* noop */
   }
   terminalProcesses.delete(petId);
+  void dockHooks?.then((hooks) => hooks.remove(petId));
   return true;
 });
 
@@ -3551,6 +3674,7 @@ function toggleWindowVisibility(): void {
     mainWindow.showInactive();
     mainWindow.setAlwaysOnTop(true, 'screen-saver');
     windowVisible = true;
+    safeSend('dock:reveal', null);
   }
   updateTrayMenu();
 }
@@ -3565,7 +3689,7 @@ function updateTrayMenu(): void {
   if (!tray) return;
   const menu = Menu.buildFromTemplate([
     {
-      label: windowVisible ? 'Esconder pets' : 'Mostrar pets',
+      label: windowVisible ? 'Esconder ilha' : 'Mostrar ilha',
       click: () => toggleWindowVisibility(),
     },
     {
@@ -3589,7 +3713,7 @@ function createTray(): void {
     tray = null;
     return;
   }
-  tray.setToolTip('MESP Pet');
+  tray.setToolTip('MESP Top Dock');
   updateTrayMenu();
   // Clique simples mostra/esconde (Windows/Linux); no macOS abre o menu.
   tray.on('click', () => toggleWindowVisibility());
@@ -3607,18 +3731,16 @@ ipcMain.handle('app:toggle-visibility', () => {
 });
 
 app.whenReady().then(() => {
+  if (!dockInstanceLock) return;
   loadDotEnv();
   // Identidade para notificações nativas no Windows.
   if (process.platform === 'win32') {
-    app.setAppUserModelId('io.mesp.pet');
+    app.setAppUserModelId('io.mesp.topdock');
   }
-  // Ativa auto-start com o Windows por padrão
-  if (!app.getLoginItemSettings().openAtLogin) {
-    app.setLoginItemSettings({ openAtLogin: true });
-  }
+  // This preview never changes the user's login startup configuration.
   createWindow();
   createTray();
-  void sync9RouterModels(false);
+  // Router starts only when the user opens an MESP Code project.
 
   // Atalhos globais: mostrar/esconder e alternar modo foco.
   try {
@@ -3645,6 +3767,7 @@ app.on('window-all-closed', () => {
 // Cleanup: mata todos os PTYs e processos antes de sair, evitando órfãos.
 app.on('before-quit', () => {
   applicationQuitting = true;
+  dockTitles?.dispose();
   try {
     globalShortcut.unregisterAll();
   } catch {
@@ -3711,4 +3834,5 @@ app.on('before-quit', () => {
     }
   }
   terminalProcesses.clear();
+  void dockHooks?.then((hooks) => hooks.close());
 });

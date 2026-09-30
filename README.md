@@ -1,5 +1,12 @@
 # MESP Pet 🐾
 
+A versão atual é o **MESP Top Dock**: uma ilha no topo da tela inspirada no
+Coucou, com vários personagens por projeto, títulos automáticos de tarefas,
+sessões do Codex e Claude e uma aba de conexões pelo 9Router. Os personagens
+nascem sem acessórios e mantêm suas cores ao reabrir o aplicativo.
+
+Consulte [o guia do Top Dock](LEIA-ME-DOCK.md) para abrir, configurar e usar esta versão.
+
 Pet desktop em pixel art que vira o **MESP Code**: um chat de programação próprio,
 movido pelo OpenCode e conectado ao 9Router. Construído com **Electron + Vite +
 React + TypeScript**.

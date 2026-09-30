@@ -82,6 +82,22 @@ export interface MespCodeVerifyEvent {
 }
 
 const api = {
+  generateDockTitle(prompt: string, agent: string): Promise<string | null> {
+    return ipcRenderer.invoke('dock:generate-title', { prompt, agent });
+  },
+  onDockReveal(cb: () => void): () => void {
+    const handler = () => cb();
+    ipcRenderer.on('dock:reveal', handler);
+    return () => ipcRenderer.removeListener('dock:reveal', handler);
+  },
+  setDockHitRegions(
+    regions: Array<{ x: number; y: number; width: number; height: number }>,
+  ): Promise<void> {
+    return ipcRenderer.invoke('dock:set-hit-regions', regions);
+  },
+  focusDock(focused: boolean): Promise<void> {
+    return ipcRenderer.invoke('dock:focus', focused);
+  },
   /** Executa um comando externo (Kiro CLI ou outro). */
   runKiro(opts: KiroRunOptions): Promise<KiroRunResult> {
     return ipcRenderer.invoke('kiro:run', opts);
@@ -144,8 +160,22 @@ const api = {
     return ipcRenderer.invoke('opencode:get-status', force === true);
   },
   /** Abre o painel local do 9Router em uma janela isolada do Electron. */
-  open9RouterDashboard(): Promise<{ ok: boolean; error?: string }> {
-    return ipcRenderer.invoke('opencode:open-router-dashboard');
+  open9RouterDashboard(
+    page?: 'providers' | 'codex' | 'claude' | 'gemini-cli' | 'cli-tools',
+  ): Promise<{ ok: boolean; error?: string }> {
+    return ipcRenderer.invoke('opencode:open-router-dashboard', page);
+  },
+  get9RouterConnections(): Promise<Array<{
+    provider: string;
+    accounts: number;
+    active: number;
+  }> | null> {
+    return ipcRenderer.invoke('dock:router-connections');
+  },
+  on9RouterClosed(cb: () => void): () => void {
+    const handler = () => cb();
+    ipcRenderer.on('dock:router-closed', handler);
+    return () => ipcRenderer.removeListener('dock:router-closed', handler);
   },
   /** Envia uma mensagem pelo motor headless do OpenCode. */
   sendMespCode(opts: {
@@ -305,8 +335,14 @@ const api = {
     cwd?: string;
     cols?: number;
     rows?: number;
-  }): Promise<{ ok: boolean; error?: string }> {
+    dockSession?: boolean;
+  }): Promise<{ ok: boolean; error?: string; completionEvents?: boolean }> {
     return ipcRenderer.invoke('terminal:spawn', opts);
+  },
+  onDockAgentEvent(cb: (data: import('./dockHooks.mjs').DockAgentEvent) => void): () => void {
+    const handler = (_e: unknown, data: import('./dockHooks.mjs').DockAgentEvent) => cb(data);
+    ipcRenderer.on('dock:agent-event', handler);
+    return () => ipcRenderer.removeListener('dock:agent-event', handler);
   },
   /** Envia dados (stdin) ao processo do terminal. */
   terminalWrite(petId: string, data: string): Promise<boolean> {

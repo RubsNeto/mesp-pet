@@ -1548,7 +1548,9 @@ img.pixelated {
   border-radius: 6px;
   color: #dfe7f8;
   background: rgba(255, 255, 255, 0.055);
-  font: 8px/1 'JetBrains Mono', monospace;
+  font:
+    8px/1 'JetBrains Mono',
+    monospace;
   cursor: pointer;
 }
 
@@ -1691,6 +1693,27 @@ img.pixelated {
   flex: 0 0 auto;
 }
 
+.mesp-router-discover {
+  height: 29px;
+  flex: 0 0 auto;
+  padding: 0 9px;
+  white-space: nowrap;
+  font:
+    700 8px/1 'JetBrains Mono',
+    monospace;
+}
+
+.mesp-router-discover:hover:not(:disabled) {
+  color: #e8faff;
+  border-color: rgba(130, 217, 247, 0.3);
+  background: rgba(130, 217, 247, 0.08);
+}
+
+.mesp-router-discover:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
 .mesp-limits-trigger {
   height: 29px;
   padding: 0 8px;
@@ -1698,7 +1721,9 @@ img.pixelated {
   border-radius: 7px;
   color: #7e89a6;
   background: rgba(255, 255, 255, 0.025);
-  font: 700 8px/1 'JetBrains Mono', monospace;
+  font:
+    700 8px/1 'JetBrains Mono',
+    monospace;
   cursor: pointer;
 }
 
@@ -1743,7 +1768,9 @@ img.pixelated {
   border-radius: 6px;
   color: #d8deef;
   background: #111421;
-  font: 9px/1 'JetBrains Mono', monospace;
+  font:
+    9px/1 'JetBrains Mono',
+    monospace;
 }
 
 .mesp-limits-popover small {
@@ -1753,6 +1780,7 @@ img.pixelated {
 
 .mesp-model-trigger,
 .mesp-chat-new,
+.mesp-router-discover,
 .mesp-model-refresh {
   appearance: none;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -1765,6 +1793,25 @@ img.pixelated {
     border-color 120ms ease,
     background 120ms ease,
     color 120ms ease;
+}
+
+.mesp-router-discovery-notice {
+  position: relative;
+  z-index: 5;
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(126, 231, 135, 0.12);
+  color: #bfe8c4;
+  background: rgba(52, 105, 67, 0.18);
+  font:
+    8px/1.4 'JetBrains Mono',
+    monospace;
+}
+
+.mesp-router-discovery-notice.error {
+  border-bottom-color: rgba(255, 113, 137, 0.14);
+  color: #ffb2bf;
+  background: rgba(104, 35, 48, 0.2);
 }
 
 .mesp-model-trigger {
@@ -2273,7 +2320,9 @@ img.pixelated {
   border-radius: 6px;
   color: #9fabc8;
   background: rgba(130, 217, 247, 0.045);
-  font: 700 8px/1 'JetBrains Mono', monospace;
+  font:
+    700 8px/1 'JetBrains Mono',
+    monospace;
   cursor: pointer;
 }
 
@@ -2348,7 +2397,9 @@ img.pixelated {
   padding: 9px;
   color: #b9c2d8;
   background: #0a0c14;
-  font: 8px/1.5 'JetBrains Mono', monospace;
+  font:
+    8px/1.5 'JetBrains Mono',
+    monospace;
   white-space: pre;
 }
 
@@ -2657,7 +2708,9 @@ img.pixelated {
   border-radius: 6px;
   color: #aebbd5;
   background: rgba(130, 217, 247, 0.05);
-  font: 700 8px/1 'JetBrains Mono', monospace;
+  font:
+    700 8px/1 'JetBrains Mono',
+    monospace;
   cursor: pointer;
   transition:
     color 140ms ease,
@@ -2703,7 +2756,11 @@ img.pixelated {
   min-width: 0;
   overflow: hidden;
   color: #aeb6cd;
-  font: 9px/1.4 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font:
+    9px/1.4 -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2939,7 +2996,9 @@ img.pixelated {
   padding: 6px 8px 8px;
   color: #aeb9cf;
   background: #090b13;
-  font: 8px/1.5 'JetBrains Mono', monospace;
+  font:
+    8px/1.5 'JetBrains Mono',
+    monospace;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -3152,6 +3211,11 @@ img.pixelated {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .mesp-router-discover {
+    max-width: 108px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .mesp-limits-popover {
     left: auto;

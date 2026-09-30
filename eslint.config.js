@@ -56,5 +56,20 @@ module.exports = tseslint.config(
   },
   // `landing/` é um projeto Next.js separado, com tooling/lint próprios; o lint
   // da raiz não deve descer nele (especialmente em artefatos de build .next).
-  { ignores: ['dist', 'dist-electron', 'release', 'node_modules', 'sprites_extracted', 'landing'] },
+  {
+    files: ['tests/dock.electron.cjs'],
+    languageOptions: { globals: { ...globals.browser, ...globals.node } },
+  },
+  {
+    ignores: [
+      'dist',
+      'dist-electron',
+      'release',
+      'node_modules',
+      'sprites_extracted',
+      'landing',
+      'qa',
+      'screenshots',
+    ],
+  },
 );
