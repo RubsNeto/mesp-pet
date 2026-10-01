@@ -25,6 +25,7 @@ export function DockMascot({
   reaction,
   mini = false,
   petting = false,
+  active = true,
 }: {
   traits: MespTraits;
   state: PetState;
@@ -32,9 +33,13 @@ export function DockMascot({
   reaction: number;
   mini?: boolean;
   petting?: boolean;
+  active?: boolean;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const engine = useRef<BotEngine | null>(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const resume = useRef<(() => void) | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
   const pettingRef = useRef(petting);
@@ -123,8 +128,14 @@ export function DockMascot({
       lastPaint = 0;
     let lastExternalState: PetState | null = null;
     const tick = (now: number) => {
+      raf = 0;
+      if (!activeRef.current) {
+        el.dataset.paused = 'true';
+        return;
+      }
+      el.dataset.paused = 'false';
       raf = requestAnimationFrame(tick);
-      if (now - lastPaint < (reduced.matches ? 100 : 1000 / 40)) return;
+      if (now - lastPaint < (reduced.matches ? 100 : 1000 / (mini ? 20 : 40))) return;
       if (lastExternalState !== stateRef.current) {
         lastExternalState = stateRef.current;
         bot.setState(STATES[stateRef.current]);
@@ -145,6 +156,12 @@ export function DockMascot({
       el.dataset.squashed = bot.sy < 0.94 && bot.sx > 1.04 ? 'true' : 'false';
     };
     raf = requestAnimationFrame(tick);
+    resume.current = () => {
+      if (!raf && activeRef.current) {
+        previous = performance.now();
+        raf = requestAnimationFrame(tick);
+      }
+    };
     if (!reduced.matches && !mini) bot.greet();
     return () => {
       cancelAnimationFrame(raf);
@@ -152,8 +169,12 @@ export function DockMascot({
       document.removeEventListener('mousemove', onMouse);
       window.removeEventListener('resize', resize);
       engine.current = null;
+      resume.current = null;
     };
   }, [traits, mini]);
+  useEffect(() => {
+    if (active) resume.current?.();
+  }, [active]);
   useEffect(() => {
     if (!reaction || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     if (emote === 'slap') engine.current?.slap();

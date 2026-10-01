@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import electron from 'vite-plugin-electron/simple';
 import path from 'node:path';
+import fs from 'node:fs';
 
 // Vite + React + Electron config.
 // vite-plugin-electron/simple builds main and preload to dist-electron/.
@@ -10,6 +11,19 @@ export default defineConfig(() => {
     base: './',
     plugins: [
       react(),
+      {
+        name: 'mesp-router-runtime',
+        closeBundle() {
+          fs.mkdirSync('dist-electron', { recursive: true });
+          for (const file of [
+            'dockRouterRuntime.cjs',
+            'dockRouter.mjs',
+            'dockProviderCatalog.mjs',
+            'dockRouterLocalAuth.mjs',
+          ])
+            fs.copyFileSync(path.join('electron', file), path.join('dist-electron', file));
+        },
+      },
       electron({
         main: {
           entry: 'electron/main.ts',
@@ -18,7 +32,7 @@ export default defineConfig(() => {
               outDir: 'dist-electron',
               sourcemap: true,
               rollupOptions: {
-                external: ['electron', '@homebridge/node-pty-prebuilt-multiarch'],
+                external: ['electron', 'node:sqlite', '@homebridge/node-pty-prebuilt-multiarch'],
               },
             },
           },

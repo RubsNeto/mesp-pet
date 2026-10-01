@@ -115,6 +115,7 @@ export function DockMespRail({
               reaction={main ? reaction : 0}
               mini={!main}
               petting={pettingId === p.id}
+              active={mode !== 'hidden' && (mode !== 'coucou' || main)}
             />
             {pettingId === p.id && (
               <svg className="dock-petting-hand" viewBox="0 0 40 40" aria-hidden="true">

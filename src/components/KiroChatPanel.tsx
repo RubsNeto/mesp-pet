@@ -30,7 +30,7 @@ import { SettingsSection } from './SettingsSection';
 import { getSpritesForTraits } from '../assets/sprites';
 import { subscribeMousePosition } from '../hooks/useMousePosition';
 import { MespCodeChat } from './MespCodeChat';
-import type { MespCodeStatus } from './MespCodeChat';
+import type { MespCodeStatus, MespCodeDockComposer } from './MespCodeChat';
 import { isTaskCompletion } from '../services/dockCore.mjs';
 
 export interface KiroChatPanelProps {
@@ -45,6 +45,7 @@ export interface KiroChatPanelProps {
   onTaskStarted?: (prompt: string) => void;
   onRouterModelChange?: (model: string) => void;
   externalPrompt?: { id: string; text: string };
+  dockComposer?: MespCodeDockComposer;
   /** Esconde a UI (não mata o processo). */
   onClose: () => void;
   /** Callback opcional para refletir estado do CLI no MESP. */
@@ -147,6 +148,7 @@ export function KiroChatPanel({
   onTaskStarted,
   onRouterModelChange,
   externalPrompt,
+  dockComposer,
 }: KiroChatPanelProps) {
   const [status, setStatus] = useState<TermStatus>('disconnected');
   const [commandInfo, setCommandInfo] = useState<{ cmd: string; args: string[] }>(() => {
@@ -1358,6 +1360,8 @@ export function KiroChatPanel({
           status={openCodeStatus}
           onStatusChange={setOpenCodeStatus}
           externalPrompt={externalPrompt}
+          dockComposer={dockComposer}
+          onTaskStarted={onTaskStarted}
           onPetStateChange={(state) => petStateChangeRef.current?.(state)}
         />
       )}

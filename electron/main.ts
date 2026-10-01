@@ -35,7 +35,15 @@ import {
 import { visibleHitRegions, type HitRegion } from '../src/services/dockCore.mjs';
 import { createDockHooks, encodedAgentCommand, type DockHookBridge } from './dockHooks.mjs';
 import { createDockTitleService, type DockTitleService } from './dockTitles.mjs';
-import { routerPage, routerConnectionSummary } from './dockRouter.mjs';
+import { chooseRouterDataDirectory } from './dockRouterProfile.mjs';
+import { routerLocalAuthHeaders } from './dockRouterLocalAuth.mjs';
+import { DockRouterView } from './dockRouterView';
+import { routerPanelSection } from './dockRouterPanel.mjs';
+import {
+  routerConnectionSummary,
+  createRouterOverviewService,
+  AUTO_ROUTER_MODEL,
+} from './dockRouter.mjs';
 import { spawn, spawnSync, ChildProcessWithoutNullStreams } from 'node:child_process';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
@@ -203,7 +211,7 @@ function loadDotEnv(): void {
 }
 
 let mainWindow: BrowserWindow | null = null;
-let routerDashboardWindow: BrowserWindow | null = null;
+let routerView: DockRouterView | null = null;
 
 // Map de processos em andamento, por runId, para suportar cancelamento.
 const runningProcesses = new Map<string, ChildProcessWithoutNullStreams>();
@@ -263,6 +271,7 @@ interface BundledRouterState {
   child: ChildProcessWithoutNullStreams;
   baseURL: string;
   origin: string;
+  dataDir: string;
 }
 
 // Processos headless do chat nativo MESP Code (um por pet).
@@ -277,6 +286,27 @@ let bundledRouter: BundledRouterState | null = null;
 let bundledRouterPromise: Promise<RouterRuntimeSource> | null = null;
 let routerRuntimeSource: RouterRuntimeSource = 'unavailable';
 let applicationQuitting = false;
+let dockActiveTasks = 0;
+
+function hasActiveDockWork(): boolean {
+  return (
+    dockActiveTasks > 0 ||
+    runningProcesses.size > 0 ||
+    mespCodeProcesses.size > 0 ||
+    mespCodeFetches.size > 0 ||
+    mespCodeServerRuns.size > 0 ||
+    projectCheckRuns.size > 0
+  );
+}
+
+function requestAppQuit(confirmActiveTasks = false): void {
+  if (!confirmActiveTasks && hasActiveDockWork() && mainWindow && !mainWindow.isDestroyed()) {
+    if (process.env.MESP_DOCK_TEST_HIDDEN !== '1') mainWindow.showInactive();
+    safeSend('dock:quit-request', null);
+    return;
+  }
+  app.quit();
+}
 
 let lastModelSyncAt = 0;
 let lastModelSyncAttemptAt = 0;
@@ -606,6 +636,43 @@ function configured9RouterOptions(config: Record<string, unknown>): {
   return { baseURL, storedBaseURL: rawBaseURL, apiKey };
 }
 
+let routerOverview: {
+  origin: string;
+  credentialHash: string | null;
+  service: ReturnType<typeof createRouterOverviewService>;
+} | null = null;
+function localRouterHeaders(origin: string) {
+  return routerLocalAuthHeaders(
+    bundledRouter?.origin === origin ? bundledRouter.dataDir : undefined,
+  );
+}
+async function getRouterOverview(period = 'today', force = false) {
+  const { baseURL, apiKey } = configured9RouterOptions(readOpenCodeConfig());
+  const origin = routerOriginForApiBase(baseURL);
+  if (!origin) throw new Error('Contas e consumo estão disponíveis pelo 9Router local.');
+  if ((await ensure9RouterRuntime(baseURL)) === 'unavailable')
+    throw new Error('O 9Router está indisponível.');
+  const credentialHash = routerCredentialHash(apiKey);
+  if (
+    !routerOverview ||
+    routerOverview.origin !== origin ||
+    routerOverview.credentialHash !== credentialHash
+  ) {
+    routerOverview = {
+      origin,
+      credentialHash,
+      service: createRouterOverviewService({
+        origin,
+        headers: () => ({
+          ...localRouterHeaders(origin),
+          ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+        }),
+      }),
+    };
+  }
+  return routerOverview.service.overview(period, force);
+}
+
 function routerRuntimeEnvironment(
   dataDir: string,
   port: number,
@@ -688,6 +755,7 @@ async function integratedRouterHasProviders(baseURL: string): Promise<boolean | 
   if (!origin) return null;
   try {
     const response = await fetch(`${origin}/api/providers`, {
+      headers: localRouterHeaders(origin),
       signal: AbortSignal.timeout(5_000),
     });
     if (!response.ok) return null;
@@ -742,10 +810,15 @@ async function ensure9RouterRuntime(baseURL: string): Promise<RouterRuntimeSourc
       return routerRuntimeSource;
     }
     const hostname = parsed.hostname.replace(/^\[|\]$/g, '') === '::1' ? '::1' : '127.0.0.1';
-    const dataDir = path.join(app.getPath('userData'), '9router');
+    const ownDataDir = path.join(app.getPath('userData'), '9router');
+    const { directory: dataDir, source: profileSource } = chooseRouterDataDirectory({
+      ownDirectory: ownDataDir,
+      appData: app.getPath('appData'),
+      isolated: Boolean(process.env.MESP_DOCK_DATA_DIR),
+    });
     await fs.promises.mkdir(dataDir, { recursive: true });
     const managedMarker = path.join(dataDir, '.mesp-managed-v1');
-    const needsDashboardInitialization = !isExistingFile(managedMarker);
+    const needsDashboardInitialization = profileSource === 'mesp' && !isExistingFile(managedMarker);
     const initialPassword = needsDashboardInitialization
       ? randomBytes(32).toString('base64url')
       : null;
@@ -753,11 +826,18 @@ async function ensure9RouterRuntime(baseURL: string): Promise<RouterRuntimeSourc
 
     let child: ChildProcessWithoutNullStreams;
     try {
-      child = spawn(nodeRuntime.binary, [serverPath], {
+      const routerAdapter = app.isPackaged
+        ? path.join(process.resourcesPath, 'runtime', 'mesp-router', 'dockRouterRuntime.cjs')
+        : path.join(__dirname, 'dockRouterRuntime.cjs');
+      child = spawn(nodeRuntime.binary, [routerAdapter], {
         cwd: path.dirname(serverPath),
         shell: false,
         windowsHide: true,
-        env: routerRuntimeEnvironment(dataDir, port, hostname, origin, initialPassword),
+        env: {
+          ...routerRuntimeEnvironment(dataDir, port, hostname, origin, initialPassword),
+          MESP_ROUTER_SERVER: serverPath,
+          MESP_ROUTER_PROFILE_SOURCE: profileSource,
+        },
       });
     } catch {
       routerRuntimeSource = 'unavailable';
@@ -769,7 +849,7 @@ async function ensure9RouterRuntime(baseURL: string): Promise<RouterRuntimeSourc
     child.once('error', () => {
       launchError = true;
     });
-    const state: BundledRouterState = { child, baseURL, origin };
+    const state: BundledRouterState = { child, baseURL, origin, dataDir };
     bundledRouter = state;
     child.once('close', () => {
       if (bundledRouter !== state) return;
@@ -855,14 +935,28 @@ async function sync9RouterModels(force = false): Promise<void> {
         return;
       }
       const payload = (await response.json()) as { data?: Array<{ id?: unknown }> };
-      const modelIds = Array.from(
+      let modelIds = Array.from(
         new Set(
           (Array.isArray(payload.data) ? payload.data : [])
             .map((entry) => entry?.id)
             .filter((id): id is string => typeof id === 'string' && id.length > 0),
         ),
       ).sort((a, b) => a.localeCompare(b));
+      if (isLoopbackRouterURL(baseURL)) {
+        try {
+          const overview = await getRouterOverview('today', force);
+          modelIds = overview.models.map((model) => model.id.replace(/^9router\//, ''));
+          if (overview.auto.supported && overview.models.length)
+            modelIds.unshift(AUTO_ROUTER_MODEL.replace(/^9router\//, ''));
+        } catch {
+          /* The native catalogue remains usable if dashboard access requires login. */
+        }
+      }
       if (modelIds.length === 0) {
+        config.provider = { ...providerRoot, '9router': { ...provider, models: {} } };
+        const configPath = mespOpenCodeConfigPath();
+        await fs.promises.mkdir(path.dirname(configPath), { recursive: true });
+        await fs.promises.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
         lastModelSyncAt = Date.now();
         setRouterConnectionStatus(
           'misconfigured',
@@ -1105,6 +1199,7 @@ ipcMain.handle('dock:set-hit-regions', (_event, value: unknown) => {
 });
 ipcMain.handle('dock:focus', (_event, focused: unknown) => {
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (process.env.MESP_DOCK_TEST_HIDDEN === '1') return;
   if (focused === true) mainWindow.focus();
   else mainWindow.blur();
 });
@@ -1136,6 +1231,8 @@ function createWindow(): void {
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      backgroundThrottling: false,
+      offscreen: process.env.MESP_DOCK_TEST_HIDDEN === '1',
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
@@ -1170,7 +1267,7 @@ function createWindow(): void {
   }
 
   mainWindow.once('ready-to-show', () => {
-    mainWindow?.showInactive();
+    if (process.env.MESP_DOCK_TEST_HIDDEN !== '1') mainWindow?.showInactive();
   });
 
   let lastCapture = false;
@@ -1180,7 +1277,8 @@ function createWindow(): void {
     const cursor = screen.getCursorScreenPoint();
     const x = cursor.x - bounds.x,
       y = cursor.y - bounds.y;
-    const capture = dockHitRegions.some(
+    const nativeRegion = routerView?.hitRegion();
+    const capture = [...dockHitRegions, ...(nativeRegion ? [nativeRegion] : [])].some(
       (r) => x >= r.x && y >= r.y && x < r.x + r.width && y < r.y + r.height,
     );
     if (capture === lastCapture) return;
@@ -1194,7 +1292,15 @@ function createWindow(): void {
   screen.on('display-metrics-changed', reposition);
   screen.on('display-added', reposition);
   screen.on('display-removed', reposition);
+  mainWindow.on('close', (event) => {
+    if (!applicationQuitting && hasActiveDockWork()) {
+      event.preventDefault();
+      requestAppQuit();
+    }
+  });
   mainWindow.on('closed', () => {
+    routerView?.dispose();
+    routerView = null;
     if (dockHitTestTimer) clearInterval(dockHitTestTimer);
     screen.removeListener('display-metrics-changed', reposition);
     screen.removeListener('display-added', reposition);
@@ -1217,8 +1323,12 @@ ipcMain.handle(
   },
 );
 
-ipcMain.handle('app:quit', () => {
-  app.quit();
+ipcMain.handle('dock:set-activity', (_event, count: unknown) => {
+  if (typeof count === 'number' && Number.isInteger(count) && count >= 0 && count <= 10)
+    dockActiveTasks = count;
+});
+ipcMain.handle('app:quit', (_event, confirmed: unknown) => {
+  requestAppQuit(confirmed === true);
 });
 
 ipcMain.handle('app:open-devtools', () => {
@@ -1245,7 +1355,10 @@ ipcMain.handle('dock:router-connections', async () => {
   if (!origin) return null;
   try {
     if ((await ensure9RouterRuntime(baseURL)) === 'unavailable') return null;
-    const response = await fetch(`${origin}/api/providers`, { signal: AbortSignal.timeout(5000) });
+    const response = await fetch(`${origin}/api/providers`, {
+      headers: localRouterHeaders(origin),
+      signal: AbortSignal.timeout(5000),
+    });
     if (!response.ok) return null;
     return routerConnectionSummary(await response.json());
   } catch {
@@ -1253,84 +1366,52 @@ ipcMain.handle('dock:router-connections', async () => {
   }
 });
 
-ipcMain.handle('opencode:open-router-dashboard', async (_event, pageRaw: unknown) => {
+ipcMain.handle('dock:router-overview', async (_event, payload: unknown) => {
+  const options =
+    payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+  return getRouterOverview(
+    typeof options.period === 'string' ? options.period : 'today',
+    options.force === true,
+  );
+});
+
+// Legacy entry points now reveal the settings tab in the existing island.
+ipcMain.handle('opencode:open-router-dashboard', (event, page: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) return { ok: false };
+  safeSend('dock:router-requested', { page: routerPanelSection(page).id });
+  return { ok: true };
+});
+
+ipcMain.handle('dock:router-panel-open', async (event, page: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) return { ok: false };
+  routerView ||= new DockRouterView(mainWindow, localRouterHeaders, (state) =>
+    safeSend('dock:router-panel-state', state),
+  );
+  const panel = routerView,
+    ticket = panel.ticket();
   const { baseURL } = configured9RouterOptions(readOpenCodeConfig());
   const origin = routerOriginForApiBase(baseURL);
-  if (!origin) {
-    return { ok: false, error: 'O painel integrado esta disponivel apenas para o 9Router local.' };
+  if (!origin) return { ok: false, error: 'O painel integrado requer o 9Router local.' };
+  if ((await ensure9RouterRuntime(baseURL)) === 'unavailable')
+    return { ok: false, error: 'Não foi possível iniciar o 9Router integrado.' };
+  return panel.open(origin, page, ticket);
+});
+ipcMain.on('dock:router-panel-bounds', (event, bounds: unknown) => {
+  if (mainWindow && event.sender === mainWindow.webContents) {
+    routerView ||= new DockRouterView(mainWindow, localRouterHeaders, (state) =>
+      safeSend('dock:router-panel-state', state),
+    );
+    routerView.setBounds(bounds);
   }
-  const runtime = await ensure9RouterRuntime(baseURL);
-  if (runtime === 'unavailable') {
-    return { ok: false, error: 'Nao foi possivel iniciar o 9Router integrado.' };
-  }
-  const dashboardURL = new URL(routerPage(pageRaw), `${origin}/`).toString();
-  if (routerDashboardWindow && !routerDashboardWindow.isDestroyed()) {
-    if (pageRaw && routerDashboardWindow.webContents.getURL() !== dashboardURL)
-      await routerDashboardWindow.loadURL(dashboardURL);
-    if (routerDashboardWindow.isMinimized()) routerDashboardWindow.restore();
-    routerDashboardWindow.show();
-    routerDashboardWindow.focus();
-    return { ok: true };
-  }
-
-  const dashboard = new BrowserWindow({
-    width: 1180,
-    height: 780,
-    minWidth: 820,
-    minHeight: 600,
-    title: 'MESP - Configuracao do 9Router',
-    parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
-    modal: false,
-    show: false,
-    autoHideMenuBar: true,
-    backgroundColor: '#10131a',
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-    },
-  });
-  routerDashboardWindow = dashboard;
-  dashboard.setAlwaysOnTop(true, 'floating');
-  const handleExternalNavigation = (target: string) => {
-    try {
-      const targetURL = new URL(target);
-      if (targetURL.origin === origin) {
-        void dashboard.loadURL(target);
-      } else if (targetURL.protocol === 'https:' || targetURL.protocol === 'http:') {
-        void shell.openExternal(target);
-      }
-    } catch {
-      // URL invalida: ignora.
-    }
-  };
-  dashboard.webContents.setWindowOpenHandler(({ url }) => {
-    handleExternalNavigation(url);
-    return { action: 'deny' };
-  });
-  dashboard.webContents.on('will-navigate', (event, url) => {
-    try {
-      if (new URL(url).origin === origin) return;
-    } catch {
-      // Bloqueia navegacao invalida.
-    }
-    event.preventDefault();
-    handleExternalNavigation(url);
-  });
-  dashboard.once('ready-to-show', () => dashboard.show());
-  dashboard.on('closed', () => {
-    if (routerDashboardWindow === dashboard) routerDashboardWindow = null;
-    safeSend('dock:router-closed', {});
-  });
-  try {
-    await dashboard.loadURL(dashboardURL);
-    return { ok: true };
-  } catch {
-    if (!dashboard.isDestroyed()) dashboard.destroy();
-    return { ok: false, error: 'Nao foi possivel abrir a configuracao do 9Router.' };
-  }
+});
+ipcMain.on('dock:router-panel-hide', (event) => {
+  if (mainWindow && event.sender === mainWindow.webContents) routerView?.hide();
+});
+ipcMain.on('dock:router-panel-search', (event, query: unknown) => {
+  if (mainWindow && event.sender === mainWindow.webContents) routerView?.setSearch(query);
+});
+ipcMain.on('dock:router-panel-back', (event) => {
+  if (mainWindow && event.sender === mainWindow.webContents) routerView?.back();
 });
 
 function validateMespHistory(
@@ -3701,7 +3782,7 @@ function updateTrayMenu(): void {
     { type: 'separator' },
     { label: 'Atalhos: Ctrl+Shift+M (mostrar/esconder) · Ctrl+Shift+F (foco)', enabled: false },
     { type: 'separator' },
-    { label: 'Sair do MESP', click: () => app.quit() },
+    { label: 'Sair do MESP', click: () => requestAppQuit() },
   ]);
   tray.setContextMenu(menu);
 }
@@ -3781,10 +3862,8 @@ app.on('before-quit', () => {
     }
     tray = null;
   }
-  if (routerDashboardWindow && !routerDashboardWindow.isDestroyed()) {
-    routerDashboardWindow.destroy();
-  }
-  routerDashboardWindow = null;
+  routerView?.dispose();
+  routerView = null;
   if (bundledRouter) {
     terminateProjectCheckProcessOnShutdown(bundledRouter.child);
     bundledRouter = null;

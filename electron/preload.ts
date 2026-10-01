@@ -123,8 +123,16 @@ const api = {
     return ipcRenderer.invoke('app:set-ignore-mouse-events', ignore, forward);
   },
   /** Encerra o aplicativo. */
-  quit(): Promise<void> {
-    return ipcRenderer.invoke('app:quit');
+  quit(confirmActiveTasks = false): Promise<void> {
+    return ipcRenderer.invoke('app:quit', confirmActiveTasks);
+  },
+  setDockActivity(count: number): Promise<void> {
+    return ipcRenderer.invoke('dock:set-activity', count);
+  },
+  onDockQuitRequested(cb: () => void): () => void {
+    const handler = () => cb();
+    ipcRenderer.on('dock:quit-request', handler);
+    return () => ipcRenderer.removeListener('dock:quit-request', handler);
   },
   /** Abre o devtools (debug). */
   openDevTools(): Promise<void> {
@@ -159,7 +167,7 @@ const api = {
   }> {
     return ipcRenderer.invoke('opencode:get-status', force === true);
   },
-  /** Abre o painel local do 9Router em uma janela isolada do Electron. */
+  /** Revela o painel local dentro da ilha do MESP. */
   open9RouterDashboard(
     page?: 'providers' | 'codex' | 'claude' | 'gemini-cli' | 'cli-tools',
   ): Promise<{ ok: boolean; error?: string }> {
@@ -172,10 +180,59 @@ const api = {
   }> | null> {
     return ipcRenderer.invoke('dock:router-connections');
   },
+  get9RouterOverview(
+    period = 'today',
+    force = false,
+  ): Promise<import('./dockRouter.mjs').RouterOverview> {
+    return ipcRenderer.invoke('dock:router-overview', { period, force });
+  },
   on9RouterClosed(cb: () => void): () => void {
     const handler = () => cb();
     ipcRenderer.on('dock:router-closed', handler);
     return () => ipcRenderer.removeListener('dock:router-closed', handler);
+  },
+  on9RouterRequested(cb: (data: { page: string }) => void): () => void {
+    const handler = (_event: unknown, data: { page: string }) => cb(data);
+    ipcRenderer.on('dock:router-requested', handler);
+    return () => ipcRenderer.removeListener('dock:router-requested', handler);
+  },
+  open9RouterPanel(page: string): Promise<{ ok: boolean; error?: string }> {
+    return ipcRenderer.invoke('dock:router-panel-open', page);
+  },
+  set9RouterPanelBounds(bounds: import('./dockRouterPanel.mjs').RouterPanelRect): void {
+    ipcRenderer.send('dock:router-panel-bounds', bounds);
+  },
+  hide9RouterPanel(): void {
+    ipcRenderer.send('dock:router-panel-hide');
+  },
+  set9RouterPanelSearch(query: string): void {
+    ipcRenderer.send('dock:router-panel-search', query);
+  },
+  on9RouterSearchRequested(cb: () => void): () => void {
+    const handler = () => cb();
+    ipcRenderer.on('dock:router-search', handler);
+    return () => ipcRenderer.removeListener('dock:router-search', handler);
+  },
+  onDockChatRequested(cb: () => void): () => void {
+    const handler = () => cb();
+    ipcRenderer.on('dock:focus-chat', handler);
+    return () => ipcRenderer.removeListener('dock:focus-chat', handler);
+  },
+  on9RouterEscape(cb: () => void): () => void {
+    const handler = () => cb();
+    ipcRenderer.on('dock:router-escape', handler);
+    return () => ipcRenderer.removeListener('dock:router-escape', handler);
+  },
+  back9RouterPanel(): void {
+    ipcRenderer.send('dock:router-panel-back');
+  },
+  on9RouterPanelState(
+    cb: (state: import('./dockRouterPanel.mjs').RouterPanelState) => void,
+  ): () => void {
+    const handler = (_event: unknown, state: import('./dockRouterPanel.mjs').RouterPanelState) =>
+      cb(state);
+    ipcRenderer.on('dock:router-panel-state', handler);
+    return () => ipcRenderer.removeListener('dock:router-panel-state', handler);
   },
   /** Envia uma mensagem pelo motor headless do OpenCode. */
   sendMespCode(opts: {

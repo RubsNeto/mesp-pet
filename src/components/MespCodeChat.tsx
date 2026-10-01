@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PetState } from '../types';
+import { DockCopyButton, DockReplyText } from './DockConversation';
 import {
   addTokenUsage,
   enqueueUniqueTask,
@@ -135,6 +136,13 @@ interface StoredChat {
   selectedChecks: ProjectCheckName[];
 }
 
+export interface MespCodeDockComposer {
+  value: string;
+  onChange: (value: string) => void;
+  onCommand: (text: string) => boolean;
+  focusRequest: number;
+}
+
 interface MespCodeChatProps {
   preferredModel?: string;
   onModelChange?: (model: string) => void;
@@ -145,6 +153,8 @@ interface MespCodeChatProps {
   status: MespCodeStatus | null;
   onStatusChange: (status: MespCodeStatus) => void;
   onPetStateChange?: (state: PetState) => void;
+  dockComposer?: MespCodeDockComposer;
+  onTaskStarted?: (prompt: string) => void;
 }
 
 const PROVIDER_NAMES: Record<string, string> = {
@@ -155,22 +165,22 @@ const PROVIDER_NAMES: Record<string, string> = {
 
 const SUGGESTIONS: Record<MespCodeMode, string[]> = {
   fast: [
-    'Explique este trecho de codigo',
-    'Compare duas abordagens tecnicas',
+    'Explique este trecho de código',
+    'Compare duas abordagens técnicas',
     'Escreva um exemplo pequeno e direto',
   ],
   plan: [
     'Analise este projeto e crie um plano',
     'Encontre riscos sem alterar arquivos',
-    'Planeje a proxima funcionalidade',
+    'Planeje a próxima funcionalidade',
   ],
   assisted: [
-    'Implemente esta tarefa pedindo aprovacao',
-    'Corrija o bug e mostre cada acao sensivel',
-    'Rode os testes com minha autorizacao',
+    'Implemente esta tarefa pedindo aprovação',
+    'Corrija o bug e mostre cada ação sensível',
+    'Rode os testes com minha autorização',
   ],
   autonomous: [
-    'Implemente a proxima tarefa com testes',
+    'Implemente a próxima tarefa com testes',
     'Encontre e corrija o bug mais importante',
     'Rode os testes e resolva as falhas',
   ],
@@ -179,10 +189,10 @@ const EMPTY_MODELS: string[] = [];
 const OPEN_MODEL_PATTERN =
   /(?:qwen|deepseek|llama|mistral|mixtral|minimax|glm|kimi|devstral|codestral)/i;
 const MODE_OPTIONS: Array<{ id: MespCodeMode; label: string; short: string }> = [
-  { id: 'fast', label: 'Rapido', short: 'baixo uso de tokens' },
-  { id: 'plan', label: 'Plano', short: 'somente analise' },
-  { id: 'assisted', label: 'Assistido', short: 'aprova cada acao' },
-  { id: 'autonomous', label: 'Autonomo', short: 'acesso total' },
+  { id: 'fast', label: 'Rápido', short: 'baixo uso de tokens' },
+  { id: 'plan', label: 'Plano', short: 'somente análise' },
+  { id: 'assisted', label: 'Assistido', short: 'aprova cada ação' },
+  { id: 'autonomous', label: 'Autônomo', short: 'acesso total' },
 ];
 const MODE_LABELS: Record<MespCodeMode, string> = {
   fast: 'rapida',
@@ -313,6 +323,7 @@ function recentHistory(messages: ChatMessage[]) {
 }
 
 function modelParts(model: string | null | undefined): { provider: string; name: string } {
+  if (model === '9router/mesp-auto') return { provider: 'MESP', name: 'Auto · próximo reset' };
   const clean = (model || '9router/modelo automatico').replace(/^9router\//, '');
   const [prefix, ...rest] = clean.split('/');
   return {
@@ -323,23 +334,6 @@ function modelParts(model: string | null | undefined): { provider: string; name:
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
-}
-
-function messageBlocks(text: string) {
-  const parts = text.split('```');
-  return parts.map((part, index) => {
-    if (index % 2 === 0) {
-      return part ? <span key={index}>{part}</span> : null;
-    }
-    const newline = part.indexOf('\n');
-    const language = newline > 0 ? part.slice(0, newline).trim() : '';
-    const code = newline > 0 ? part.slice(newline + 1) : part;
-    return (
-      <pre key={index} data-language={language || undefined}>
-        <code>{code.trimEnd()}</code>
-      </pre>
-    );
-  });
 }
 
 function id(prefix: string): string {
@@ -365,6 +359,8 @@ export function MespCodeChat({
   onStatusChange,
   onPetStateChange,
   externalPrompt,
+  dockComposer,
+  onTaskStarted,
 }: MespCodeChatProps) {
   const initialRef = useRef(loadStoredChat(petId, workDir));
   const [messages, setMessages] = useState<ChatMessage[]>(initialRef.current.messages);
@@ -387,7 +383,33 @@ export function MespCodeChat({
   const [autoVerify, setAutoVerify] = useState(initialRef.current.autoVerify);
   const [verifyingMessageId, setVerifyingMessageId] = useState<string | null>(null);
   const [pendingAutoVerify, setPendingAutoVerify] = useState<string | null>(null);
-  const [input, setInput] = useState('');
+  const [localInput, setLocalInput] = useState('');
+  const input = dockComposer ? dockComposer.value : localInput;
+  const isDockComposer = !!dockComposer;
+  const dockComposerRef = useRef(dockComposer);
+  dockComposerRef.current = dockComposer;
+  const taskStartedRef = useRef(onTaskStarted);
+  taskStartedRef.current = onTaskStarted;
+  const composerField = useRef<HTMLTextAreaElement>(null);
+  const setInput = useCallback((value: string) => {
+    if (dockComposerRef.current) dockComposerRef.current.onChange(value);
+    else setLocalInput(value);
+  }, []);
+  useEffect(() => {
+    if (visible && dockComposer?.focusRequest) composerField.current?.focus();
+  }, [visible, dockComposer?.focusRequest]);
+  useLayoutEffect(() => {
+    if (!isDockComposer) return;
+    const field = composerField.current;
+    if (!field) return;
+    const fit = () => {
+      field.style.height = 'auto';
+      field.style.height = `${Math.min(112, Math.max(24, field.scrollHeight))}px`;
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [input, visible, isDockComposer]);
   const [busy, setBusy] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
@@ -409,6 +431,11 @@ export function MespCodeChat({
   const [reverting, setReverting] = useState(false);
   const [announcement, setAnnouncement] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const following = useRef(true);
+  const [showLatest, setShowLatest] = useState(false);
+  const [hasNewMessages, setHasNewMessages] = useState(false);
+  const lastMessage = messages[messages.length - 1];
+  const lastSeen = useRef(lastMessage);
   const activeAssistantRef = useRef<string | null>(null);
   const activeRequestRef = useRef<string | null>(null);
   const activeCwdRef = useRef<string | null>(null);
@@ -549,9 +576,19 @@ export function MespCodeChat({
 
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, [messages, busy]);
+    if (el && visible && messages.length === 0) {
+      el.scrollTop = 0;
+      following.current = true;
+      setHasNewMessages(false);
+      setShowLatest(false);
+    } else if (el && visible && following.current) el.scrollTop = el.scrollHeight;
+    else if (
+      lastMessage?.id !== lastSeen.current?.id ||
+      lastMessage?.text !== lastSeen.current?.text
+    )
+      setHasNewMessages(true);
+    lastSeen.current = lastMessage;
+  }, [messages, busy, visible, lastMessage]);
 
   useEffect(() => {
     const modalOpen = permission !== null || revertMessage !== null || confirmAutonomous;
@@ -559,6 +596,7 @@ export function MespCodeChat({
     previousFocusRef.current = document.activeElement as HTMLElement | null;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
+      event.preventDefault();
       if (permission && !permissionReplying) {
         event.preventDefault();
         void window.mesp
@@ -1571,11 +1609,11 @@ export function MespCodeChat({
       seenTokenPartsRef.current = new Set();
       firstTokenSeenRef.current = false;
       setMessages((previous) => [...previous, userMessage, assistantMessage]);
-      setInput('');
       setModelOpen(false);
       setLimitsOpen(false);
       setBusy(true);
       setCancelling(false);
+      taskStartedRef.current?.(task.prompt);
       stateChangeRef.current?.('thinking');
 
       if (!window.mesp?.sendMespCode) {
@@ -1608,6 +1646,7 @@ export function MespCodeChat({
     (promptOverride?: string) => {
       const prompt = (promptOverride ?? input).trim();
       if (!prompt) return;
+      if (promptOverride === undefined && dockComposerRef.current?.onCommand(prompt)) return;
       if (status?.runtime?.setupRequired) {
         setAnnouncement('Configure pelo menos um provedor antes de enviar uma tarefa.');
         return;
@@ -1634,16 +1673,18 @@ export function MespCodeChat({
         const nextQueue = [...queued.queue] as QueuedPrompt[];
         queueRef.current = nextQueue;
         setQueue(nextQueue);
-        setInput('');
+        if (promptOverride === undefined || input.trim() === prompt) setInput('');
         setAnnouncement('Tarefa adicionada a fila.');
         return;
       }
+      if (promptOverride === undefined || input.trim() === prompt) setInput('');
       void startPrompt(task);
     },
     [
       effectiveModel,
       finishWithError,
       input,
+      setInput,
       limits,
       mode,
       occupied,
@@ -1730,10 +1771,22 @@ export function MespCodeChat({
     setInput('');
     setDiffReviews({});
     stateChangeRef.current?.('idle');
-  }, [occupied]);
+  }, [occupied, setInput]);
 
   return (
-    <section className="mesp-chat" aria-label="Chat MESP Code">
+    <section
+      className="mesp-chat"
+      aria-label="Chat MESP Code"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && (modelOpen || limitsOpen)) {
+          event.preventDefault();
+          event.stopPropagation();
+          setModelOpen(false);
+          setLimitsOpen(false);
+          composerField.current?.focus();
+        }
+      }}
+    >
       <div className="mesp-chat-toolbar">
         <div className="mesp-model-control">
           <button
@@ -2036,15 +2089,38 @@ export function MespCodeChat({
       )}
 
       <div className={`mesp-mode-bar mode-${mode}`}>
-        <div className="mesp-mode-switcher" role="tablist" aria-label="Modo do agente">
+        <div
+          className="mesp-mode-switcher"
+          role="tablist"
+          aria-label="Modo do agente"
+          onKeyDown={(event) => {
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            const tabs = [
+              ...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'),
+            ];
+            if (!tabs.length) return;
+            const index = tabs.indexOf(document.activeElement as HTMLButtonElement);
+            const next =
+              event.key === 'Home'
+                ? 0
+                : event.key === 'End'
+                  ? tabs.length - 1
+                  : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+            tabs[next]?.focus();
+            tabs[next]?.click();
+          }}
+        >
           {MODE_OPTIONS.map((option) => (
             <button
               type="button"
               role="tab"
               aria-selected={mode === option.id}
+              tabIndex={mode === option.id ? 0 : -1}
               className={mode === option.id ? 'selected' : ''}
               disabled={occupied}
               key={option.id}
+              title={`${option.label} · ${option.short}`}
               onClick={() => activateMode(option.id)}
             >
               <span className="mesp-mode-dot" aria-hidden="true" />
@@ -2053,7 +2129,7 @@ export function MespCodeChat({
             </button>
           ))}
         </div>
-        <p>
+        <p title={MODE_OPTIONS.find((option) => option.id === mode)?.short}>
           {mode === 'fast' && 'Resposta direta pelo 9Router, com contexto curto e sem ferramentas.'}
           {mode === 'plan' &&
             'O MESP pode investigar o projeto, mas nao pode editar nem executar comandos.'}
@@ -2117,22 +2193,39 @@ export function MespCodeChat({
         </section>
       )}
 
-      <div className="mesp-chat-scroll" ref={scrollRef}>
+      <div
+        className="mesp-chat-scroll"
+        ref={scrollRef}
+        onScroll={() => {
+          const el = scrollRef.current;
+          if (!el) return;
+          following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+          setShowLatest(!following.current);
+          if (following.current) setHasNewMessages(false);
+        }}
+      >
         {messages.length === 0 ? (
           <div className="mesp-chat-empty-state">
             <div className="mesp-chat-empty-eye" aria-hidden="true">
               <span />
             </div>
-            <p className="mesp-chat-eyebrow">MESP esta ouvindo</p>
+            <p className="mesp-chat-eyebrow">MESP está ouvindo</p>
             <h2>O que vamos construir?</h2>
             <p>
               {mode === 'fast'
-                ? 'Pergunte e receba uma resposta leve. Para agir no repositorio, use Assistido ou Autonomo.'
+                ? 'Pergunte e receba uma resposta leve. Para agir no repositório, use Assistido ou Autônomo.'
                 : 'Converse com o agente, troque de modelo quando quiser e acompanhe o pet reagir ao trabalho.'}
             </p>
             <div className="mesp-chat-suggestions">
               {SUGGESTIONS[mode].map((suggestion) => (
-                <button type="button" key={suggestion} onClick={() => setInput(suggestion)}>
+                <button
+                  type="button"
+                  key={suggestion}
+                  onClick={() => {
+                    setInput(input.trim() ? `${input}\n\n${suggestion}` : suggestion);
+                    composerField.current?.focus();
+                  }}
+                >
                   {suggestion}
                 </button>
               ))}
@@ -2176,7 +2269,7 @@ export function MespCodeChat({
                 )}
                 <div className="mesp-message-content">
                   {message.text ? (
-                    messageBlocks(message.text)
+                    <DockReplyText content={message.text} />
                   ) : message.status === 'streaming' ? (
                     <span className="mesp-typing" aria-label="MESP esta pensando">
                       <i />
@@ -2189,6 +2282,9 @@ export function MespCodeChat({
                     </span>
                   )}
                 </div>
+                {message.role === 'assistant' && message.text && (
+                  <DockCopyButton text={message.text} label="resposta" />
+                )}
                 {message.role === 'assistant' &&
                   message.timeline &&
                   message.timeline.length > 0 && (
@@ -2386,6 +2482,33 @@ export function MespCodeChat({
         )}
       </div>
 
+      {showLatest && (
+        <button
+          className="dock-latest-message"
+          onClick={() => {
+            following.current = true;
+            if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+            setShowLatest(false);
+            setHasNewMessages(false);
+          }}
+        >
+          {hasNewMessages ? 'Novas mensagens' : 'Ir para o fim'}
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 4v16m-6-6 6 6 6-6" />
+          </svg>
+        </button>
+      )}
+
       <form
         className="mesp-composer"
         onSubmit={(event) => {
@@ -2394,27 +2517,28 @@ export function MespCodeChat({
         }}
       >
         <textarea
+          ref={composerField}
           value={input}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
-              void send();
+              if (!event.repeat) void send();
             }
           }}
           placeholder={
             occupied
-              ? 'Descreva outra tarefa para adicionar a fila...'
+              ? 'Descreva outra tarefa para adicionar à fila...'
               : mode === 'fast'
                 ? 'Pergunte sem carregar as ferramentas do agente...'
                 : mode === 'plan'
-                  ? 'Peca uma analise e um plano sem alterar o projeto...'
+                  ? 'Peça uma análise e um plano sem alterar o projeto...'
                   : mode === 'assisted'
-                    ? 'Descreva a tarefa; o MESP pedira aprovacao antes de agir...'
-                    : 'Descreva o objetivo; o MESP executa ate concluir...'
+                    ? 'Descreva a tarefa; o MESP pedirá aprovação antes de agir...'
+                    : 'Descreva o objetivo; o MESP executa até concluir...'
           }
-          aria-label="Mensagem para o MESP"
-          rows={3}
+          aria-label={dockComposer ? 'Pedir ao MESP' : 'Mensagem para o MESP'}
+          rows={dockComposer ? 1 : 3}
         />
         <div className="mesp-composer-footer">
           <span className="mesp-composer-context" title={workDir || 'Diretorio atual'}>
@@ -2455,6 +2579,7 @@ export function MespCodeChat({
             <button
               type="submit"
               className="mesp-composer-send"
+              aria-label={dockComposer ? 'Enviar pedido' : undefined}
               disabled={!input.trim() || !effectiveModel || status?.runtime?.setupRequired}
             >
               Enviar <span aria-hidden="true">↑</span>

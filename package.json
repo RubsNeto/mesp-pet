@@ -8,7 +8,7 @@
   "license": "MIT",
   "scripts": {
     "patch-gyp": "node scripts/patch-gyp.js",
-    "postinstall": "node scripts/patch-gyp.js && electron-builder install-app-deps",
+    "postinstall": "install-electron && node scripts/patch-gyp.js && electron-builder install-app-deps",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "start": "electron .",
@@ -22,7 +22,11 @@
     "package:dir": "npm run build && electron-builder --dir",
     "rebuild-native": "node scripts/patch-gyp.js && electron-builder install-app-deps",
     "test:dock": "node tests/dock.electron.cjs",
-    "test:router": "node tests/dockRouter.electron.cjs"
+    "test:usability": "node tests/dockUsability.electron.cjs",
+    "test:history": "node tests/dockHistory.electron.cjs",
+    "test:router": "node tests/dockRouter.electron.cjs",
+    "test:router:auto": "node tests/dockRouter.runtime.cjs",
+    "test:audit": "node tests/dockAudit.electron.cjs"
   },
   "dependencies": {
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
@@ -54,7 +58,8 @@
     "typescript-eslint": "^8.0.0",
     "vite": "^6.4.2",
     "vite-plugin-electron": "^0.29.1",
-    "vite-plugin-electron-renderer": "^0.14.7"
+    "vite-plugin-electron-renderer": "^0.14.7",
+    "playwright": "1.62.1"
   },
   "build": {
     "appId": "io.mesp.topdock",
@@ -73,6 +78,16 @@
       "**/node_modules/**"
     ],
     "extraResources": [
+      {
+        "from": "electron",
+        "to": "runtime/mesp-router",
+        "filter": [
+          "dockRouterRuntime.cjs",
+          "dockRouter.mjs",
+          "dockProviderCatalog.mjs",
+          "dockRouterLocalAuth.mjs"
+        ]
+      },
       {
         "from": "node_modules/9router",
         "to": "runtime/9router",

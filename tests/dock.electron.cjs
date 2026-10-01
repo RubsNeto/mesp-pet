@@ -2,10 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
-const { _electron } = require(
-  process.env.PLAYWRIGHT_PATH ||
-    'C:/Users/ruben/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright',
-);
+const { _electron } = require(process.env.PLAYWRIGHT_PATH || 'playwright');
 
 const root = path.resolve(__dirname, '..');
 const qa = path.join(root, 'qa');
@@ -47,16 +44,81 @@ process.stdin.on('end', () => {
 (async () => {
   const router = http.createServer((request, response) => {
     const url = request.url;
+    if (
+      url === '/api/mesp/capabilities' ||
+      url.startsWith('/api/usage/stats') ||
+      url === '/api/usage/qa-codex' ||
+      url === '/api/providers/qa-codex/models'
+    ) {
+      response.setHeader('Content-Type', 'application/json');
+      response.end(
+        JSON.stringify(
+          url === '/api/mesp/capabilities'
+            ? { auto: true }
+            : url.startsWith('/api/usage/stats')
+              ? {
+                  totalRequests: 12,
+                  totalPromptTokens: 9000,
+                  totalCompletionTokens: 1000,
+                  totalCost: 0.12,
+                  byAccount: {
+                    a: {
+                      connectionId: 'qa-codex',
+                      requests: 12,
+                      promptTokens: 9000,
+                      completionTokens: 1000,
+                      cost: 0.12,
+                    },
+                  },
+                }
+              : url === '/api/usage/qa-codex'
+                ? {
+                    quotas: {
+                      session: {
+                        used: 45,
+                        total: 100,
+                        remaining: 55,
+                        resetAt: new Date(Date.now() + 600000).toISOString(),
+                      },
+                      weekly: {
+                        used: 20,
+                        total: 100,
+                        remaining: 80,
+                        resetAt: new Date(Date.now() + 86400000).toISOString(),
+                      },
+                    },
+                  }
+                : {
+                    models: [
+                      { id: 'qa-model', name: 'Modelo de teste A' },
+                      { id: 'qa-second', name: 'Modelo de teste B' },
+                    ],
+                  },
+        ),
+      );
+      return;
+    }
     if (url === '/v1/models' || url === '/api/providers') {
       response.setHeader('Content-Type', 'application/json');
       response.end(
         JSON.stringify(
           url === '/v1/models'
-            ? { data: [{ id: 'cx/qa-model' }, { id: 'cc/qa-model' }] }
+            ? { data: [{ id: 'cx/qa-model' }, { id: 'cx/qa-second' }] }
             : {
                 connections: [
-                  { provider: 'codex', isActive: true, accessToken: 'QA_SECRET' },
-                  { provider: 'claude', isActive: false, email: 'QA_PRIVATE_EMAIL' },
+                  {
+                    id: 'qa-codex',
+                    name: 'Conta de teste',
+                    provider: 'codex',
+                    isActive: true,
+                    accessToken: 'QA_SECRET',
+                  },
+                  {
+                    id: 'qa-claude',
+                    provider: 'claude',
+                    isActive: false,
+                    email: 'QA_PRIVATE_EMAIL',
+                  },
                 ],
               },
         ),
@@ -73,6 +135,7 @@ process.stdin.on('end', () => {
   const env = {
     ...process.env,
     MESP_DOCK_DATA_DIR: path.join(qa, `profile-${Date.now()}`),
+    MESP_DOCK_TEST_HIDDEN: '1',
     PATH: `${bin};${process.env.PATH}`,
     NINEROUTER_BASE_URL: routerBaseURL,
     NINEROUTER_API_KEY: 'qa-router-test-key',
@@ -100,8 +163,10 @@ process.stdin.on('end', () => {
   const failures = [];
   try {
     const page = await app.firstWindow();
+    page.setDefaultTimeout(20000);
     page.on('pageerror', (err) => failures.push(err.message));
     await page.waitForSelector('.top-dock');
+    console.log('Dock QA: janela oculta pronta');
     await page.evaluate(() => {
       window.qaOutput = [];
       window.mesp.onTerminalStdout((message) => window.qaOutput.push(message));
@@ -121,7 +186,7 @@ process.stdin.on('end', () => {
       () => Math.abs(document.querySelector('.top-dock').getBoundingClientRect().width - 680) < 1,
     );
     await page.waitForFunction(
-      () => Math.abs(document.querySelector('.top-dock').getBoundingClientRect().height - 300) < 1,
+      () => Math.abs(document.querySelector('.top-dock').getBoundingClientRect().height - 340) < 1,
     );
     assert.equal(await page.locator('.dock-projects, nav, #dock-agent').count(), 0);
     await page
@@ -187,9 +252,22 @@ process.stdin.on('end', () => {
       await page.evaluate((id) => window.mesp.terminalWrite(id, 'echo QA_SESSION_A\r'), first.id),
       true,
     );
-    await ask('Novo projeto');
+    await ask('Ajuda');
+    await page.getByRole('textbox', { name: 'Pedir ao MESP' }).fill('Rascunho do projeto A');
+    await page
+      .getByRole('dialog', { name: 'Ajuda do MESP' })
+      .getByRole('button', { name: 'Abrir projeto', exact: true })
+      .click();
     await page.waitForFunction(
       () => JSON.parse(localStorage.getItem('mesp-top-projects-v1')).length === 2,
+    );
+    assert.equal(await page.getByRole('textbox', { name: 'Pedir ao MESP' }).inputValue(), '');
+    assert.equal(
+      await page.evaluate(
+        (id) => new Map(JSON.parse(localStorage.getItem('mesp-top-drafts-v1'))).get(id),
+        first.id,
+      ),
+      'Rascunho do projeto A',
     );
     await page.waitForFunction(
       () =>
@@ -212,10 +290,20 @@ process.stdin.on('end', () => {
     );
     assert.equal(projects[2].agent, 'claude');
     assert.equal(projects.length, 3);
+    // An already connected agent remains usable if a later installation lookup fails.
+    await app.evaluate(({ ipcMain }) => {
+      globalThis.__mespQaFailedChecks = 0;
+      ipcMain.removeHandler('app:check-command');
+      ipcMain.handle('app:check-command', () => {
+        globalThis.__mespQaFailedChecks++;
+        return false;
+      });
+    });
     await ask('Claude: echo QA_DELEGATED_CHAT');
     await page.waitForFunction(() =>
       window.qaOutput.some((m) => m.data.includes('QA_DELEGATED_CHAT')),
     );
+    assert.equal(await app.evaluate(() => globalThis.__mespQaFailedChecks), 0);
     // A completed background MESP takes the lead, but never overwrites the active draft/chat.
     await page.getByRole('textbox', { name: 'Pedir ao MESP' }).fill('Rascunho do Claude');
     // Use the actual Codex notification helper and private route, without an AI request.
@@ -264,7 +352,10 @@ process.stdin.on('end', () => {
     );
     await page.locator('.dock-completed-banner').click();
     assert.equal(await page.locator('.dock-task-title').textContent(), 'Revisar resposta do Codex');
-    assert.equal(await page.getByRole('textbox', { name: 'Pedir ao MESP' }).inputValue(), '');
+    assert.equal(
+      await page.getByRole('textbox', { name: 'Pedir ao MESP' }).inputValue(),
+      'Rascunho do projeto A',
+    );
     assert.match(
       await page.locator('.dock-chat-reply').textContent(),
       /Resposta concluída do Codex/,
@@ -317,6 +408,7 @@ process.stdin.on('end', () => {
         assert.equal(p.traits[field], 'none');
     }
     assert.equal(await page.locator('.dock-mini-button').count(), 5);
+    console.log('Dock QA: criação, sessões e títulos verificados');
     // Petting uses motion over the mascot, closes the white eye and never opens another chat.
     await new Promise((resolve) => setTimeout(resolve, 900));
     const pet = page.locator('[data-main="true"]');
@@ -469,11 +561,12 @@ process.stdin.on('end', () => {
     assert.deepEqual(cleanedSaved.traits, allProjects[0].traits);
     // Accessories are available only by explicitly saving a customization.
     await page.locator('.dock-compact').click();
+    await page.locator('[data-mesp-id="mesp-primary"]').click();
     await ask('Personalize o MESP');
-    await page.waitForSelector('.mesp-cz-save');
-    await page.getByRole('button', { name: 'Itens', exact: true }).click();
-    await page.getByRole('button', { name: /Coroa/ }).click();
-    await page.locator('.mesp-cz-save').click();
+    await page.getByRole('dialog', { name: 'Personalizar este MESP', exact: true }).waitFor();
+    await page.getByRole('tab', { name: 'Acessórios', exact: true }).click();
+    await page.getByLabel('Cabeça', { exact: true }).selectOption('crown');
+    await page.getByRole('button', { name: 'Salvar neste MESP', exact: true }).click();
     await page.waitForFunction(
       () =>
         JSON.parse(localStorage.getItem('mesp-top-projects-v1'))[0].appearanceCustomized === true,
@@ -512,39 +605,57 @@ process.stdin.on('end', () => {
     ]);
     assert.ok(!JSON.stringify(accounts).includes('QA_SECRET'));
     assert.ok(!JSON.stringify(accounts).includes('QA_PRIVATE_EMAIL'));
-    assert.match(await page.locator('.dock-provider').first().innerText(), /1 conta ativa/);
+    assert.match(await page.locator('[data-account-id="qa-codex"]').innerText(), /Conta de teste/);
+    assert.match(await page.locator('.dock-consumption').innerText(), /10\s+mil/);
+    await page
+      .getByRole('combobox', { name: 'Conta do consumo', exact: true })
+      .selectOption('qa-codex');
+    assert.equal(await page.locator('.dock-account-card').count(), 1);
+    assert.match(await page.getByRole('progressbar').first().getAttribute('value'), /45/);
+    await page
+      .getByRole('combobox', { name: 'Modelo deste MESP', exact: true })
+      .selectOption('9router/mesp-auto');
+    assert.match(await page.locator('.dock-auto-explanation').innerText(), /Conta de teste/);
+    await page
+      .getByRole('combobox', { name: 'Período do consumo', exact: true })
+      .selectOption('7d');
+    await page.waitForFunction(
+      () => document.querySelector('.dock-settings')?.getAttribute('aria-busy') === 'false',
+    );
     await page
       .locator('.top-dock')
       .screenshot({ path: path.join(screenshots, 'settings.png'), omitBackground: true });
-    const routerPopup = app.waitForEvent('window');
-    await page
-      .locator('.dock-provider')
-      .nth(1)
-      .getByRole('button', { name: /Gerenciar/ })
-      .click();
-    const popup = await routerPopup;
-    await popup.waitForURL('**/dashboard/providers/claude');
+    await page.getByRole('button', { name: /Gerenciar Claude Code/ }).click();
+    await page.waitForFunction(
+      () =>
+        document.querySelector('.dock-router-loading')?.getAttribute('aria-label') ===
+        '9Router pronto',
+    );
     const webPreferences = await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()
-        .find((w) => w.webContents.getURL().includes('/dashboard/providers/claude'))
+        .find((w) => w.webContents.getURL().startsWith('file:'))
+        .contentView.children.find((view) =>
+          view.webContents?.getURL().includes('/dashboard/providers/claude'),
+        )
         .webContents.getLastWebPreferences(),
     );
     assert.equal(webPreferences.nodeIntegration, false);
     assert.equal(webPreferences.sandbox, true);
-    await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()
-        .find((w) => w.webContents.getURL().includes('/dashboard/providers/claude'))
-        .close(),
+    assert.equal(
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length),
+      1,
+      'Router stays inside the island',
     );
+    await page.getByRole('button', { name: /Visão geral/ }).click();
     await page
       .getByRole('combobox', { name: 'Modelo deste MESP' })
-      .selectOption('9router/cc/qa-model');
+      .selectOption('9router/mesp-auto');
     await page.getByRole('button', { name: 'Usar neste MESP', exact: true }).click();
     await page.waitForFunction((id) => {
       const saved = JSON.parse(localStorage.getItem('mesp-top-projects-v1')).find(
         (p) => p.id === id,
       );
-      return saved.agent === 'mesp-code' && saved.routerModel === '9router/cc/qa-model';
+      return saved.agent === 'mesp-code' && saved.routerModel === '9router/mesp-auto';
     }, newborn.id);
     assert.equal(
       await page.getByRole('tab', { name: 'Chat', exact: true }).getAttribute('aria-selected'),
@@ -558,7 +669,7 @@ process.stdin.on('end', () => {
           .routerModel,
       newborn.id,
     );
-    assert.equal(restoredModel, '9router/cc/qa-model');
+    assert.equal(restoredModel, '9router/mesp-auto');
     assert.deepEqual(failures, []);
     console.log(
       JSON.stringify({

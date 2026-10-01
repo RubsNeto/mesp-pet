@@ -12,6 +12,219 @@
 }
 
 /* Connection settings live in the same quiet island as the conversation. */
+.dock-settings-model {
+  margin-top: 18px;
+}
+.dock-model-search,
+.dock-account-filter,
+.dock-usage-heading select {
+  background: #1b1c20;
+  color: #e8eaee;
+  border: 1px solid #34353a;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 11px;
+  padding: 8px 10px;
+  min-width: 0;
+}
+.dock-model-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 10px;
+}
+.dock-model-search:focus-visible,
+.dock-account-filter:focus-visible,
+.dock-usage-heading select:focus-visible {
+  outline: 1px solid #a8adb7;
+  outline-offset: 2px;
+}
+.dock-auto-explanation {
+  margin-top: 12px;
+  padding: 12px;
+  background: #18191c;
+  border-radius: 10px;
+}
+.dock-auto-explanation strong {
+  font-size: 11px;
+  font-weight: 600;
+}
+.dock-auto-explanation small {
+  display: block;
+  margin-top: 8px;
+  font-size: 10px;
+  color: #c5c8ce;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.dock-usage-section {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid #27282c;
+}
+.dock-usage-heading,
+.dock-account-heading,
+.dock-account-spend,
+.dock-quota > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dock-usage-heading {
+  margin-bottom: 10px;
+}
+.dock-account-filter {
+  width: 100%;
+  box-sizing: border-box;
+}
+.dock-consumption {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.dock-consumption > div {
+  background: #191a1e;
+  border-radius: 10px;
+  padding: 12px;
+}
+.dock-consumption small {
+  display: block;
+  font-size: 10px;
+  color: #a8adb7;
+}
+.dock-consumption strong {
+  display: block;
+  font-size: 19px;
+  font-weight: 550;
+  margin-top: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.dock-settings .dock-usage-note {
+  font-size: 10px;
+  margin: 9px 0 12px;
+}
+.dock-account-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dock-account-card {
+  padding: 12px;
+  background: #151619;
+  border-radius: 12px;
+}
+.dock-account-heading > div {
+  min-width: 0;
+}
+.dock-account-heading strong {
+  display: block;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.dock-account-heading small {
+  display: block;
+  font-size: 10px;
+  color: #a8adb7;
+  margin-top: 3px;
+}
+.dock-account-heading > span {
+  font-size: 9px;
+  background: #2b2c31;
+  border-radius: 5px;
+  padding: 4px 6px;
+  white-space: nowrap;
+}
+.dock-account-quotas {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.dock-quota > div {
+  font-size: 10px;
+  align-items: baseline;
+}
+.dock-quota strong {
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.dock-quota small {
+  font-size: 9px;
+  color: #a8adb7;
+  display: block;
+  margin-top: 3px;
+}
+.dock-quota progress {
+  display: block;
+  width: 100%;
+  height: 4px;
+  border: 0;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 6px;
+  background: #34353a;
+}
+.dock-quota progress::-webkit-progress-bar {
+  background: #34353a;
+}
+.dock-quota progress::-webkit-progress-value {
+  background: #c0c3ca;
+  border-radius: 3px;
+}
+.dock-account-spend {
+  margin-top: 12px;
+  font-size: 10px;
+  color: #a8adb7;
+  border-top: 1px solid #292a2e;
+  padding-top: 8px;
+}
+.dock-account-spend button {
+  padding: 5px 7px;
+  flex-shrink: 0;
+}
+.dock-accounts-empty {
+  padding: 18px;
+  text-align: center;
+  background: #151619;
+  border-radius: 12px;
+}
+.dock-accounts-empty strong {
+  font-size: 12px;
+  font-weight: 550;
+}
+.dock-connect-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 18px;
+}
+.top-dock .dock-connect-buttons button {
+  padding: 8px 10px;
+  background: #202125;
+}
+.dock-settings button,
+.dock-settings select {
+  cursor: pointer;
+}
+.dock-settings button:disabled {
+  cursor: default;
+}
+@media (max-width: 500px) {
+  .dock-account-quotas {
+    grid-template-columns: 1fr;
+  }
+  .dock-consumption > div {
+    padding: 9px;
+  }
+  .dock-consumption strong {
+    font-size: 16px;
+  }
+  .dock-account-spend {
+    flex-wrap: wrap;
+  }
+}
 .dock-settings {
   height: 100%;
   overflow-y: auto;
@@ -616,7 +829,7 @@ body,
   min-height: 42px;
   flex-shrink: 0;
 }
-.dock-composer input {
+.dock-composer :is(input, textarea) {
   font: inherit;
   font-size: 12px;
   width: 100%;
@@ -626,13 +839,13 @@ body,
   outline: 0;
   min-width: 0;
 }
-.dock-composer input:focus-visible {
+.dock-composer :is(input, textarea):focus-visible {
   outline: none;
 }
 .dock-composer:focus-within {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.13);
 }
-.dock-composer input::placeholder {
+.dock-composer :is(input, textarea)::placeholder {
   color: #9398a1;
 }
 .dock-composer button {
@@ -1125,6 +1338,103 @@ body,
   font-size: 11px;
   overflow: auto;
 }
+.dock-message-text {
+  min-width: 0;
+}
+.dock-copy-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 28px;
+  height: 28px;
+  padding: 4px 7px;
+  background: transparent;
+  color: #969696;
+  border-radius: 7px;
+  cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+.dock-copy-button:hover,
+.dock-copy-button.is-copied {
+  background: #2c2c2c;
+  color: #eee;
+}
+.dock-copy-button:focus-visible,
+.dock-latest-message:focus-visible,
+.mesp-chat .dock-copy-button:focus-visible,
+.mesp-chat .dock-latest-message:focus-visible {
+  outline: 1px solid #999;
+  outline-offset: 2px;
+}
+.dock-copy-feedback {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.dock-copy-error {
+  font-size: 10px;
+}
+.dock-code-block {
+  position: relative;
+  margin: 8px 0;
+}
+.dock-code-block > .dock-copy-button {
+  position: absolute;
+  z-index: 1;
+  right: 5px;
+  top: 5px;
+  background: #252525;
+}
+.dock-code-block > pre {
+  margin: 0;
+  padding-right: 42px;
+}
+.mesp-message-content .dock-code-block > pre {
+  margin: 0;
+  padding-right: 42px;
+  white-space: pre-wrap;
+}
+.dock-session-boundary {
+  align-self: center;
+  margin: 8px 0;
+  color: #aaa;
+  font-size: 10px;
+  text-align: center;
+  line-height: 1.6;
+}
+.dock-latest-message {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: #303030;
+  color: #eee;
+  font-size: 11px;
+  box-shadow: 0 4px 14px #0008;
+  cursor: pointer;
+  transition: background-color 160ms ease;
+}
+.dock-latest-message:hover {
+  background: #3c3c3c;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dock-copy-button,
+  .dock-latest-message {
+    transition: none;
+  }
+}
 .dock-typing {
   display: flex;
   gap: 4px;
@@ -1183,11 +1493,66 @@ body,
   padding: 5px 7px 5px 12px;
   gap: 8px;
 }
-.dock-composer input {
+.dock-composer :is(input, textarea) {
   font-size: 12.5px;
+}
+.dock-composer textarea {
+  resize: none;
+  min-height: 24px;
+  max-height: 112px;
+  line-height: 20px;
+  padding: 2px 0;
+  overflow-y: auto;
+}
+.dock-help-overlay {
+  background: #141414;
+}
+.dock-help-overlay p {
+  margin: 12px 0;
+  color: #b6b6b6;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.dock-help-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.dock-help-grid button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-height: 66px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #202020;
+  color: #eee;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 160ms ease;
+}
+.dock-help-grid button:hover {
+  background: #292929;
+}
+.dock-help-grid button:focus-visible,
+.dock-help-overlay .dock-overlay-heading button:focus-visible {
+  outline: 1px solid #999;
+  outline-offset: 2px;
+}
+.dock-help-grid strong {
+  font-size: 12px;
+  font-weight: 550;
+}
+.dock-help-grid small,
+.dock-help-keys {
+  color: #aaa;
+  font-size: 11px;
+  line-height: 1.5;
 }
 .dock-composer button {
   width: 28px;
+  align-self: flex-end;
   height: 28px;
 }
 .dock-chat-footer {
@@ -1343,8 +1708,147 @@ body,
   font-size: 11px;
   margin: 0;
 }
-.view-chat .dock-terminal.mesp-code-terminal .mesp-composer {
+.view-chat .dock-terminal.mesp-code-terminal .kiro-terminal-header {
   display: none;
+}
+.top-dock .mesp-chat {
+  background: #141414;
+  color: #eee;
+  font-family: 'Segoe UI', sans-serif;
+}
+.top-dock .mesp-chat-toolbar {
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 7px 10px;
+  background: #141414;
+}
+.top-dock .mesp-model-control {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+.top-dock :is(.mesp-model-trigger, .mesp-limits-trigger, .mesp-chat-new) {
+  min-width: 0;
+  border: 0;
+  border-radius: 7px;
+  background: #242424;
+  color: #ccc;
+  font-size: 11px;
+}
+.top-dock .mesp-model-trigger {
+  width: 100%;
+  max-width: none;
+}
+.top-dock .mesp-model-trigger strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #eee;
+}
+.top-dock .mesp-model-provider {
+  color: #aaa;
+}
+.top-dock .mesp-chat-new {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.top-dock .mesp-router-discover {
+  display: none;
+}
+.top-dock .mesp-mode-bar {
+  display: block;
+  background: #141414;
+  padding: 7px 10px;
+}
+.top-dock .mesp-mode-switcher {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  width: 100%;
+  gap: 4px;
+}
+.top-dock .mesp-mode-switcher button {
+  min-width: 0;
+  min-height: 28px;
+  padding: 5px;
+  justify-content: center;
+  border: 0;
+  border-radius: 7px;
+  background: #202020;
+  color: #aaa;
+}
+.top-dock .mesp-mode-switcher button.selected {
+  background: #353535;
+  color: #eee;
+  border: 0;
+  box-shadow: none;
+}
+.top-dock .mesp-mode-switcher :is(small, .mesp-mode-dot) {
+  display: none;
+}
+.top-dock .mesp-mode-bar p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #aaa;
+  font-size: 10px;
+}
+.top-dock .mesp-message-content {
+  color: #ccc;
+}
+.top-dock .mesp-chat > .dock-latest-message {
+  position: static;
+  align-self: center;
+  transform: none;
+  margin: 0 auto 6px;
+  flex-shrink: 0;
+}
+.top-dock .mesp-chat-empty-state {
+  padding: 16px 12px;
+  justify-content: flex-start;
+}
+.top-dock .mesp-chat-empty-eye,
+.top-dock .mesp-chat-eyebrow {
+  display: none;
+}
+.top-dock .mesp-chat-empty-state h2 {
+  font-size: 15px;
+}
+.top-dock .mesp-chat-empty-state > p {
+  color: #aaa;
+  font-family: 'Segoe UI', sans-serif;
+}
+.top-dock .mesp-chat-suggestions {
+  grid-template-columns: 1fr;
+  margin-top: 12px;
+}
+.top-dock .mesp-chat-suggestions button {
+  min-height: 32px;
+  padding: 7px 10px;
+  color: #bbb;
+  font:
+    11px/1.5 'Segoe UI',
+    sans-serif;
+  background: #202020;
+  border: 0;
+}
+.top-dock .mesp-chat button:focus-visible {
+  outline: 1px solid #999;
+  outline-offset: 2px;
+}
+.top-dock .mesp-message-content pre {
+  background: #202020;
+  color: #ddd;
+  border: 0;
+}
+.top-dock .mesp-message.role-user {
+  background: #242424;
+  border: 0;
+}
+@media (max-width: 500px) {
+  .top-dock .mesp-model-control {
+    flex-basis: 100%;
+  }
 }
 @media (max-width: 600px) {
   .dock-header {
@@ -1371,5 +1875,473 @@ body,
 @media (prefers-reduced-motion: reduce) {
   .dock-typing i {
     animation: none;
+  }
+}
+.dock-settings.is-router {
+  padding: 10px 14px 0;
+  overflow: hidden;
+  min-height: 0;
+}
+.dock-router-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 10px;
+  animation: dock-router-enter 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.dock-router-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+}
+.dock-router-toolbar button,
+.dock-router-toolbar select,
+.dock-router-toolbar input {
+  height: 32px;
+  border: 1px solid #292929;
+  border-radius: 9px;
+  color: #d8d8d8;
+  background: #171717;
+  font:
+    12px 'Segoe UI',
+    system-ui,
+    sans-serif;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+.dock-router-toolbar button {
+  padding: 0 10px;
+  cursor: pointer;
+}
+.dock-router-toolbar button:hover {
+  background: #292929;
+  color: white;
+}
+.dock-router-toolbar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.dock-router-toolbar .dock-router-back {
+  width: 32px;
+  padding: 0;
+  font-size: 22px;
+}
+.dock-router-toolbar select {
+  flex: 1;
+  min-width: 0;
+  padding: 0 7px;
+  cursor: pointer;
+}
+.dock-router-toolbar .dock-router-search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0 10px;
+}
+.dock-router-search-input::placeholder {
+  color: #999;
+}
+.dock-router-toolbar .dock-router-search-toggle {
+  display: grid;
+  place-items: center;
+  flex: 0 0 32px;
+  padding: 0;
+}
+.dock-router-toolbar :focus-visible {
+  outline: 1px solid #999;
+  outline-offset: 2px;
+}
+.dock-router-loading {
+  flex: 0 0 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #707070;
+}
+.dock-router-loading.is-loading {
+  animation: dock-router-pulse 1.2s ease-in-out infinite;
+}
+.dock-router-viewport {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  background: #101010;
+  border-radius: 12px;
+}
+.dock-router-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  text-align: center;
+  color: #999;
+}
+.dock-router-placeholder strong {
+  font-size: 12px;
+  font-weight: 400;
+}
+.dock-router-placeholder button {
+  color: #ddd;
+  background: #242424;
+  border: 1px solid #393939;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.dock-router-orbit {
+  width: 18px;
+  height: 18px;
+  border: 1px solid #333;
+  border-top-color: #bbb;
+  border-radius: 50%;
+  animation: dock-spin 900ms linear infinite;
+}
+.dock-router-caption {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px 8px;
+  font-size: 10px;
+  color: #666;
+  flex-shrink: 0;
+}
+@keyframes dock-router-enter {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes dock-router-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* Compact editing stays inside the island, with a single composer per agent. */
+.dock-suggestions {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.dock-title small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dock-actions button {
+  width: 28px;
+  height: 28px;
+}
+.dock-chat-tabs button {
+  font-size: 11px;
+  min-height: 28px;
+}
+.dock-chat-footer > button {
+  min-height: 28px;
+}
+.dock-mesp-rail button:focus-visible {
+  outline: 1px solid #aaa;
+  outline-offset: 2px;
+}
+.top-dock .mesp-composer {
+  margin: 0 8px 8px;
+  padding: 9px 11px;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+.top-dock .mesp-composer textarea {
+  min-height: 24px;
+  max-height: 112px;
+  padding: 0;
+  line-height: 20px;
+  font-size: 12px;
+  overflow-y: auto;
+}
+.top-dock .mesp-composer:focus-within {
+  box-shadow: inset 0 0 0 1px #777;
+}
+.top-dock .mesp-composer :is(textarea:focus, textarea:focus-visible) {
+  outline: none;
+}
+.top-dock .mesp-composer-footer {
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 7px;
+}
+.top-dock .mesp-composer-footer > span {
+  font-size: 9px;
+}
+.top-dock .mesp-composer :is(.mesp-composer-send, .mesp-composer-queue) {
+  background: #e7e7e7;
+  color: #151515;
+  border: 0;
+  font-size: 11px;
+}
+.top-dock .mesp-composer-stop {
+  background: #333;
+  color: #eee;
+  border: 0;
+  font-size: 11px;
+}
+.dock-appearance {
+  display: flex;
+  flex-direction: column;
+  padding: 14px 18px;
+  gap: 10px;
+  background: #141518;
+  animation: dock-router-enter 180ms ease-out;
+}
+.dock-appearance .dock-overlay-heading {
+  flex-shrink: 0;
+  margin-bottom: 0;
+}
+.dock-appearance .dock-overlay-heading button {
+  background: transparent;
+  color: #aaa;
+  width: 28px;
+  height: 28px;
+}
+.dock-appearance-preview {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+.dock-appearance-preview .dock-mascot {
+  position: static;
+  width: 78px;
+  height: 70px;
+  flex-shrink: 0;
+}
+.dock-appearance-preview > div {
+  min-width: 0;
+}
+.dock-appearance-preview strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.dock-appearance-preview p,
+.dock-accessory-grid p {
+  color: #a5a8af;
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 6px 0 0;
+}
+.dock-appearance-tabs {
+  display: flex;
+  gap: 5px;
+  flex-shrink: 0;
+}
+.dock-appearance-tabs button {
+  background: transparent;
+  color: #aaa;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 11px;
+}
+.dock-appearance-tabs button[aria-selected='true'] {
+  background: #292a2d;
+  color: #f5f5f5;
+}
+.dock-appearance-options {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #444 transparent;
+}
+.dock-color-grid {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 5px;
+}
+.dock-color-grid button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 2px;
+  border-radius: 8px;
+  background: transparent;
+}
+.dock-color-grid button:hover,
+.dock-color-grid button[aria-pressed='true'] {
+  background: #292a2d;
+}
+.dock-color-grid button > span {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 15px;
+  color: #101114;
+}
+.dock-color-grid small {
+  color: #bbb;
+  font-size: 9px;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dock-accessory-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.dock-accessory-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #bfc1c8;
+  font-size: 11px;
+}
+.dock-accessory-grid select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+  background: #26272a;
+  border: 0;
+  border-radius: 8px;
+  color: #eee;
+  font: inherit;
+}
+.dock-accessory-grid p {
+  grid-column: 1 / -1;
+}
+.dock-appearance-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+  padding-top: 4px;
+}
+.dock-quit-confirm {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  background: #111;
+}
+.dock-quit-confirm strong {
+  font-size: 15px;
+  color: #f3f3f3;
+}
+.dock-quit-confirm p {
+  font-size: 12px;
+  line-height: 1.7;
+  color: #aaa;
+  margin: 0;
+}
+.dock-quit-confirm .dock-appearance-actions {
+  margin-top: 0;
+  flex-wrap: wrap;
+}
+.dock-appearance-actions button {
+  padding: 8px 10px;
+  background: #28292c;
+  border-radius: 8px;
+  font-size: 10px;
+}
+.dock-appearance-actions .dock-appearance-save {
+  margin-left: auto;
+  background: #e7e7e7;
+  color: #151515;
+}
+.dock-appearance :focus-visible {
+  outline: 1px solid #aaa;
+  outline-offset: 2px;
+}
+@media (max-width: 600px) {
+  .dock-header {
+    height: 122px;
+    min-height: 122px;
+    padding: 73px 14px 6px;
+  }
+  .dock-title small {
+    display: block;
+    max-width: calc(100% - 92px);
+    white-space: nowrap;
+  }
+  .dock-actions {
+    top: 94px;
+  }
+  .dock-task-title strong {
+    font-size: 12px;
+  }
+  .dock-color-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+  .dock-appearance-preview .dock-mascot {
+    width: 65px;
+    height: 58px;
+  }
+  .dock-appearance {
+    padding: 12px;
+    gap: 8px;
+  }
+}
+@media (max-width: 420px) {
+  .dock-chat-footer {
+    flex-wrap: wrap;
+    row-gap: 4px;
+    min-height: 65px;
+    padding: 5px 12px 8px;
+  }
+  .dock-chat-tabs {
+    flex: 1 1 100%;
+  }
+  .dock-more-projects {
+    margin-left: 0;
+  }
+  .dock-chat-footer > button:last-child {
+    margin-left: auto;
+  }
+  .dock-chat-footer > span {
+    display: none;
+  }
+  .dock-appearance-actions {
+    flex-wrap: wrap;
+  }
+}
+@media (max-width: 440px) {
+  .dock-settings.is-router {
+    padding: 8px 9px 0;
+  }
+  .dock-router-toolbar {
+    gap: 5px;
+  }
+  .dock-router-overview span {
+    display: none;
+  }
+  .dock-router-toolbar .dock-router-overview {
+    width: 32px;
+    padding: 0;
+  }
+  .dock-router-caption span:last-child {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dock-router-panel,
+  .dock-router-loading.is-loading,
+  .dock-router-orbit {
+    animation: none;
+  }
+  .dock-router-toolbar button,
+  .dock-router-toolbar select {
+    transition: none;
   }
 }

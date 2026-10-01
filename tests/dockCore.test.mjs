@@ -12,7 +12,134 @@ import {
   shouldPromoteProject,
   isTaskCompletion,
   terminalReply,
+  readDockDrafts,
+  serializeDockDrafts,
+  readDockConversations,
+  serializeDockConversations,
 } from '../src/services/dockCore.mjs';
+
+test('chat history rejects damaged saves, removed projects and invalid messages', () => {
+  for (const raw of ['{broken', 'null', '[]', '"text"'])
+    assert.deepEqual(readDockConversations(raw, ['mesp-a']), {});
+  const raw = JSON.stringify({
+    'mesp-a': [
+      null,
+      { id: 'old', role: 'assistant', content: 'old duplicate' },
+      { id: 'bad', role: 'system', content: 'not a chat message' },
+      { id: 'blank', role: 'assistant', content: '' },
+      { id: 'old', role: 'user', content: '  ç 🐾\nlinha 2  ', private: 'ignored' },
+    ],
+    'mesp-removed': [{ id: 'removed', role: 'user', content: 'Removed' }],
+  });
+  assert.deepEqual(readDockConversations(raw, ['mesp-a']), {
+    'mesp-a': [{ id: 'old', role: 'user', content: '  ç 🐾\nlinha 2  ' }],
+  });
+});
+test('chat history keeps recent turns within a per-project storage budget', () => {
+  const messages = Array.from({ length: 150 }, (_, index) => ({
+    id: `message-${index}`,
+    role: index % 2 ? 'assistant' : 'user',
+    content: `Message ${index}`,
+  }));
+  const saved = readDockConversations(
+    serializeDockConversations({ 'mesp-a': messages }, ['mesp-a']),
+    ['mesp-a'],
+  );
+  assert.equal(saved['mesp-a'].length, 100);
+  assert.equal(saved['mesp-a'][0].id, 'message-50');
+  assert.equal(saved['mesp-a'][99].content, 'Message 149');
+  const long = Array.from({ length: 10 }, (_, index) => ({
+    id: `long-${index}`,
+    role: 'assistant',
+    content: 'x'.repeat(30000),
+  }));
+  const bounded = JSON.parse(serializeDockConversations({ 'mesp-a': long }, ['mesp-a']))['mesp-a'];
+  assert.equal(bounded.length, 5);
+  assert.equal(bounded[0].id, 'long-5');
+  assert.equal(
+    bounded.reduce((sum, message) => sum + message.content.length, 0),
+    120000,
+  );
+});
+test('chat history roundtrip preserves code and only saves existing projects', () => {
+  const message = {
+    id: 'code',
+    role: 'assistant',
+    content: 'Resultado:\n```ts\nconst total = 42;\n```',
+  };
+  const raw = serializeDockConversations({ 'mesp-a': [message], 'mesp-old': [message] }, [
+    'mesp-a',
+    'mesp-empty',
+  ]);
+  assert.deepEqual(JSON.parse(raw), { 'mesp-a': [message] });
+  assert.deepEqual(readDockConversations(raw, ['mesp-a']), { 'mesp-a': [message] });
+});
+
+test('conversational settings and help commands open local controls without becoming agent prompts', () => {
+  for (const text of ['Ajuda', 'O que posso pedir?', 'Como usar o MESP?'])
+    assert.deepEqual(parseDockRequest(text), { kind: 'help' });
+  for (const [text, page] of [
+    ['Configurações', 'overview'],
+    ['Escolher modelo', 'overview'],
+    ['Ver consumo', 'usage'],
+    ['Ver cotas', 'quota'],
+    ['Gerenciar contas', 'providers'],
+    ['Conectar Codex', 'codex'],
+    ['Conectar Claude Code', 'claude'],
+    ['Conectar Gemini', 'gemini-cli'],
+    ['Configurar ferramentas', 'cli-tools'],
+  ])
+    assert.deepEqual(parseDockRequest(text), { kind: 'settings', page });
+  for (const text of [
+    'Implemente uma página de configurações',
+    'Conectar Codex ao meu backend',
+    'Verifique o consumo de memória do projeto',
+  ])
+    assert.deepEqual(parseDockRequest(text), { kind: 'send', prompt: text });
+});
+test('task names can select a MESP sharing the same folder without guessing ambiguous names', () => {
+  const projects = [
+    { id: 'mesp-a', name: 'Loja', taskTitle: 'Revisar pagamentos' },
+    { id: 'mesp-b', name: 'Loja', taskTitle: 'Revisar carrinho' },
+  ];
+  assert.deepEqual(parseDockRequest('Abrir MESP Revisar pagamentos'), {
+    kind: 'select-project',
+    name: 'revisar pagamentos',
+  });
+  assert.equal(findDockProject(projects, 'Revisar pagamentos'), 'mesp-a');
+  assert.equal(findDockProject(projects, 'carrinho'), 'mesp-b');
+  assert.equal(findDockProject(projects, 'Revisar'), null);
+  assert.equal(findDockProject(projects, 'Loja'), null);
+});
+test('draft restore tolerates damaged saves and ignores removed projects and invalid text', () => {
+  assert.deepEqual([...readDockDrafts('{broken', ['mesp-a'])], []);
+  assert.deepEqual([...readDockDrafts('{"mesp-a":"old format"}', ['mesp-a'])], []);
+  assert.deepEqual(
+    [
+      ...readDockDrafts(
+        JSON.stringify([
+          ['mesp-a', '  Revisão ç 🐾\nlinha 2  '],
+          ['mesp-removed', 'private draft'],
+          ['mesp-a', 2],
+          null,
+        ]),
+        ['mesp-a'],
+      ),
+    ],
+    [['mesp-a', '  Revisão ç 🐾\nlinha 2  ']],
+  );
+});
+test('draft save only retains existing projects with unfinished text', () => {
+  const saved = serializeDockDrafts(
+    new Map([
+      ['mesp-a', 'Ainda escrevendo'],
+      ['mesp-b', ''],
+      ['mesp-removed', 'Removed'],
+    ]),
+    ['mesp-a', 'mesp-b'],
+  );
+  assert.deepEqual(JSON.parse(saved), [['mesp-a', 'Ainda escrevendo']]);
+});
 
 test('project restore rejects malformed entries and keeps distinct folders with their agents', () => {
   assert.deepEqual(normalizeDockProjects(null), []);

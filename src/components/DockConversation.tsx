@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PetState } from '../types';
 
 export interface DockMessage {
@@ -7,19 +7,95 @@ export interface DockMessage {
   content: string;
 }
 
-function ReplyText({ content }: { content: string }) {
+export function DockCopyButton({ text, label }: { text: string; label: 'resposta' | 'código' }) {
+  const [feedback, setFeedback] = useState<'copied' | 'error' | null>(null);
+  const [copying, setCopying] = useState(false);
+  useEffect(() => {
+    if (!feedback) return;
+    const timer = window.setTimeout(() => setFeedback(null), 2200);
+    return () => window.clearTimeout(timer);
+  }, [feedback]);
+  const title =
+    feedback === 'copied'
+      ? 'Copiado'
+      : feedback === 'error'
+        ? 'Não foi possível copiar. Tente novamente.'
+        : `Copiar ${label}`;
+  return (
+    <button
+      type="button"
+      className={`dock-copy-button${feedback === 'copied' ? ' is-copied' : ''}`}
+      aria-label={`Copiar ${label}`}
+      title={title}
+      disabled={copying}
+      onClick={async () => {
+        setCopying(true);
+        setFeedback(null);
+        try {
+          if (window.mesp?.clipboardWriteText) {
+            if (!(await window.mesp.clipboardWriteText(text)))
+              throw new Error('Clipboard unavailable');
+          } else await navigator.clipboard.writeText(text);
+          setFeedback('copied');
+        } catch {
+          setFeedback('error');
+        } finally {
+          setCopying(false);
+        }
+      }}
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        {feedback === 'copied' ? (
+          <path d="m5 12 4 4L19 6" />
+        ) : (
+          <>
+            <rect x="8" y="8" width="12" height="12" rx="2" />
+            <path d="M16 8V4H4v12h4" />
+          </>
+        )}
+      </svg>
+      {feedback === 'error' && <span className="dock-copy-error">Tentar novamente</span>}
+      <span className="dock-copy-feedback" role="status">
+        {feedback === 'copied'
+          ? `${label === 'resposta' ? 'Resposta copiada' : 'Código copiado'}.`
+          : feedback === 'error'
+            ? title
+            : ''}
+      </span>
+    </button>
+  );
+}
+export function DockReplyText({ content }: { content: string }) {
   const pieces = content.split(/(```[\s\S]*?```)/g);
   return (
     <>
-      {pieces.map((part, index) =>
-        part.startsWith('```') ? (
-          <pre key={index}>
-            <code>{part.replace(/^```[^\n]*\n?/, '').replace(/```$/, '')}</code>
-          </pre>
-        ) : (
-          <span key={index}>{part}</span>
-        ),
-      )}
+      {pieces.map((part, index) => {
+        if (part.startsWith('```')) {
+          const code = part.replace(/^```[^\n]*\n?/, '').replace(/(?:\r?\n)?```$/, '');
+          return (
+            <div className="dock-code-block" key={index}>
+              <DockCopyButton text={code} label="código" />
+              <pre>
+                <code>{code}</code>
+              </pre>
+            </div>
+          );
+        }
+        let text = part;
+        if (pieces[index - 1]?.startsWith('```')) text = text.replace(/^(?:\r?\n)+/, '');
+        if (pieces[index + 1]?.startsWith('```')) text = text.replace(/(?:\r?\n)+$/, '');
+        return <span key={index}>{text}</span>;
+      })}
     </>
   );
 }
@@ -30,20 +106,31 @@ export function DockConversation({
   consoleText,
   project,
   agent,
+  previousSessionLastId,
 }: {
   messages: DockMessage[];
   state: PetState;
   consoleText: string;
   project: string;
   agent: string;
+  previousSessionLastId?: string;
 }) {
   const log = useRef<HTMLDivElement>(null);
   const following = useRef(true);
+  const [showLatest, setShowLatest] = useState(false);
+  const [hasNewMessages, setHasNewMessages] = useState(false);
   const busy = state === 'thinking' || state === 'working';
   const lastReply = messages[messages.length - 1];
-  useEffect(() => {
+  const lastSeen = useRef(lastReply);
+  useLayoutEffect(() => {
     if (following.current && log.current) log.current.scrollTop = log.current.scrollHeight;
-  }, [messages, consoleText, busy]);
+    else if (
+      lastReply?.id !== lastSeen.current?.id ||
+      lastReply?.content !== lastSeen.current?.content
+    )
+      setHasNewMessages(true);
+    lastSeen.current = lastReply;
+  }, [messages, consoleText, busy, lastReply]);
   return (
     <div className="dock-conversation">
       <div className="dock-context-chip" title={project}>
@@ -59,7 +146,11 @@ export function DockConversation({
         aria-live="off"
         onScroll={() => {
           const el = log.current;
-          if (el) following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+          if (el) {
+            following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+            setShowLatest(!following.current);
+            if (following.current) setHasNewMessages(false);
+          }
         }}
       >
         {!messages.length && (
@@ -77,11 +168,21 @@ export function DockConversation({
         {messages
           .filter((m) => m.content)
           .map((m) => (
-            <div key={m.id} className={`dock-chat-row ${m.role}`}>
-              <div className={m.role === 'user' ? 'dock-chat-bubble' : 'dock-chat-reply'}>
-                <ReplyText content={m.content} />
+            <Fragment key={m.id}>
+              <div className={`dock-chat-row ${m.role}`}>
+                <div className={m.role === 'user' ? 'dock-chat-bubble' : 'dock-chat-reply'}>
+                  <div className="dock-message-text">
+                    <DockReplyText content={m.content} />
+                  </div>
+                  {m.role === 'assistant' && <DockCopyButton text={m.content} label="resposta" />}
+                </div>
               </div>
-            </div>
+              {m.id === previousSessionLastId && (
+                <div className="dock-session-boundary">
+                  Histórico anterior preservado · nova sessão do agente
+                </div>
+              )}
+            </Fragment>
           ))}
         {busy && !lastReply?.content && (
           <div className="dock-typing" aria-label="Agente trabalhando">
@@ -101,6 +202,32 @@ export function DockConversation({
           </div>
         )}
       </div>
+      {showLatest && (
+        <button
+          className="dock-latest-message"
+          onClick={() => {
+            following.current = true;
+            if (log.current) log.current.scrollTop = log.current.scrollHeight;
+            setShowLatest(false);
+            setHasNewMessages(false);
+          }}
+        >
+          {hasNewMessages ? 'Novas mensagens' : 'Ir para o fim'}
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 4v16m-6-6 6 6 6-6" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }

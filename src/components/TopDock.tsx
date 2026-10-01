@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { KiroChatPanel } from './KiroChatPanel';
-import { MespCustomizer } from './MespCustomizer';
+import { DockAppearance } from './DockAppearance';
 import { DockMespRail } from './DockMespRail';
 import { DockConversation, type DockMessage } from './DockConversation';
 import { DockSettings } from './DockSettings';
@@ -8,7 +8,6 @@ import { Tracked } from '../coucou/anim';
 import { IslandStateMachine, type FsmState } from '../coucou/fsm';
 import type { BotEmoteName } from '../coucou/layout';
 import { useDockHitTest } from '../hooks/useDockHitTest';
-import { savePrimaryTraits } from '../services/primaryStore';
 import { DEFAULT_TRAITS, deserializeTraits, type MespTraits } from '../procedural/traits';
 import {
   classicDockTraits,
@@ -25,11 +24,26 @@ import {
   taskTitle,
   shouldPromoteProject,
   terminalReply,
+  readDockDrafts,
+  serializeDockDrafts,
+  readDockConversations,
+  serializeDockConversations,
 } from '../services/dockCore.mjs';
 import { getPresetById } from '../services/aiPresets';
 import type { PetEntity, PetState } from '../types';
 
 const STORAGE = 'mesp-top-projects-v1';
+const DRAFT_STORAGE = 'mesp-top-drafts-v1';
+const CONVERSATION_STORAGE = 'mesp-top-conversations-v1';
+const SELECTION_STORAGE = 'mesp-top-selection-v1';
+const HELP_ACTIONS = [
+  { command: 'Abrir projeto', detail: 'Escolha a pasta em que vamos trabalhar.' },
+  { command: 'Meus projetos', detail: 'Veja as tarefas e troque de MESP.' },
+  { command: 'Modelos', detail: 'Escolha a IA ou use o modelo Auto.' },
+  { command: 'Gerenciar contas', detail: 'Conecte provedores pelo 9Router.' },
+  { command: 'Ver consumo', detail: 'Confira o histórico de uso das contas.' },
+  { command: 'Configurar ferramentas', detail: 'Ajuste os agentes e CLIs no painel.' },
+];
 const LABELS: Record<PetState, string> = {
   idle: 'Pronto',
   walking: 'Buscando',
@@ -100,6 +114,23 @@ function restoreProjects(): PetEntity[] {
   return [makeProject('mesp-primary', 'Meu primeiro projeto', null)];
 }
 
+function restoreSelection(projects: PetEntity[]) {
+  const fallback = projects[0].id;
+  try {
+    const saved = JSON.parse(localStorage.getItem(SELECTION_STORAGE) || '{}');
+    return {
+      selectedId: projects.some((project) => project.id === saved.selectedId)
+        ? (saved.selectedId as string)
+        : fallback,
+      primaryId: projects.some((project) => project.id === saved.primaryId)
+        ? (saved.primaryId as string)
+        : fallback,
+    };
+  } catch {
+    return { selectedId: fallback, primaryId: fallback };
+  }
+}
+
 function Icon({
   name,
 }: {
@@ -133,30 +164,69 @@ function Icon({
 
 export function TopDock() {
   const [projects, setProjects] = useState<PetEntity[]>(restoreProjects);
-  const [selectedId, setSelectedId] = useState(() => projects[0].id);
-  const [primaryId, setPrimaryId] = useState(() => projects[0].id);
+  const [initialSelection] = useState(() => restoreSelection(projects));
+  const [selectedId, setSelectedId] = useState(initialSelection.selectedId);
+  const [primaryId, setPrimaryId] = useState(initialSelection.primaryId);
   const [view, setView] = useState<'chat' | 'terminal' | 'settings'>('chat');
+  const [routerPanelOpen, setRouterPanelOpen] = useState(false);
+  const [routerRequest, setRouterRequest] = useState<{ page: string; nonce: number }>();
   const [renaming, setRenaming] = useState(false);
   const [titleInput, setTitleInput] = useState('');
-  const [messages, setMessages] = useState<Record<string, DockMessage[]>>({});
+  const [initialConversations] = useState(() => {
+    try {
+      return readDockConversations(
+        localStorage.getItem(CONVERSATION_STORAGE),
+        projects.map((p) => p.id),
+      );
+    } catch {
+      return {} as Record<string, DockMessage[]>;
+    }
+  });
+  const [messages, setMessages] = useState<Record<string, DockMessage[]>>(initialConversations);
+  const previousSessionLastIds = useRef(
+    Object.fromEntries(
+      Object.entries(initialConversations).map(([id, saved]) => [id, saved[saved.length - 1]?.id]),
+    ),
+  );
   const [consoleText, setConsoleText] = useState<Record<string, string>>({});
   const snapshots = useRef(new Map<string, string>());
   const replies = useRef(
     new Map<string, { baseline: string; prompt: string; id: string; finished?: boolean }>(),
   );
   const [opened, setOpened] = useState<Set<string>>(
-    () => new Set(projects[0].workDir ? [projects[0].id] : []),
+    () =>
+      new Set(
+        projects.find((project) => project.id === initialSelection.selectedId)?.workDir
+          ? [initialSelection.selectedId]
+          : [],
+      ),
   );
   const [mode, setMode] = useState<FsmState>('petit');
   const [pinned, setPinned] = useState(false);
   const [customizing, setCustomizing] = useState(false);
+  const [confirmQuit, setConfirmQuit] = useState(false);
+  const quitPanel = useRef<HTMLDivElement>(null);
   const [choosing, setChoosing] = useState(false);
   const [notice, setNotice] = useState('');
-  const [input, setInput] = useState('');
+  const [initialDrafts] = useState(() => {
+    try {
+      return readDockDrafts(
+        localStorage.getItem(DRAFT_STORAGE),
+        projects.map((p) => p.id),
+      );
+    } catch {
+      return new Map<string, string>();
+    }
+  });
+  const drafts = useRef(initialDrafts);
+  const [input, setInput] = useState(() => initialDrafts.get(selectedId) || '');
   const inputRef = useRef(input);
   inputRef.current = input;
-  const drafts = useRef(new Map<string, string>());
+  const composerInput = useRef<HTMLTextAreaElement>(null);
+  const [focusRequest, setFocusRequest] = useState(0);
   const [showProjects, setShowProjects] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const helpPanel = useRef<HTMLDivElement>(null);
   const [externalPrompts, setExternalPrompts] = useState<
     Record<string, { id: string; text: string }>
   >({});
@@ -182,8 +252,44 @@ export function TopDock() {
   const minisColumns = Math.ceil((projects.length - 1) / 2);
   const selectedTitle = selected.taskTitle || selected.projectName || 'O que vamos criar?';
   const activeCount = projects.filter((p) => !agentCanChange(p.state)).length;
+  const workingCount = projects.filter((p) => p.hasActiveTask || !agentCanChange(p.state)).length;
   const reducedRef = useRef(false);
   useDockHitTest();
+  useEffect(() => {
+    void window.mesp?.setDockActivity(workingCount).catch(() => undefined);
+  }, [workingCount]);
+  useEffect(
+    () =>
+      window.mesp?.onDockQuitRequested(() => {
+        setCustomizing(false);
+        setShowProjects(false);
+        setShowHelp(false);
+        setView('chat');
+        setConfirmQuit(true);
+        fsm.current?.forceHome();
+      }),
+    [],
+  );
+  useEffect(() => {
+    if (confirmQuit) quitPanel.current?.querySelector<HTMLButtonElement>('button')?.focus();
+  }, [confirmQuit]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SELECTION_STORAGE, JSON.stringify({ selectedId, primaryId }));
+    } catch {
+      setNotice('Não foi possível salvar o MESP selecionado neste dispositivo.');
+    }
+  }, [selectedId, primaryId]);
+  useLayoutEffect(() => {
+    shell.current
+      ?.querySelectorAll<HTMLElement>(
+        '.dock-header, .dock-composer, .dock-chat-footer, .dock-mesp-rail, .dock-conversation, .dock-terminal',
+      )
+      .forEach((element) => {
+        element.inert = customizing || confirmQuit;
+      });
+  }, [customizing, confirmQuit]);
 
   useEffect(() => {
     const machine = new IslandStateMachine();
@@ -223,9 +329,57 @@ export function TopDock() {
     }
   }, [projects]);
   useEffect(() => {
+    drafts.current.set(selectedId, input);
+    try {
+      localStorage.setItem(
+        DRAFT_STORAGE,
+        serializeDockDrafts(
+          drafts.current,
+          projects.map((p) => p.id),
+        ),
+      );
+    } catch {
+      setNotice('Não foi possível salvar o rascunho neste dispositivo.');
+    }
+  }, [input, selectedId, projects]);
+  useEffect(() => {
+    const save = () => {
+      try {
+        localStorage.setItem(
+          CONVERSATION_STORAGE,
+          serializeDockConversations(
+            messages,
+            projects.map((p) => p.id),
+          ),
+        );
+      } catch {
+        setNotice('Não foi possível salvar o histórico da conversa neste dispositivo.');
+      }
+    };
+    const timer = window.setTimeout(save, 250);
+    window.addEventListener('beforeunload', save);
+    window.addEventListener('pagehide', save);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('beforeunload', save);
+      window.removeEventListener('pagehide', save);
+    };
+  }, [messages, projects]);
+  useLayoutEffect(() => {
     if (expandedPanel.current) expandedPanel.current.inert = !expanded;
   }, [expanded]);
   useEffect(() => window.mesp?.onDockReveal(() => fsm.current?.forcePetit()), []);
+  useEffect(
+    () =>
+      window.mesp?.on9RouterRequested(({ page }) => {
+        setShowHelp(false);
+        setRouterRequest({ page, nonce: Date.now() });
+        setView('settings');
+        fsm.current?.forceHome();
+        void window.mesp?.focusDock(true);
+      }),
+    [],
+  );
 
   // The opening spring and 340 ms closing curve are the actual Coucou motion helpers.
   const dimensions = useRef({
@@ -239,7 +393,7 @@ export function TopDock() {
     const paint = () => {
       const w = window.innerWidth,
         h = window.innerHeight;
-      const width =
+      const desiredWidth =
         mode === 'home'
           ? Math.min(view === 'terminal' && selected.workDir ? 1040 : 680, w - 24)
           : mode === 'coucou'
@@ -247,6 +401,7 @@ export function TopDock() {
             : mode === 'hidden'
               ? 184
               : 314 + minisColumns * 24;
+      const width = Math.max(160, Math.min(desiredWidth, w - 24));
       const height =
         mode === 'home'
           ? Math.max(
@@ -254,11 +409,21 @@ export function TopDock() {
               Math.min(
                 view === 'terminal' && selected.workDir
                   ? 640
-                  : view === 'settings'
-                    ? 540
+                  : view === 'settings' ||
+                      customizing ||
+                      confirmQuit ||
+                      showHelp ||
+                      (view === 'chat' &&
+                        selected.workDir &&
+                        selected.agentPresetId === 'mesp-code')
+                    ? w <= 600 && view === 'chat' && selected.agentPresetId === 'mesp-code'
+                      ? 620
+                      : 580
                     : selected.workDir || showProjects
                       ? 460
-                      : 300,
+                      : w <= 600
+                        ? 400
+                        : 340,
                 h - 24,
               ),
             )
@@ -285,7 +450,7 @@ export function TopDock() {
       previous = now;
       const d = dimensions.current;
       Object.values(d).forEach((t) => t.step(dt, now));
-      el.style.width = `${d.width.value}px`;
+      el.style.width = `${Math.min(d.width.value, window.innerWidth - 24)}px`;
       el.style.height = `${Math.max(0, d.height.value)}px`;
       el.style.borderRadius = `0 0 ${d.radius.value}px ${d.radius.value}px`;
       if (Object.values(d).some((t) => t.animating)) raf = requestAnimationFrame(tick);
@@ -298,38 +463,101 @@ export function TopDock() {
       raf = requestAnimationFrame(tick);
     };
     window.addEventListener('resize', resize);
+    const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    motion.addEventListener('change', resize);
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
+      motion.removeEventListener('change', resize);
     };
-  }, [mode, selected.workDir, showProjects, view, minisColumns]);
+  }, [
+    mode,
+    selected.workDir,
+    selected.agentPresetId,
+    showProjects,
+    showHelp,
+    customizing,
+    view,
+    minisColumns,
+    confirmQuit,
+  ]);
 
   const collapse = useCallback(() => {
     fsm.current?.forcePetit();
   }, []);
+  useEffect(() => window.mesp?.on9RouterEscape(collapse), [collapse]);
+  const revealChat = useCallback(() => {
+    setView('chat');
+    setShowProjects(false);
+    setShowHelp(false);
+    setFocusRequest((value) => value + 1);
+    fsm.current?.forceHome();
+    void window.mesp?.focusDock(true);
+  }, []);
+  useEffect(() => window.mesp?.onDockChatRequested(revealChat), [revealChat]);
+  useEffect(() => {
+    if (!focusRequest || !expanded || view !== 'chat') return;
+    composerInput.current?.focus();
+  }, [focusRequest, expanded, view]);
+  useLayoutEffect(() => {
+    const field = composerInput.current;
+    if (!field) return;
+    const fit = () => {
+      field.style.height = 'auto';
+      field.style.height = `${Math.min(112, Math.max(24, field.scrollHeight))}px`;
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [input, view, expanded]);
+  useEffect(() => {
+    if (expanded && showHelp) helpPanel.current?.querySelector('button')?.focus();
+  }, [expanded, showHelp]);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      if (e.key === 'Escape' && showHelp) {
+        e.preventDefault();
+        setShowHelp(false);
+        setFocusRequest((value) => value + 1);
+        return;
+      }
+      if (e.key === 'Escape' && showProjects) {
+        e.preventDefault();
+        setShowProjects(false);
+        setFocusRequest((value) => value + 1);
+        return;
+      }
       if (
         e.key === 'Escape' &&
         !customizing &&
+        !confirmQuit &&
         !renaming &&
-        !document.activeElement?.closest('.xterm, .mesp-composer')
+        !document.activeElement?.closest('.xterm, .mesp-access-dialog')
       ) {
         e.preventDefault();
         collapse();
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        fsm.current?.forceHome();
-        void window.mesp?.focusDock(true);
+        revealChat();
       }
     };
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
-  }, [collapse, customizing, renaming]);
+  }, [collapse, customizing, confirmQuit, renaming, revealChat, showHelp, showProjects]);
   useEffect(() => {
-    if (fsm.current) fsm.current.pinned = pinned || customizing || renaming;
-  }, [pinned, customizing, renaming]);
+    if (fsm.current)
+      fsm.current.pinned =
+        pinned ||
+        customizing ||
+        confirmQuit ||
+        choosing ||
+        renaming ||
+        routerPanelOpen ||
+        showHelp ||
+        !!shell.current?.contains(document.activeElement);
+  }, [pinned, customizing, confirmQuit, choosing, renaming, routerPanelOpen, showHelp]);
 
   const react = useCallback((name: BotEmoteName | 'slap' | 'greet' | 'squash') => {
     setEmote(name);
@@ -344,8 +572,10 @@ export function TopDock() {
     setSelectedId(id);
     setPrimaryId(id);
     setShowProjects(false);
+    setShowHelp(false);
     setView('chat');
     setRenaming(false);
+    setFocusRequest((value) => value + 1);
     const p = projectsRef.current.find((p) => p.id === id);
     if (p?.workDir) setOpened((prev) => new Set(prev).add(id));
     fsm.current?.forceHome();
@@ -395,11 +625,7 @@ export function TopDock() {
             ),
           );
         setNotice('');
-        setSelectedId(id);
-        selectedRef.current = id;
-        setPrimaryId(id);
-        setOpened((prev) => new Set(prev).add(id));
-        fsm.current?.forceHome();
+        selectProject(id);
         return id;
       } catch {
         setNotice('Não foi possível abrir o seletor de pastas.');
@@ -408,7 +634,7 @@ export function TopDock() {
         if (fsm.current) fsm.current.pinned = pinned;
       }
     },
-    [choosing, pinned, commitProjects],
+    [choosing, pinned, commitProjects, selectProject],
   );
 
   const updateState = useCallback(
@@ -416,7 +642,12 @@ export function TopDock() {
       const old = projectsRef.current.find((p) => p.id === id);
       if (!old || old.state === next) return;
       // Output pauses, tool timers and terminal redraws do not finish an active turn.
-      if (old.hasActiveTask && ['idle', 'walking', 'sitting', 'sleeping'].includes(next)) return;
+      if (
+        old.hasActiveTask &&
+        old.agentPresetId !== 'mesp-code' &&
+        ['idle', 'walking', 'sitting', 'sleeping'].includes(next)
+      )
+        return;
       const promote = shouldPromoteProject(old, next);
       commitProjects((prev) =>
         prev.map((p) =>
@@ -427,6 +658,9 @@ export function TopDock() {
                 lastActivityAt: Date.now(),
                 ...(promote ? { hasActiveTask: false, completedAt: Date.now() } : {}),
                 ...(next === 'error' ? { hasActiveTask: false } : {}),
+                ...(old.agentPresetId === 'mesp-code' && next === 'idle'
+                  ? { hasActiveTask: false }
+                  : {}),
               }
             : p,
         ),
@@ -645,15 +879,32 @@ export function TopDock() {
     },
     [writePrompt, commitProjects, analyzeTitle],
   );
-  const request = async (text: string) => {
+  const request = async (text: string, preserveDraft = false) => {
     if (!text.trim() || choosing) return;
     try {
       const action = parseDockRequest(text);
-      setInput('');
-      inputRef.current = '';
-      drafts.current.delete(selectedRef.current);
+      if (!preserveDraft) {
+        setInput('');
+        inputRef.current = '';
+        drafts.current.delete(selectedRef.current);
+      }
       setNotice('');
+      setShowHelp(false);
       react('happy');
+      if (action.kind === 'help') {
+        setView('chat');
+        setShowProjects(false);
+        setShowHelp(true);
+        fsm.current?.forceHome();
+        return;
+      }
+      if (action.kind === 'settings') {
+        setShowProjects(false);
+        setRouterRequest({ page: action.page, nonce: Date.now() });
+        setView('settings');
+        fsm.current?.forceHome();
+        return;
+      }
       if (action.kind === 'projects') {
         setShowProjects(true);
         fsm.current?.forceHome();
@@ -664,6 +915,8 @@ export function TopDock() {
         return;
       }
       if (action.kind === 'customize') {
+        setShowProjects(false);
+        setView('chat');
         setCustomizing(true);
         return;
       }
@@ -681,6 +934,7 @@ export function TopDock() {
           projects.map((p) => ({
             id: p.id,
             name: p.projectName || '',
+            taskTitle: p.taskTitle,
             workDir: p.workDir,
             agent: p.agentPresetId || 'codex',
           })),
@@ -699,8 +953,12 @@ export function TopDock() {
       if (action.kind === 'agent' || action.kind === 'delegate') {
         const agent = action.agent;
         const preset = getPresetById(agent);
+        const existing = projects.find(
+          (p) => p.agentPresetId === agent && p.workDir === selected.workDir,
+        );
         if (
           agent !== 'mesp-code' &&
+          !(existing && connected.current.has(existing.id)) &&
           preset &&
           window.mesp?.checkCommand &&
           !(await window.mesp.checkCommand(preset.command))
@@ -710,9 +968,6 @@ export function TopDock() {
           );
           return;
         }
-        const existing = projects.find(
-          (p) => p.agentPresetId === agent && p.workDir === selected.workDir,
-        );
         if (existing) target = existing;
         else if (!selected.workDir) {
           target = { ...selected, agentPresetId: agent };
@@ -732,12 +987,7 @@ export function TopDock() {
           );
           commitProjects((prev) => [...prev, target]);
         }
-        selectedRef.current = target.id;
-        setSelectedId(target.id);
-        setPrimaryId(target.id);
-        setOpened((prev) => new Set(prev).add(target.id));
-        setShowProjects(false);
-        fsm.current?.forceHome();
+        selectProject(target.id);
         if (action.kind === 'agent') {
           if (!target.workDir) await chooseProject();
           return;
@@ -756,6 +1006,13 @@ export function TopDock() {
       setNotice('Não foi possível concluir o pedido. Tente novamente.');
     }
   };
+  const changeDraft = useCallback((id: string, value: string) => {
+    drafts.current.set(id, value);
+    if (selectedRef.current === id) {
+      inputRef.current = value;
+      setInput(value);
+    }
+  }, []);
   const callbacks = useMemo(
     () =>
       Object.fromEntries(
@@ -808,7 +1065,7 @@ export function TopDock() {
       />
       <div
         ref={shell}
-        className={`top-dock interactive mode-${mode} view-${view}`}
+        className={`top-dock interactive mode-${mode} view-${view}${customizing ? ' is-customizing' : ''}`}
         style={{ '--mini-columns': minisColumns } as React.CSSProperties}
         onMouseEnter={() => fsm.current?.mouseEntered()}
         onMouseLeave={() => fsm.current?.mouseLeft()}
@@ -820,7 +1077,14 @@ export function TopDock() {
         }}
         onBlurCapture={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget as Node | null) && fsm.current) {
-            fsm.current.pinned = pinned || customizing || choosing || renaming;
+            fsm.current.pinned =
+              pinned ||
+              customizing ||
+              confirmQuit ||
+              choosing ||
+              renaming ||
+              routerPanelOpen ||
+              showHelp;
             fsm.current.mouseLeft();
           }
         }}
@@ -903,7 +1167,12 @@ export function TopDock() {
                 <button
                   title="Personalizar MESP"
                   aria-label="Personalizar MESP"
-                  onClick={() => setCustomizing(true)}
+                  onClick={() => {
+                    setShowHelp(false);
+                    setShowProjects(false);
+                    setView('chat');
+                    setCustomizing(true);
+                  }}
                 >
                   <Icon name="spark" />
                 </button>
@@ -924,14 +1193,16 @@ export function TopDock() {
               <section className="dock-workspace" aria-label={`Projeto ${selected.projectName}`}>
                 {selected.workDir && selected.agentPresetId !== 'mesp-code' && view === 'chat' && (
                   <DockConversation
+                    key={selected.id}
                     messages={messages[selected.id] || []}
+                    previousSessionLastId={previousSessionLastIds.current[selected.id]}
                     state={selected.state}
                     consoleText={consoleText[selected.id] || ''}
                     project={selected.projectName || 'Projeto'}
                     agent={getPresetById(selected.agentPresetId || '')?.name || 'Agente'}
                   />
                 )}
-                {!selected.workDir && view !== 'settings' && (
+                {!selected.workDir && view !== 'settings' && !showHelp && !showProjects && (
                   <div className="dock-welcome">
                     <h2>Pode me pedir.</h2>
                     <p>
@@ -940,8 +1211,13 @@ export function TopDock() {
                       Cada projeto pode ter seu próprio MESP.
                     </p>
                     <div className="dock-suggestions">
-                      {['Abrir projeto', 'Chame o Claude', 'Meus projetos'].map((text) => (
-                        <button key={text} onClick={() => void request(text)}>
+                      {[
+                        'Abrir projeto',
+                        'Chame o Claude',
+                        'Meus projetos',
+                        'O que posso pedir?',
+                      ].map((text) => (
+                        <button key={text} onClick={() => void request(text, true)}>
                           {text}
                         </button>
                       ))}
@@ -957,7 +1233,12 @@ export function TopDock() {
                       dockChat={view !== 'terminal'}
                       pet={p}
                       visible={
-                        expanded && p.id === selected.id && !showProjects && view !== 'settings'
+                        expanded &&
+                        p.id === selected.id &&
+                        !showProjects &&
+                        !showHelp &&
+                        !customizing &&
+                        view !== 'settings'
                       }
                       onClose={collapse}
                       onPetStateChange={callbacks[p.id]}
@@ -966,12 +1247,36 @@ export function TopDock() {
                       onTaskStarted={taskCallbacks[p.id]}
                       onRouterModelChange={routerModelCallbacks[p.id]}
                       externalPrompt={externalPrompts[p.id]}
+                      dockComposer={
+                        p.agentPresetId === 'mesp-code'
+                          ? {
+                              value: p.id === selectedId ? input : drafts.current.get(p.id) || '',
+                              onChange: (value) => changeDraft(p.id, value),
+                              onCommand: (text) => {
+                                if (parseDockRequest(text).kind === 'send') return false;
+                                void request(text);
+                                return true;
+                              },
+                              focusRequest: p.id === selectedId ? focusRequest : 0,
+                            }
+                          : undefined
+                      }
                     />
                   ))}
                 {view === 'settings' && (
                   <DockSettings
                     key={selected.id}
                     project={selected.projectName || 'Seu projeto'}
+                    active={
+                      expanded &&
+                      !customizing &&
+                      !choosing &&
+                      !showProjects &&
+                      !showHelp &&
+                      !renaming
+                    }
+                    requestedPage={routerRequest}
+                    onPanelOpenChange={setRouterPanelOpen}
                     currentModel={selected.routerModel}
                     canChange={!selected.hasActiveTask && agentCanChange(selected.state)}
                     onApply={(model) => {
@@ -988,10 +1293,52 @@ export function TopDock() {
                             : p,
                         ),
                       );
-                      setNotice('Modelo conectado ao MESP pelo 9Router.');
+                      setNotice('Modelo salvo neste MESP.');
                       setView('chat');
                     }}
                   />
+                )}
+                {showHelp && (
+                  <div
+                    ref={helpPanel}
+                    className="dock-project-overlay dock-help-overlay"
+                    role="dialog"
+                    aria-label="Ajuda do MESP"
+                  >
+                    <div className="dock-overlay-heading">
+                      <strong>Pode conversar comigo.</strong>
+                      <button
+                        aria-label="Fechar ajuda"
+                        onClick={() => {
+                          setShowHelp(false);
+                          setFocusRequest((value) => value + 1);
+                        }}
+                      >
+                        <Icon name="close" />
+                      </button>
+                    </div>
+                    <p>Digite um destes pedidos ou clique para abrir.</p>
+                    <div className="dock-help-grid">
+                      {HELP_ACTIONS.map((action) => (
+                        <button
+                          key={action.command}
+                          aria-label={action.command}
+                          onClick={() => void request(action.command, true)}
+                        >
+                          <strong>{action.command}</strong>
+                          <small>{action.detail}</small>
+                        </button>
+                      ))}
+                    </div>
+                    <p>
+                      Para trabalhar: “Peça ao Codex para revisar o código” ou escreva a tarefa
+                      diretamente. O botão + cria outro MESP para trabalhar em paralelo. Para
+                      trocar, peça “Abrir MESP nome da tarefa”.
+                    </p>
+                    <small className="dock-help-keys">
+                      Enter envia · Shift+Enter quebra a linha · Ctrl+K conversa · Esc volta
+                    </small>
+                  </div>
                 )}
                 {showProjects && (
                   <div className="dock-project-overlay">
@@ -1033,6 +1380,79 @@ export function TopDock() {
                     </button>
                   </div>
                 )}
+                {customizing && (
+                  <DockAppearance
+                    key={selected.id}
+                    initialTraits={selected.traits}
+                    title={selectedTitle}
+                    onClose={() => {
+                      setCustomizing(false);
+                      setFocusRequest((value) => value + 1);
+                    }}
+                    onSave={(traits) => {
+                      commitProjects((prev) =>
+                        prev.map((project) =>
+                          project.id === selected.id
+                            ? {
+                                ...project,
+                                traits: classicDockTraits(traits),
+                                appearanceCustomized: true,
+                              }
+                            : project,
+                        ),
+                      );
+                      setCustomizing(false);
+                      setNotice('Aparência salva neste MESP.');
+                      setFocusRequest((value) => value + 1);
+                    }}
+                  />
+                )}
+                {confirmQuit && (
+                  <div
+                    ref={quitPanel}
+                    className="dock-quit-confirm dock-project-overlay"
+                    role="dialog"
+                    aria-label="Sair com tarefas ativas"
+                    aria-modal="true"
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setConfirmQuit(false);
+                        setFocusRequest((value) => value + 1);
+                      }
+                      if (event.key === 'Tab') {
+                        const controls = [
+                          ...event.currentTarget.querySelectorAll<HTMLButtonElement>('button'),
+                        ];
+                        if (event.shiftKey && document.activeElement === controls[0]) {
+                          event.preventDefault();
+                          controls[1]?.focus();
+                        } else if (!event.shiftKey && document.activeElement === controls[1]) {
+                          event.preventDefault();
+                          controls[0]?.focus();
+                        }
+                      }
+                    }}
+                  >
+                    <strong>Há trabalho em andamento</strong>
+                    <p>
+                      Sair encerra os agentes e as verificações ativas. Para continuar trabalhando
+                      em segundo plano, recolha a ilha.
+                    </p>
+                    <div className="dock-appearance-actions">
+                      <button
+                        onClick={() => {
+                          setConfirmQuit(false);
+                          setFocusRequest((value) => value + 1);
+                        }}
+                      >
+                        Continuar trabalhando
+                      </button>
+                      <button onClick={() => void window.mesp?.quit(true)}>Encerrar e sair</button>
+                    </div>
+                  </div>
+                )}
               </section>
             </div>
             {primary.id !== selected.id && primary.completedAt && (
@@ -1049,44 +1469,59 @@ export function TopDock() {
                 </button>
               </div>
             )}
-            {view !== 'settings' && (
-              <form
-                className="dock-composer"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void request(input);
-                }}
-              >
-                <input
-                  aria-label="Pedir ao MESP"
-                  value={input}
-                  onChange={(e) => {
-                    inputRef.current = e.target.value;
-                    setInput(e.target.value);
+            {view !== 'settings' &&
+              !(selected.workDir && selected.agentPresetId === 'mesp-code') &&
+              !customizing && (
+                <form
+                  className="dock-composer"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void request(input);
                   }}
-                  placeholder={
-                    choosing ? 'Escolha a pasta do projeto…' : 'Peça ao MESP ou a outro agente…'
-                  }
-                  disabled={choosing}
-                />
-                <button
-                  type="submit"
-                  aria-label="Enviar pedido"
-                  disabled={!input.trim() || choosing}
                 >
-                  <svg
-                    width="17"
-                    height="17"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
+                  <textarea
+                    aria-label="Pedir ao MESP"
+                    ref={composerInput}
+                    rows={1}
+                    title="Enter envia · Shift+Enter quebra a linha"
+                    value={input}
+                    onChange={(e) => {
+                      inputRef.current = e.target.value;
+                      setInput(e.target.value);
+                    }}
+                    placeholder={
+                      choosing ? 'Escolha a pasta do projeto…' : 'Peça ao MESP ou a outro agente…'
+                    }
+                    disabled={choosing}
+                    onKeyDown={(event) => {
+                      if (
+                        event.key === 'Enter' &&
+                        !event.shiftKey &&
+                        !event.nativeEvent.isComposing
+                      ) {
+                        event.preventDefault();
+                        if (!event.repeat) event.currentTarget.form?.requestSubmit();
+                      }
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    aria-label="Enviar pedido"
+                    disabled={!input.trim() || choosing}
                   >
-                    <path d="M12 19V5m-6 6 6-6 6 6" />
-                  </svg>
-                </button>
-              </form>
-            )}
+                    <svg
+                      width="17"
+                      height="17"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                    >
+                      <path d="M12 19V5m-6 6 6-6 6 6" />
+                    </svg>
+                  </button>
+                </form>
+              )}
             <footer className="dock-chat-footer">
               <div
                 className="dock-chat-tabs"
@@ -1112,13 +1547,24 @@ export function TopDock() {
                   tabs[next]?.click();
                 }}
               >
-                <button role="tab" aria-selected={view === 'chat'} onClick={() => setView('chat')}>
+                <button
+                  role="tab"
+                  title="Conversar · Ctrl+K"
+                  aria-selected={view === 'chat'}
+                  onClick={() => {
+                    setShowHelp(false);
+                    setView('chat');
+                  }}
+                >
                   Chat
                 </button>
                 <button
                   role="tab"
                   aria-selected={view === 'terminal'}
-                  onClick={() => setView('terminal')}
+                  onClick={() => {
+                    setShowHelp(false);
+                    setView('terminal');
+                  }}
                   disabled={!selected.workDir}
                 >
                   Terminal
@@ -1129,6 +1575,7 @@ export function TopDock() {
                   aria-selected={view === 'settings'}
                   aria-controls="dock-settings-panel"
                   onClick={() => {
+                    setShowHelp(false);
                     setShowProjects(false);
                     setView('settings');
                   }}
@@ -1143,6 +1590,7 @@ export function TopDock() {
                 className="dock-more-projects"
                 aria-label="Ver todos os MESP"
                 onClick={() => {
+                  setShowHelp(false);
                   setView('chat');
                   setShowProjects(true);
                 }}
@@ -1175,20 +1623,6 @@ export function TopDock() {
           addingDisabled={choosing || projects.length >= MAX_DOCK_PROJECTS}
         />
       </div>
-      <MespCustomizer
-        open={customizing}
-        initialTraits={selected.traits}
-        onClose={() => setCustomizing(false)}
-        onSave={(traits: MespTraits) => {
-          const appearance = classicDockTraits(traits);
-          savePrimaryTraits(appearance);
-          commitProjects((prev) =>
-            prev.map((p) =>
-              p.id === selected.id ? { ...p, traits: appearance, appearanceCustomized: true } : p,
-            ),
-          );
-        }}
-      />
     </>
   );
 }

@@ -1,5 +1,20 @@
 export const DOCK_AGENTS: readonly string[];
 export const MAX_DOCK_PROJECTS: number;
+export interface DockSavedMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+}
+export function readDockConversations(
+  raw: string | null,
+  projectIds: string[],
+): Record<string, DockSavedMessage[]>;
+export function serializeDockConversations(
+  conversations: Record<string, DockSavedMessage[]>,
+  projectIds: string[],
+): string;
+export function readDockDrafts(raw: string | null, projectIds: string[]): Map<string, string>;
+export function serializeDockDrafts(drafts: Map<string, string>, projectIds: string[]): string;
 export interface DockProject {
   id: string;
   name: string;
@@ -28,7 +43,19 @@ export interface HitRegion {
 }
 export function visibleHitRegions(value: unknown): HitRegion[];
 export type DockRequest =
-  | { kind: 'projects' | 'new-project' | 'new-mesp' | 'customize' | 'collapse' }
+  | { kind: 'projects' | 'new-project' | 'new-mesp' | 'customize' | 'collapse' | 'help' }
+  | {
+      kind: 'settings';
+      page:
+        | 'overview'
+        | 'usage'
+        | 'quota'
+        | 'providers'
+        | 'cli-tools'
+        | 'codex'
+        | 'claude'
+        | 'gemini-cli';
+    }
   | { kind: 'select-project'; name: string }
   | { kind: 'agent'; agent: string }
   | { kind: 'delegate'; agent: string; prompt: string }

@@ -9,6 +9,85 @@ export const DOCK_AGENTS = Object.freeze([
   'cursor',
 ]);
 export const MAX_DOCK_PROJECTS = 10;
+const HISTORY_MESSAGES = 100;
+const HISTORY_MESSAGE_TEXT = 24000;
+const HISTORY_PROJECT_TEXT = 120000;
+/** Bound recent chat text so streaming transcripts cannot fill the local profile. */
+function recentConversation(value) {
+  if (!Array.isArray(value)) return [];
+  const result = [];
+  const seen = new Set();
+  let size = 0;
+  for (let index = value.length - 1; index >= 0; index--) {
+    const message = value[index];
+    if (
+      !message ||
+      typeof message.id !== 'string' ||
+      !message.id ||
+      message.id.length > 120 ||
+      seen.has(message.id) ||
+      !['user', 'assistant'].includes(message.role) ||
+      typeof message.content !== 'string' ||
+      !message.content.trim()
+    )
+      continue;
+    const content = message.content.slice(-HISTORY_MESSAGE_TEXT);
+    if (result.length >= HISTORY_MESSAGES || size + content.length > HISTORY_PROJECT_TEXT) break;
+    seen.add(message.id);
+    size += content.length;
+    result.push({ id: message.id, role: message.role, content });
+  }
+  return result.reverse();
+}
+export function readDockConversations(raw, projectIds) {
+  try {
+    const value = JSON.parse(raw || '{}');
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    return Object.fromEntries(
+      projectIds
+        .map((id) => [id, recentConversation(value[id])])
+        .filter(([, messages]) => messages.length),
+    );
+  } catch {
+    return {};
+  }
+}
+export function serializeDockConversations(conversations, projectIds) {
+  return JSON.stringify(
+    Object.fromEntries(
+      projectIds
+        .map((id) => [id, recentConversation(conversations[id])])
+        .filter(([, messages]) => messages.length),
+    ),
+  );
+}
+/** Only restore drafts belonging to existing projects, preserving the user's text. */
+export function readDockDrafts(raw, projectIds) {
+  try {
+    const entries = JSON.parse(raw || '[]');
+    if (!Array.isArray(entries)) return new Map();
+    const allowed = new Set(projectIds);
+    return new Map(
+      entries.filter(
+        (entry) =>
+          Array.isArray(entry) &&
+          allowed.has(entry[0]) &&
+          typeof entry[1] === 'string' &&
+          entry[1].length,
+      ),
+    );
+  } catch {
+    return new Map();
+  }
+}
+export function serializeDockDrafts(drafts, projectIds) {
+  const allowed = new Set(projectIds);
+  return JSON.stringify(
+    Array.from(drafts).filter(
+      ([id, text]) => allowed.has(id) && typeof text === 'string' && text.length,
+    ),
+  );
+}
 export function normalizeDockProjects(value) {
   if (!Array.isArray(value)) return [];
   const ids = new Set();
@@ -136,6 +215,42 @@ export function parseDockRequest(text) {
   const raw = text.trim();
   const command = plain(raw).replace(/[.!?]+$/, '');
   if (
+    /^(?:ajuda|comandos|mostrar comandos|mostre os comandos|o que posso pedir|como usar(?: o mesp)?)$/.test(
+      command,
+    )
+  )
+    return { kind: 'help' };
+  if (
+    /^(?:(?:abrir|abra|ver|mostrar|mostre) )?(?:as )?(?:configuracoes|modelos)$/.test(command) ||
+    /^(?:escolher|trocar|configurar)(?: o)? modelo$/.test(command)
+  )
+    return { kind: 'settings', page: 'overview' };
+  if (/^(?:(?:ver|mostrar|mostre) )?(?:meu |o |historico de )?consumo$/.test(command))
+    return { kind: 'settings', page: 'usage' };
+  if (/^(?:(?:ver|mostrar|mostre) )?(?:as |minhas )?(?:cotas|resets|cotas e resets)$/.test(command))
+    return { kind: 'settings', page: 'quota' };
+  if (
+    /^(?:(?:conectar|gerenciar|ver|mostrar|mostre) )?(?:minhas |as )?(?:contas|provedores)$/.test(
+      command,
+    ) ||
+    /^conectar(?: uma)? conta$/.test(command)
+  )
+    return { kind: 'settings', page: 'providers' };
+  if (/^(?:(?:abrir|abra|configurar|ver) )?(?:as )?ferramentas$/.test(command))
+    return { kind: 'settings', page: 'cli-tools' };
+  const connect = command.match(
+    /^(?:conectar|gerenciar|login(?: no| do)?)(?: o)? (codex|claude(?: code)?|gemini(?: cli)?)$/,
+  );
+  if (connect)
+    return {
+      kind: 'settings',
+      page: connect[1].startsWith('claude')
+        ? 'claude'
+        : connect[1].startsWith('gemini')
+          ? 'gemini-cli'
+          : 'codex',
+    };
+  if (
     /^(?:(?:mostrar|mostre|listar|liste|ver|quais sao) )?(?:os )?(?:meus )?(?:projetos|mesps?)$/.test(
       command,
     )
@@ -156,7 +271,7 @@ export function parseDockRequest(text) {
   if (/^(?:personalizar|personalize)(?: o)? mesp$/.test(command)) return { kind: 'customize' };
   if (/^(?:recolher|minimizar|recolha|minimize)(?: o mesp| painel)?$/.test(command))
     return { kind: 'collapse' };
-  const open = command.match(/^(?:abrir|abra|voltar para)(?: o)? projeto (.+)$/);
+  const open = command.match(/^(?:abrir|abra|voltar para)(?: o)? (?:projeto|tarefa|mesp) (.+)$/);
   if (open) return { kind: 'select-project', name: open[1] };
   const agentOnly = command.match(/^(?:usar|use|chamar|chame|trocar para|abrir|abra)(?: o)? (.+)$/);
   if (agentOnly && AGENT_NAMES[agentOnly[1]])
@@ -178,8 +293,12 @@ export function parseDockRequest(text) {
 }
 export function findDockProject(projects, name) {
   const needle = plain(name);
-  const exact = projects.filter((p) => plain(p.name) === needle);
+  const names = (project) =>
+    [project.name, project.taskTitle]
+      .filter((value) => typeof value === 'string' && value.trim())
+      .map(plain);
+  const exact = projects.filter((p) => names(p).includes(needle));
   if (exact.length === 1) return exact[0].id;
-  const partial = projects.filter((p) => plain(p.name).includes(needle));
+  const partial = projects.filter((p) => names(p).some((value) => value.includes(needle)));
   return partial.length === 1 ? partial[0].id : null;
 }
