@@ -4,8 +4,11 @@
 
 Ao abrir o chat, a ilha tem até 760 px de largura. A conversa livre abre com
 520 px de altura no desktop; projetos e vários MESP têm mais espaço, sempre
-limitado ao tamanho da tela. O cabeçalho ocupa 80 px, com título e estado visíveis.
-Os MESP menores ficam em uma única fila horizontal. Em telas estreitas, use a
+limitado ao tamanho da tela. O título fica ao lado do personagem, com o estado
+logo abaixo, sem o nome genérico nem a linha de nome fixo. O cabeçalho ocupa
+48 px; em telas estreitas com vários MESP, usa 82 px para acomodar a fila.
+Os MESP menores ficam em uma única fila horizontal. A bolinha de cada personagem
+muda de cor conforme o estado, sem ícone de check. Em telas estreitas, use a
 roda do mouse, o trackpad ou Tab para alcançar os demais personagens. Ao selecionar
 um MESP, ele entra na área visível da fila. Os atalhos de projetos usam cartões
 compactos com nomes e estados. A seta de recolher fica no canto superior direito
@@ -86,8 +89,8 @@ sessões que foram interrompidas ao fechar o aplicativo.
 O nome da tarefa muda conforme o novo objetivo, usando o contexto dos últimos
 pedidos na consulta isolada de título. **Sim**, **continue** e outras confirmações
 mantêm o objetivo anterior. O nome do sistema continua visível. Um título editado
-manualmente permanece fixo; **Nome fixo · usar automático** libera os nomes
-automáticos para os próximos pedidos.
+manualmente permanece fixo; clique no título e use o ícone **Usar título automático**
+para liberar os nomes automáticos para os próximos pedidos.
 
 Tarefas que terminam em segundo plano promovem o personagem sem trocar a
 conversa, o foco ou o rascunho atual. O contador **novos** dá acesso aos resultados

@@ -230,6 +230,16 @@ export function dockProjectStatus(project) {
     return { group: 'completed', label: 'Concluído' };
   return { group: 'ready', label: 'Pronto' };
 }
+export function dockProjectIndicatorState(project) {
+  const { group } = dockProjectStatus(project);
+  if (group === 'completed') return 'success';
+  if (group === 'active') return project.state === 'thinking' ? 'thinking' : 'working';
+  if (group === 'attention') {
+    if (project.state === 'waiting') return 'waiting';
+    return project.state === 'error' || project.taskError ? 'error' : 'waiting';
+  }
+  return project.state || 'idle';
+}
 /** A saved busy flag describes an interrupted session, never a live agent after restart. */
 export function restoreDockTask(saved) {
   if (!saved || typeof saved !== 'object') return {};

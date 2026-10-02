@@ -62,6 +62,7 @@ export function dockProjectStatus(project: DockTaskState): {
   group: DockProjectGroup;
   label: string;
 };
+export function dockProjectIndicatorState(project: DockTaskState): string;
 export function unreadDockResult(project: DockTaskState): boolean;
 export function restoreDockTask(saved: unknown): Omit<DockTaskState, 'state' | 'hasActiveTask'>;
 export function shouldPromoteProject(

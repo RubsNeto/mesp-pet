@@ -160,7 +160,7 @@ const root = path.resolve(__dirname, '..');
       await page.getByRole('textbox', { name: 'Pedir ao MESP', exact: true }).inputValue(),
       draft,
     );
-    assert.equal(await page.locator('.dock-current-project').textContent(), 'Loja');
+    assert.equal((await projects()).find((p) => p.id === ids[2]).name, 'Loja');
     assert.equal(
       await page.evaluate(() => document.activeElement?.getAttribute('aria-label')),
       'Pedir ao MESP',
@@ -205,7 +205,8 @@ const root = path.resolve(__dirname, '..');
     await ask('Criar relatórios de clientes');
     assert.equal(await page.locator('.dock-task-title strong').textContent(), 'CRM prioritário');
     await finish(ids[1]);
-    await page.getByRole('button', { name: 'Nome fixo · usar automático', exact: true }).click();
+    await page.locator('.dock-task-title').click();
+    await page.getByRole('button', { name: 'Usar título automático', exact: true }).click();
     await ask('Criar painel comercial');
     await page.waitForFunction(
       () =>

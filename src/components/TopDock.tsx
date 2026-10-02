@@ -29,6 +29,7 @@ import {
   nextDockTaskTitle,
   dockTitleContext,
   dockProjectStatus,
+  dockProjectIndicatorState,
   unreadDockResult,
   shouldPromoteProject,
   terminalReply,
@@ -1345,7 +1346,7 @@ export function TopDock() {
                 : ''}
             </span>
             <span className="dock-compact-meta">
-              <i className={`dock-status state-${primary.state}`} />
+              <i className={`dock-status state-${dockProjectIndicatorState(primary)}`} />
               {dockProjectStatus(primary).label}
               {unreadResults.length
                 ? ` · ${unreadResults.length} resultado${unreadResults.length === 1 ? '' : 's'} novo${unreadResults.length === 1 ? '' : 's'}`
@@ -1361,38 +1362,59 @@ export function TopDock() {
           <div ref={expandedPanel} className="dock-expanded">
             <header className="dock-header">
               <div className="dock-title">
-                <button
-                  className="dock-current-project"
-                  title="Ver todos os projetos e tarefas"
-                  onClick={() => {
-                    setProjectFilter('all');
-                    setShowProjects(true);
-                    setShowHelp(false);
-                    setView('chat');
-                  }}
-                >
-                  {selected.projectName || 'Novo MESP'}
-                </button>
                 {renaming ? (
-                  <input
-                    className="dock-task-title-input"
-                    aria-label="Título da tarefa"
-                    maxLength={120}
-                    value={titleInput}
-                    autoFocus
-                    onChange={(e) => setTitleInput(e.target.value)}
-                    onBlur={saveTitle}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        saveTitle();
-                      }
-                      if (e.key === 'Escape') {
-                        e.stopPropagation();
-                        setRenaming(false);
-                      }
+                  <div
+                    className="dock-title-editor"
+                    onBlur={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) saveTitle();
                     }}
-                  />
+                  >
+                    <input
+                      className="dock-task-title-input"
+                      aria-label="Título da tarefa"
+                      maxLength={120}
+                      value={titleInput}
+                      autoFocus
+                      onChange={(e) => setTitleInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          saveTitle();
+                        }
+                        if (e.key === 'Escape') {
+                          e.stopPropagation();
+                          setRenaming(false);
+                        }
+                      }}
+                    />
+                    {selected.titlePinned && (
+                      <button
+                        type="button"
+                        aria-label="Usar título automático"
+                        title="Usar título automático na próxima tarefa"
+                        onClick={() => {
+                          commitProjects((prev) =>
+                            prev.map((p) =>
+                              p.id === selected.id ? { ...p, titlePinned: false } : p,
+                            ),
+                          );
+                          setRenaming(false);
+                        }}
+                      >
+                        <svg
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.7"
+                          aria-hidden="true"
+                        >
+                          <path d="M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.5-1L20 9M4 15l2.4 3A7 7 0 0 0 17.9 17" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
                 ) : (
                   <button
                     className="dock-task-title"
@@ -1417,23 +1439,10 @@ export function TopDock() {
                   </button>
                 )}
                 <small>
-                  <span className={`dock-status state-${selected.state}`} />
+                  <span className={`dock-status state-${dockProjectIndicatorState(selected)}`} />
                   {getPresetById(selected.agentPresetId || 'codex')?.name} ·{' '}
                   {dockProjectStatus(selected).label}
                 </small>
-                {selected.titlePinned && (
-                  <button
-                    className="dock-auto-title"
-                    title="A próxima tarefa recebe um título automático"
-                    onClick={() =>
-                      commitProjects((prev) =>
-                        prev.map((p) => (p.id === selected.id ? { ...p, titlePinned: false } : p)),
-                      )
-                    }
-                  >
-                    Nome fixo · usar automático
-                  </button>
-                )}
               </div>
               <div className="dock-actions">
                 <button

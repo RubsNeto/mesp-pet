@@ -15,6 +15,7 @@ import {
   dockTitleContext,
   unreadDockResult,
   dockProjectStatus,
+  dockProjectIndicatorState,
   restoreDockTask,
   shouldPromoteProject,
   isTaskCompletion,
@@ -150,6 +151,10 @@ test('naming receives bounded recent user context and excludes unrelated private
   );
 });
 test('project status gives current work priority over previous results and attention priority over completion', () => {
+  assert.equal(dockProjectIndicatorState({ completedAt: 100, state: 'idle' }), 'success');
+  assert.equal(dockProjectIndicatorState({ completedAt: 100, hasActiveTask: true }), 'working');
+  assert.equal(dockProjectIndicatorState({ completedAt: 100, taskError: true }), 'error');
+  assert.equal(dockProjectIndicatorState({ completedAt: 100, taskInterrupted: true }), 'waiting');
   assert.deepEqual(dockProjectStatus({ state: 'idle' }), { group: 'ready', label: 'Pronto' });
   assert.equal(dockProjectStatus({ completedAt: 100, state: 'idle' }).group, 'completed');
   assert.equal(

@@ -1,6 +1,10 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { DockMascot } from './DockMascot';
-import { dockProjectStatus, unreadDockResult } from '../services/dockCore.mjs';
+import {
+  dockProjectIndicatorState,
+  dockProjectStatus,
+  unreadDockResult,
+} from '../services/dockCore.mjs';
 import { getPresetById } from '../services/aiPresets';
 import type { PetEntity } from '../types';
 import type { FsmState } from '../coucou/fsm';
@@ -116,12 +120,11 @@ export function DockMespRail({
             <path d="M11 20V9a2.1 2.1 0 0 1 4.2 0v7.7V5.6a2.1 2.1 0 0 1 4.2 0v11V7.6a2.1 2.1 0 0 1 4.2 0v10.2V11a2.1 2.1 0 0 1 4.2 0v14c0 6-3.6 10-9 10h-2c-3.6 0-5.6-1.8-7.5-4.2l-6.2-7.3a2.3 2.3 0 0 1 3.4-3.1L11 24z" />
           </svg>
         )}
-        {!main && <span className={`dock-mini-indicator state-${p.state}`} />}
-        {main && p.completedAt && (
-          <span className="dock-finished-mark" title="Tarefa concluída">
-            ✓
-          </span>
-        )}
+        <span
+          className={`dock-status dock-mini-indicator state-${dockProjectIndicatorState(p)}`}
+          title={dockProjectStatus(p).label}
+          aria-hidden="true"
+        />
       </button>
     );
   };
