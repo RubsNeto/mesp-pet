@@ -9,8 +9,15 @@ const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 
 (async () => {
-  const { createRouterOverviewService, autoRouterCandidates, patchRouterAccountSelection } =
-    await import('./dockRouter.mjs');
+  const {
+    createRouterOverviewService,
+    autoRouterCandidates,
+    patchRouterAccountSelection,
+    patchRouterCopilotResponses,
+    classifyRouterRequest,
+    createRouterHealth,
+  } = await import('./dockRouter.mjs');
+  const { parseRouterConversation } = await import('./dockChatResponse.mjs');
   const { routerLocalAuthHeaders } = await import('./dockRouterLocalAuth.mjs');
   const serverPath = process.env.MESP_ROUTER_SERVER;
   if (!serverPath || !fs.existsSync(serverPath)) throw new Error('Runtime do 9Router ausente.');
@@ -18,9 +25,17 @@ const { pipeline } = require('node:stream/promises');
     path.join(path.dirname(serverPath), '.next-cli-build/server/chunks/4664.js'),
   );
   const patchedAuth = patchRouterAccountSelection(fs.readFileSync(authPath, 'utf8'));
+  const copilotPath = fs.realpathSync(
+    path.join(path.dirname(serverPath), '.next-cli-build/server/chunks/318.js'),
+  );
+  const patchedCopilot = patchRouterCopilotResponses(fs.readFileSync(copilotPath, 'utf8'));
   const originalLoader = Module._extensions['.js'];
   Module._extensions['.js'] = (module, filename) => {
-    if (fs.realpathSync(filename) === authPath) return module._compile(patchedAuth, filename);
+    if (/[\\/](?:4664|318)\.js$/.test(filename)) {
+      const resolved = fs.realpathSync(filename);
+      if (resolved === authPath) return module._compile(patchedAuth, filename);
+      if (resolved === copilotPath) return module._compile(patchedCopilot, filename);
+    }
     return originalLoader(module, filename);
   };
   globalThis.__mespRouterContext = new AsyncLocalStorage();
@@ -32,6 +47,24 @@ const { pipeline } = require('node:stream/promises');
     headers: () => routerLocalAuthHeaders(process.env.DATA_DIR),
   });
   let lastRoute = null;
+  const healthFile = path.join(process.env.DATA_DIR, 'runtime', 'mesp-auto-health.json');
+  let savedHealth = [];
+  try {
+    savedHealth = JSON.parse(fs.readFileSync(healthFile, 'utf8'));
+  } catch {
+    /* First run or interrupted cache write. */
+  }
+  const health = createRouterHealth(savedHealth);
+  const recordFailure = (choice, status, retryAfter = null) => {
+    health.failed(choice, status, retryAfter);
+    try {
+      fs.mkdirSync(path.dirname(healthFile), { recursive: true });
+      fs.writeFileSync(healthFile, JSON.stringify(health.snapshot()));
+    } catch {
+      /* A read-only cache must not prevent a response. */
+    }
+  };
+  const inFlight = new Map();
 
   const json = (res, status, body) => {
     res.writeHead(status, {
@@ -42,17 +75,17 @@ const { pipeline } = require('node:stream/promises');
   };
   const autoRequest = async (req, res, body) => {
     const startedAt = Date.now();
+    const request = classifyRouterRequest(body, req.headers['x-mesp-purpose']);
     const controller = new AbortController();
     res.on('close', () => {
       if (!res.writableFinished) controller.abort();
     });
-    let routingId;
     try {
-      let overview = await service.overview('today');
-      let choices = autoRouterCandidates(overview.accounts, overview.models);
+      let overview = await service.routing();
+      let choices = autoRouterCandidates(overview.accounts, overview.models, Date.now(), request);
       if (!choices.length) {
-        overview = await service.overview('today', true);
-        choices = autoRouterCandidates(overview.accounts, overview.models);
+        overview = await service.routing(true);
+        choices = autoRouterCandidates(overview.accounts, overview.models, Date.now(), request);
       }
       if (!choices.length)
         return json(res, 503, {
@@ -61,45 +94,43 @@ const { pipeline } = require('node:stream/promises');
             type: 'quota_unavailable',
           },
         });
-      // One request per account/model; retries never run after response bytes are sent.
-      const tried = new Set(),
-        excludedAccounts = new Set();
-      for (const choice of choices) {
+      // Bound retries. Each upstream attempt has one account, avoiding nested native retry loops.
+      const tried = new Set();
+      let lastStatus = 503;
+      for (let attempt = 0; attempt < 8 && Date.now() - startedAt < 80000; attempt++) {
         if (controller.signal.aborted) return;
-        const choiceKey = `${choice.accountId}:${choice.model}`;
-        if (tried.has(choiceKey) || excludedAccounts.has(choice.accountId)) continue;
-        tried.add(choiceKey);
-        routingId = randomUUID();
-        const sameModel = choices.filter(
+        const available = choices.filter(
           (candidate) =>
-            candidate.model === choice.model && !excludedAccounts.has(candidate.accountId),
+            !tried.has(`${candidate.accountId}:${candidate.model}`) && health.available(candidate),
         );
-        let requestRoute = choice;
+        // Spread simultaneous MESP tasks across equally suitable, funded accounts.
+        available.sort(
+          (a, b) =>
+            a.fit - b.fit ||
+            a.funding - b.funding ||
+            (inFlight.get(a.accountId) || 0) - (inFlight.get(b.accountId) || 0),
+        );
+        const choice = available[0];
+        if (!choice) break;
+        tried.add(`${choice.accountId}:${choice.model}`);
+        const routingId = randomUUID();
         const context = {
           filterAvailable(available) {
-            const byId = new Map(available.map((account) => [account.id, account]));
-            return sameModel
-              .filter((candidate) => byId.has(candidate.accountId))
-              .map((candidate) => byId.get(candidate.accountId));
+            return available.filter((account) => account.id === choice.accountId);
           },
           chooseAccount(provider, excluded) {
             const exclude =
               excluded instanceof Set ? excluded : new Set(excluded ? [excluded] : []);
-            const next = sameModel.find(
-              (candidate) =>
-                !exclude.has(candidate.accountId) &&
-                (candidate.provider === provider ||
-                  overview.accounts.find((a) => a.id === candidate.accountId)?.prefix === provider),
-            );
-            if (next) {
-              requestRoute = next;
-              lastRoute = { ...next, at: Date.now() };
-            }
-            return next?.accountId || null;
+            return !exclude.has(choice.accountId) &&
+              (choice.provider === provider ||
+                overview.accounts.find((account) => account.id === choice.accountId)?.prefix ===
+                  provider)
+              ? choice.accountId
+              : null;
           },
         };
         contexts.set(routingId, context);
-        lastRoute = { ...choice, at: Date.now() };
+        inFlight.set(choice.accountId, (inFlight.get(choice.accountId) || 0) + 1);
         const headers = { 'content-type': 'application/json', 'x-mesp-route-id': routingId };
         for (const name of [
           'authorization',
@@ -107,61 +138,126 @@ const { pipeline } = require('node:stream/promises');
           'anthropic-version',
           'anthropic-beta',
           'user-agent',
+          'x-session-id',
+          'x-session-affinity',
         ]) {
           if (typeof req.headers[name] === 'string') headers[name] = req.headers[name];
         }
-        const response = await fetch(`${origin}${req.url}`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ ...body, model: choice.model.replace(/^9router\//, '') }),
-          signal: controller.signal,
-        });
-        const modelUnavailable =
-          [404, 406].includes(response.status) ||
-          (response.status === 400 &&
-            /model_not_supported|model_not_found|unsupported model|model.*not.*supported/i.test(
-              JSON.stringify(
-                await response
-                  .clone()
-                  .json()
-                  .catch(() => ({})),
-              ),
-            ));
-        tried.add(`${requestRoute.accountId}:${choice.model}`);
-        if ([401, 402, 403, 429, 500, 502, 503, 504].includes(response.status)) {
-          excludedAccounts.add(choice.accountId);
-          excludedAccounts.add(requestRoute.accountId);
-        }
-        const canRetry = choices.some(
-          (candidate) =>
-            !excludedAccounts.has(candidate.accountId) &&
-            !tried.has(`${candidate.accountId}:${candidate.model}`),
+        const attemptController = new AbortController();
+        const configuredTimeout = Number(process.env.MESP_AUTO_TIMEOUT_MS);
+        const timeout = Math.min(
+          80000 - (Date.now() - startedAt),
+          configuredTimeout >= 250 && configuredTimeout <= 45000
+            ? configuredTimeout
+            : request.level === 3
+              ? 45000
+              : request.level === 2
+                ? 25000
+                : 15000,
         );
-        if ((modelUnavailable || excludedAccounts.has(choice.accountId)) && canRetry) {
-          await response.body?.cancel();
+        const timer = setTimeout(() => attemptController.abort(), timeout);
+        try {
+          const response = await fetch(`${origin}${req.url}`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ ...body, model: choice.model.replace(/^9router\//, '') }),
+            signal: AbortSignal.any([controller.signal, attemptController.signal]),
+          });
+          lastStatus = response.status;
+          const errorPayload = !response.ok ? await response.json().catch(() => ({})) : null;
+          const modelUnavailable =
+            [404, 406].includes(response.status) ||
+            ([400, 403].includes(response.status) &&
+              /model_not_supported|model_not_found|unsupported model|model.*not.*(?:supported|available)|not.*enabled.*model/i.test(
+                JSON.stringify(errorPayload),
+              ));
+          const retryable =
+            modelUnavailable ||
+            [401, 402, 403, 408, 429, 500, 502, 503, 504].includes(response.status);
+          if (retryable) {
+            recordFailure(
+              choice,
+              modelUnavailable ? 'model' : response.status,
+              response.headers.get('retry-after'),
+            );
+            continue;
+          }
+          if (!response.ok)
+            return json(res, response.status, {
+              error: {
+                message:
+                  'O provedor recusou este pedido. Tente ajustar a mensagem ou escolher outro modelo.',
+                type: 'invalid_request',
+              },
+            });
+          let payload = null;
+          if (body.stream !== true) {
+            try {
+              payload = await response.json();
+            } catch (error) {
+              if (controller.signal.aborted || attemptController.signal.aborted) throw error;
+            }
+            const toolReply =
+              (Array.isArray(payload?.choices) &&
+                payload.choices.some((choice) => choice.message?.tool_calls?.length)) ||
+              (Array.isArray(payload?.output) &&
+                payload.output.some((item) => item.type === 'function_call')) ||
+              (Array.isArray(payload?.content) &&
+                payload.content.some((item) => item.type === 'tool_use'));
+            if (!toolReply && !parseRouterConversation(payload)) {
+              lastStatus = 502;
+              recordFailure(choice, 'empty');
+              continue;
+            }
+          }
+          // Once a response starts, never change accounts or replay a task.
+          clearTimeout(timer);
+          lastRoute = { ...choice, complexity: request.complexity, at: Date.now() };
+          const session = req.headers['x-session-id'] || req.headers['x-session-affinity'];
+          if (typeof session === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(session)) {
+            process.stdout.write(
+              `MESP_MODEL ${JSON.stringify({
+                session,
+                startedAt,
+                model: choice.model.replace(/^9router\//, ''),
+              })}\n`,
+            );
+          }
+          res.writeHead(response.status, {
+            'content-type': response.headers.get('content-type') || 'application/json',
+            'cache-control': 'no-store',
+            'x-mesp-model': choice.model.replace(/^9router\//, ''),
+            'x-mesp-account': choice.accountId,
+            'x-mesp-complexity': request.complexity,
+          });
+          if (payload) res.end(JSON.stringify(payload));
+          else if (response.body) await pipeline(Readable.fromWeb(response.body), res);
+          else res.end();
+          return;
+        } catch {
+          if (controller.signal.aborted) return;
+          if (res.headersSent) {
+            if (!res.writableEnded) res.end();
+            return;
+          }
+          lastStatus = attemptController.signal.aborted ? 504 : 502;
+          recordFailure(choice, lastStatus);
+        } finally {
+          clearTimeout(timer);
           contexts.delete(routingId);
-          continue;
+          const count = (inFlight.get(choice.accountId) || 1) - 1;
+          if (count) inFlight.set(choice.accountId, count);
+          else inFlight.delete(choice.accountId);
         }
-        const session = req.headers['x-session-id'] || req.headers['x-session-affinity'];
-        if (response.ok && typeof session === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(session)) {
-          process.stdout.write(
-            `MESP_MODEL ${JSON.stringify({
-              session,
-              startedAt,
-              model: choice.model.replace(/^9router\//, ''),
-            })}\n`,
-          );
-        }
-        res.writeHead(response.status, {
-          'content-type': response.headers.get('content-type') || 'application/json',
-          'cache-control': 'no-store',
-          'x-mesp-model': choice.model.replace(/^9router\//, ''),
-          'x-mesp-account': requestRoute.accountId,
-        });
-        if (response.body) await pipeline(Readable.fromWeb(response.body), res);
-        else res.end();
-        return;
       }
+      if (!controller.signal.aborted)
+        json(res, lastStatus >= 400 ? lastStatus : 503, {
+          error: {
+            message:
+              'As contas disponíveis não responderam. Confira cotas e acessos nas Configurações.',
+            type: 'accounts_unavailable',
+          },
+        });
     } catch {
       if (!res.headersSent && !controller.signal.aborted)
         json(res, 503, {
@@ -172,8 +268,6 @@ const { pipeline } = require('node:stream/promises');
           },
         });
       else if (!res.writableEnded) res.end();
-    } finally {
-      if (routingId) contexts.delete(routingId);
     }
   };
   const originalCreateServer = http.createServer.bind(http);
@@ -185,7 +279,7 @@ const { pipeline } = require('node:stream/promises');
       if (req.method === 'GET' && req.url === '/api/mesp/capabilities')
         return json(res, 200, {
           auto: true,
-          strategy: 'reset-first',
+          strategy: 'complexity-quota-reset',
           version: '0.5.40',
           source: process.env.MESP_ROUTER_PROFILE_SOURCE === '9router' ? '9router' : 'mesp',
         });

@@ -67,9 +67,11 @@ export function normalizeRouterQuotas(payload) {
     const usedPercent =
       total > 0 && used !== null
         ? Math.min(100, (used / total) * 100)
-        : number(quota.remainingPercentage) !== null
-          ? Math.max(0, 100 - quota.remainingPercentage)
-          : null;
+        : total > 0 && remaining !== null
+          ? Math.max(0, Math.min(100, (1 - remaining / total) * 100))
+          : number(quota.remainingPercentage) !== null
+            ? Math.max(0, 100 - quota.remainingPercentage)
+            : null;
     const rawReset = quota.resetAt;
     const reset =
       typeof rawReset === 'number'
@@ -94,35 +96,113 @@ export function normalizeRouterQuotas(payload) {
   });
 }
 
-function quotaApplies(key, model) {
+function quotaApplies(key, model, multiplier) {
   const label = key.toLowerCase(),
     name = model.toLowerCase();
   if (label.includes('review')) return name.endsWith('-review');
+  if (label.includes('premium') && multiplier === 0) return false;
+  if (/^(?:gemini|gpt|claude)[-/]/.test(label)) {
+    const exact = label.split(' ')[0];
+    return name === exact || name.startsWith(`${exact}-`) || exact.startsWith(`${name}-`);
+  }
   for (const family of ['sonnet', 'opus', 'haiku', 'flash', 'pro']) {
     if (new RegExp(`(?:^|[ _(/-])${family}(?:$|[ _)/-])`).test(label)) return name.includes(family);
   }
-  if (/^(?:gemini|gpt|claude)[-/]/.test(label)) return name.includes(label.split(' ')[0]);
   return true;
 }
 
-export function autoRouterCandidates(accounts, models, now = Date.now()) {
+const requestText = (content) =>
+  typeof content === 'string'
+    ? content
+    : Array.isArray(content)
+      ? content
+          .filter((part) => ['text', 'input_text'].includes(part?.type))
+          .map((part) => part.text || '')
+          .join('\n')
+      : '';
+
+/** Fast local classification; no extra model call, prompt storage or access to project files. */
+export function classifyRouterRequest(body = {}, purpose = '') {
+  const messages = Array.isArray(body.messages)
+    ? body.messages
+    : Array.isArray(body.input)
+      ? body.input
+      : [{ role: 'user', content: body.input }];
+  const users = messages.filter((item) => item?.role === 'user');
+  const latest = requestText(users.at(-1)?.content).trim();
+  const followUp =
+    /^(?:continue|continuar|prossiga|sim|ok|certo|pode|fa[çc]a|go on|yes|do it)[.!\s]*$/i.test(
+      latest,
+    );
+  const text = (
+    followUp
+      ? users
+          .slice(-4)
+          .map((item) => requestText(item.content))
+          .join('\n')
+      : latest
+  )
+    .slice(-24000)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  const tools = Array.isArray(body.tools) && body.tools.length > 0 && body.tool_choice !== 'none';
+  const inputChars = messages.reduce((sum, item) => sum + requestText(item?.content).length, 0);
+  if (purpose === 'title') return { complexity: 'light', level: 1, tools: false, inputChars };
+  const advanced =
+    /arquitetura|architecture|refator(?:acao|ar)|refactor|migr(?:acao|ar|ation)|seguranca|security|vulnerab|race condition|concorrencia|concurrency|distributed|distribuid|performance|desempenho|memory leak|vazamento|investig(?:ue|ar)|causa raiz|root cause|auditor|estrategia|strategy|raciocinio|prove\b|demonstr(?:e|acao)|matematic|otimiz(?:acao|ar|e)|optimiz/g;
+  const advancedSignals = (text.match(advanced) || []).length;
+  const coding =
+    /\b(?:codigo|code|bug|debug|erro|error|teste|test|implement|program|api|sql|banco|database|typescript|javascript|python|react|repo|arquivo|file|funcao|function|class|deploy|sistema|system|app)\w*/.test(
+      text,
+    ) || /```/.test(text);
+  const requirements = (text.match(/(?:^|\n)\s*(?:[-*]|\d+[.)])\s/g) || []).length;
+  const level =
+    advancedSignals >= 2 ||
+    text.length > 4000 ||
+    requirements >= 6 ||
+    (advancedSignals > 0 && (coding || text.length > 300)) ||
+    (tools && inputChars > 24000)
+      ? 3
+      : coding || tools || text.length > 450 || advancedSignals > 0
+        ? 2
+        : 1;
+  return { complexity: ['light', 'standard', 'advanced'][level - 1], level, tools, inputChars };
+}
+
+export function routerModelLevel(model) {
+  const name = `${model.id} ${model.name || ''}`.toLowerCase();
+  if (/mini|nano|haiku|flash|instant|lite|luna|small|fast/.test(name)) return 1;
+  if (
+    /opus|(?:^|[/ -])o[1-9](?:$|[.-])|reasoner|deepseek.*r1|gemini.*pro|gpt-[5-9]|codex.*max/.test(
+      name,
+    )
+  )
+    return 3;
+  return 2;
+}
+
+export function autoRouterCandidates(accounts, models, now = Date.now(), request = null) {
   const choices = [];
   for (const account of accounts) {
     if (!account.active || account.health === 'auth' || account.health === 'error') continue;
     for (const model of models) {
       if (
         !model.accountIds.includes(account.id) ||
-        /(?:-review$|embed|image|tts|whisper|search|fetch)/i.test(model.id)
+        /(?:-review$|embed|image|tts|whisper|search|fetch|compaction|exec-agent)/i.test(model.id)
       )
         continue;
       const name = model.id.replace(/^9router\/[^/]+\//, '');
+      if (request?.tools && model.supportsTools === false) continue;
+      // Leave space for output when a provider publishes its context limit.
+      if (model.contextLength && request?.inputChars > model.contextLength * 2) continue;
       if (
         account.locks.some(
           (lock) => lock.until > now && (lock.model === 'all' || lock.model === name),
         )
       )
         continue;
-      const quotas = account.quotas.filter((q) => quotaApplies(q.key, name));
+      const quotas = account.quotas.filter((q) => quotaApplies(q.key, name, model.rateMultiplier));
       if (
         account.limitReached ||
         quotas.some((q) => !q.unlimited && (q.remaining === 0 || q.usedPercent >= 100))
@@ -130,9 +210,26 @@ export function autoRouterCandidates(accounts, models, now = Date.now()) {
         continue;
       const resets = quotas.filter((q) => !q.unlimited && q.resetAt > now).map((q) => q.resetAt);
       const resetAt = resets.length ? Math.min(...resets) : null;
-      const remaining = quotas.map((q) => (q.usedPercent === null ? 100 : 100 - q.usedPercent));
-      const capacity = remaining.length ? Math.min(...remaining) : 100;
-      // Reset has precedence; coding ability only chooses among models of that account.
+      const remaining = quotas
+        .filter((q) => !q.unlimited && q.usedPercent !== null)
+        .map((q) => 100 - q.usedPercent);
+      const capacity = remaining.length ? Math.min(...remaining) : null;
+      const level = routerModelLevel(model);
+      const fit = !request
+        ? 0
+        : level >= request.level
+          ? level - request.level
+          : (request.level - level) * 4;
+      const reserve = request?.level === 3 ? 10 : request?.level === 2 ? 5 : 1;
+      const funding =
+        quotas.length > 0 && quotas.every((q) => q.unlimited)
+          ? 0
+          : capacity === null
+            ? 1
+            : capacity >= reserve
+              ? 0
+              : 2;
+      // The legacy preview has no request yet. Actual routing ranks task suitability first.
       const quality =
         account.provider === 'github' && name === 'gpt-4.1'
           ? 6 // The native Copilot chat endpoint supports this coding model.
@@ -153,18 +250,85 @@ export function autoRouterCandidates(accounts, models, now = Date.now()) {
         quality,
         quotaKnown: quotas.length > 0,
         live: model.source === 'live',
+        level,
+        fit,
+        funding,
+        rateMultiplier: number(model.rateMultiplier),
       });
     }
   }
   return choices.sort(
     (a, b) =>
+      a.fit - b.fit ||
+      (request ? a.funding - b.funding : 0) ||
       (a.resetAt ?? Infinity) - (b.resetAt ?? Infinity) ||
       Number(b.live) - Number(a.live) ||
-      a.accountId.localeCompare(b.accountId) ||
+      (b.capacity ?? -1) - (a.capacity ?? -1) ||
+      (request ? (a.rateMultiplier ?? 1) - (b.rateMultiplier ?? 1) : 0) ||
       b.quality - a.quality ||
-      b.capacity - a.capacity ||
+      a.accountId.localeCompare(b.accountId) ||
       b.model.localeCompare(a.model),
   );
+}
+
+/** Short local cooldowns prevent repeatedly selecting a recently rejected account/model. */
+export function createRouterHealth(saved = []) {
+  const now = Date.now();
+  const failures = new Map(
+    (Array.isArray(saved) ? saved : [])
+      .slice(-512)
+      .filter(
+        (entry) =>
+          Array.isArray(entry) &&
+          typeof entry[0] === 'string' &&
+          /^[A-Za-z0-9_-]{1,160}:[A-Za-z0-9._/+*:-]{1,240}$/.test(entry[0]) &&
+          Number.isFinite(entry[1]) &&
+          entry[1] > now &&
+          entry[1] <= now + 1800000,
+      )
+      .map(([id, until]) => [id, { until }]),
+  );
+  const key = (choice, modelOnly) => `${choice.accountId}:${modelOnly ? choice.model : '*'}`;
+  return {
+    snapshot(now = Date.now()) {
+      return [...failures]
+        .filter(([, failure]) => failure.until > now)
+        .slice(-512)
+        .map(([id, failure]) => [id, failure.until]);
+    },
+    available(choice, now = Date.now()) {
+      for (const id of [key(choice, false), key(choice, true)]) {
+        const failure = failures.get(id);
+        if (failure && failure.until > now) return false;
+        if (failure) failures.delete(id);
+      }
+      return true;
+    },
+    failed(choice, status, retryAfter = null, now = Date.now()) {
+      const modelOnly = ['model', 'empty'].includes(status);
+      let duration =
+        status === 'model'
+          ? 600000
+          : status === 'empty'
+            ? 120000
+            : status === 401
+              ? 300000
+              : status === 403
+                ? 120000
+                : status === 429 || status === 402
+                  ? 60000
+                  : 15000;
+      if (status === 429 || status === 402) {
+        const retry =
+          typeof retryAfter === 'string' && /^\d+(?:\.\d+)?$/.test(retryAfter)
+            ? Number(retryAfter) * 1000
+            : Date.parse(retryAfter || '') - now;
+        if (retry > 0) duration = Math.min(1800000, retry);
+        else if (choice.resetAt > now) duration = Math.min(duration, choice.resetAt - now);
+      }
+      failures.set(key(choice, modelOnly), { until: now + Math.max(1000, duration) });
+    },
+  };
 }
 
 export function normalizeRouterStats(payload) {
@@ -202,14 +366,19 @@ export function createRouterOverviewService({ origin, headers = {}, fetchJson, a
     quotaCache = new Map(),
     modelCache = new Map();
   const pending = new Map(),
-    modelRequests = new Map();
+    modelRequests = new Map(),
+    quotaRequests = new Map();
   const get =
     fetchJson ||
     (async (route) => {
       const response = await globalThis.fetch(`${origin}${route}`, {
         headers: typeof headers === 'function' ? headers() : headers,
         signal: globalThis.AbortSignal.timeout(
-          /\/providers\/[^/]+\/models$/.test(route) ? 2500 : 8000,
+          /\/providers\/[^/]+\/models$/.test(route)
+            ? 3000
+            : /\/usage\/[^/?]+$/.test(route)
+              ? 3000
+              : 8000,
         ),
       });
       if (!response.ok) {
@@ -234,11 +403,12 @@ export function createRouterOverviewService({ origin, headers = {}, fetchJson, a
         (quota) => quota.resetAt > old.at && quota.resetAt <= Date.now(),
       );
     if (old && !force && !resetPassed && Date.now() - old.at < 60000) return old.value;
-    if (store === modelCache && modelRequests.has(id)) return modelRequests.get(id);
+    const requests = store === modelCache ? modelRequests : quotaRequests;
+    if (requests.has(id)) return requests.get(id);
     const request = optional(route);
-    if (store === modelCache) modelRequests.set(id, request);
+    requests.set(id, request);
     const value = await request;
-    if (store === modelCache) modelRequests.delete(id);
+    requests.delete(id);
     store.set(id, { at: Date.now(), value });
     return value;
   };
@@ -246,18 +416,26 @@ export function createRouterOverviewService({ origin, headers = {}, fetchJson, a
     async models(force = false) {
       return this.overview('today', force, true);
     },
-    async overview(period = 'today', force = false, modelsOnly = false) {
+    async routing(force = false) {
+      return this.overview('today', force, false, true);
+    },
+    async overview(period = 'today', force = false, modelsOnly = false, routingOnly = false) {
       if (!ROUTER_PERIODS.includes(period)) period = 'today';
-      const cacheKey = modelsOnly ? 'models' : period;
+      const cacheKey = modelsOnly ? 'models' : routingOnly ? 'routing' : period;
       if (pending.has(cacheKey)) {
         return pending.get(cacheKey);
       }
       const cached = cache.get(cacheKey);
-      if (cached && !force && Date.now() - cached.updatedAt < 15000) return cached;
+      const resetPassed = cached?.accounts.some((account) =>
+        account.quotas.some(
+          (quota) => quota.resetAt > cached.updatedAt && quota.resetAt <= Date.now(),
+        ),
+      );
+      if (cached && !force && !resetPassed && Date.now() - cached.updatedAt < 15000) return cached;
       const run = (async () => {
         const [connectionsPayload, statsPayload, capability] = await Promise.all([
           optional('/api/providers'),
-          modelsOnly ? null : optional(`/api/usage/stats?period=${period}`),
+          modelsOnly || routingOnly ? null : optional(`/api/usage/stats?period=${period}`),
           autoSupported === undefined
             ? optional('/api/mesp/capabilities')
             : { auto: autoSupported },
@@ -339,7 +517,8 @@ export function createRouterOverviewService({ origin, headers = {}, fetchJson, a
                 quotas,
                 locks,
                 lastFailure:
-                  Number(raw.errorCode || raw.lastError?.match(/^\[(\d{3})\]/)?.[1]) === 403
+                  Number(raw.errorCode || raw.lastError?.match(/^\[(\d{3})\]/)?.[1]) === 403 ||
+                  live?.status === 403
                     ? 'permission'
                     : null,
                 consumption:
@@ -369,7 +548,11 @@ export function createRouterOverviewService({ origin, headers = {}, fetchJson, a
                   : `${prefix}/${rawId.replace(/^models\//, '')}`;
                 if (
                   !validModel(id) ||
-                  (entry.type && !['llm', 'chat', 'text'].includes(entry.type))
+                  (entry.type && !['llm', 'chat', 'text'].includes(entry.type)) ||
+                  entry.model_picker_enabled === false ||
+                  /(?:^|[-_ ])(?:exec[-_ ]agent|trajectory[-_ ]compaction|copilot[-_ ]search)/i.test(
+                    rawId,
+                  )
                 )
                   continue;
                 const key = `9router/${id}`,
@@ -386,6 +569,24 @@ export function createRouterOverviewService({ origin, headers = {}, fetchJson, a
                     providerName: account.providerName,
                     accountIds: [raw.id],
                     source: 'live',
+                    ...(typeof entry.capabilities?.supports?.tool_calls === 'boolean'
+                      ? { supportsTools: entry.capabilities.supports.tool_calls }
+                      : {}),
+                    ...(number(
+                      entry.contextLength ?? entry.capabilities?.limits?.max_context_window_tokens,
+                    )
+                      ? {
+                          contextLength: number(
+                            entry.contextLength ??
+                              entry.capabilities?.limits?.max_context_window_tokens,
+                          ),
+                        }
+                      : {}),
+                    ...(number(entry.rateMultiplier ?? entry.billing?.multiplier) !== null
+                      ? {
+                          rateMultiplier: number(entry.rateMultiplier ?? entry.billing?.multiplier),
+                        }
+                      : {}),
                   });
               }
             }),
@@ -459,6 +660,17 @@ export function patchRouterAccountSelection(source) {
     );
   }
   return patched;
+}
+
+/** 0.5.40 parses Copilot Responses as SSE even for a non-streaming caller.
+ * Ask the upstream for SSE, so its native translator can produce the complete JSON reply.
+ * Apply in memory only; the shared installed dependency remains untouched.
+ */
+export function patchRouterCopilotResponses(source) {
+  const before = 'n=this.buildHeaders(d,c),p=(0,h.h)(a,b,c,d);';
+  if (source.split(before).length !== 2)
+    throw new Error('9Router incompatível com a tradução de respostas do Copilot.');
+  return source.replace(before, 'n=this.buildHeaders(d,!0),p=(0,h.h)(a,b,!0,d);');
 }
 
 export const ROUTER_PAGES = Object.freeze({

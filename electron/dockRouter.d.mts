@@ -47,6 +47,9 @@ export interface RouterModel {
   providerName: string;
   accountIds: string[];
   source: 'live' | 'catalog';
+  supportsTools?: boolean;
+  contextLength?: number;
+  rateMultiplier?: number;
 }
 export interface RouterAutoChoice {
   model: string;
@@ -54,10 +57,14 @@ export interface RouterAutoChoice {
   accountLabel: string;
   provider: string;
   resetAt: number | null;
-  capacity: number;
+  capacity: number | null;
   quality: number;
   quotaKnown: boolean;
   live: boolean;
+  level: number;
+  fit: number;
+  funding: number;
+  rateMultiplier: number | null;
 }
 export interface RouterOverview {
   accountSource: 'mesp' | '9router' | 'external';
@@ -81,10 +88,29 @@ export function routerRunModel(
   },
 ): string | null;
 export function normalizeRouterQuotas(payload: unknown): RouterQuota[];
+export interface RouterRequestClass {
+  complexity: 'light' | 'standard' | 'advanced';
+  level: number;
+  tools: boolean;
+  inputChars: number;
+}
+export function classifyRouterRequest(body?: unknown, purpose?: string): RouterRequestClass;
+export function routerModelLevel(model: RouterModel): number;
+export function createRouterHealth(saved?: unknown): {
+  snapshot(now?: number): Array<[string, number]>;
+  available(choice: RouterAutoChoice, now?: number): boolean;
+  failed(
+    choice: RouterAutoChoice,
+    status: number | 'model' | 'empty',
+    retryAfter?: string | null,
+    now?: number,
+  ): void;
+};
 export function autoRouterCandidates(
   accounts: RouterAccount[],
   models: RouterModel[],
   now?: number,
+  request?: RouterRequestClass | null,
 ): RouterAutoChoice[];
 export function normalizeRouterStats(
   payload: unknown,
@@ -97,6 +123,8 @@ export function createRouterOverviewService(options: {
 }): {
   overview(period?: string, force?: boolean): Promise<RouterOverview>;
   models(force?: boolean): Promise<RouterOverview>;
+  routing(force?: boolean): Promise<RouterOverview>;
 };
 export function patchRouterAccountSelection(source: string): string;
+export function patchRouterCopilotResponses(source: string): string;
 export const ROUTER_THEME_CSS: string;

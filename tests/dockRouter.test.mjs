@@ -9,6 +9,10 @@ import {
   createRouterOverviewService,
   patchRouterAccountSelection,
   routerRunModel,
+  classifyRouterRequest,
+  createRouterHealth,
+  patchRouterCopilotResponses,
+  routerModelLevel,
 } from '../electron/dockRouter.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
@@ -297,6 +301,247 @@ const account = (id, reset, used = 40, extra = {}) => ({
   ...extra,
 });
 const model = (id, ids) => ({ id: `9router/cx/${id}`, accountIds: ids });
+
+test('Auto classifies only user intent locally and retains complex intent for short follow-ups', () => {
+  const classify = (text, extra = {}) =>
+    classifyRouterRequest({ messages: [{ role: 'user', content: text }], ...extra });
+  assert.equal(classify('Qual é a capital do Brasil?').complexity, 'light');
+  assert.equal(classify('Corrija a função do formulário React').complexity, 'standard');
+  assert.equal(
+    classify('Investigue a causa raiz do erro de concorrência e refatore a arquitetura do sistema')
+      .complexity,
+    'advanced',
+  );
+  assert.equal(
+    classify('Qual é a capital?', {
+      messages: [
+        { role: 'system', content: 'security architecture '.repeat(6000) },
+        { role: 'user', content: 'Qual é a capital?' },
+      ],
+    }).complexity,
+    'light',
+  );
+  assert.equal(classify('Resumo', { tools: [{ type: 'function' }] }).tools, true);
+  assert.equal(
+    classify('Resumo', { tools: [{ type: 'function' }], tool_choice: 'none' }).tools,
+    false,
+  );
+  assert.equal(
+    classifyRouterRequest({
+      input: 'Explique a arquitetura e performance de um sistema distribuído',
+    }).complexity,
+    'advanced',
+  );
+  assert.equal(
+    classifyRouterRequest({
+      messages: [
+        { role: 'user', content: 'Investigue e refatore a arquitetura do sistema' },
+        { role: 'assistant', content: 'Plano' },
+        { role: 'user', content: 'continue' },
+      ],
+    }).complexity,
+    'advanced',
+  );
+  assert.equal(
+    classifyRouterRequest(
+      { messages: [{ role: 'user', content: 'Título para investigar e refatorar a arquitetura' }] },
+      'title',
+    ).complexity,
+    'light',
+  );
+});
+
+test('Auto matches model complexity before resets and manages available credits without inventing balances', () => {
+  assert.equal(routerModelLevel(model('gpt-6-luna', [])), 1);
+  const accounts = [
+    account('near-mini', 1000),
+    account('far-advanced', 600000),
+    account('standard', 10000),
+  ];
+  const models = [
+    model('gpt-5-mini', ['near-mini']),
+    model('gpt-5-codex', ['far-advanced']),
+    model('claude-sonnet', ['standard']),
+  ];
+  const classify = (content) => classifyRouterRequest({ messages: [{ role: 'user', content }] });
+  assert.equal(
+    autoRouterCandidates(accounts, models, now, classify('O que é DNS?'))[0].accountId,
+    'near-mini',
+  );
+  assert.equal(
+    autoRouterCandidates(accounts, models, now, classify('Corrija o formulário React'))[0]
+      .accountId,
+    'standard',
+  );
+  assert.equal(
+    autoRouterCandidates(
+      accounts,
+      models,
+      now,
+      classify('Audite a segurança e refatore a arquitetura do sistema'),
+    )[0].accountId,
+    'far-advanced',
+  );
+  const funded = [
+    account('almost-empty', 1000, 99),
+    account('enough', 60000, 30),
+    account('unknown', 500, 0, { quotas: [] }),
+  ];
+  const pool = [
+    model(
+      'gpt-5-codex',
+      funded.map((a) => a.id),
+    ),
+  ];
+  const choices = autoRouterCandidates(
+    funded,
+    pool,
+    now,
+    classify('Audite a segurança e refatore a arquitetura do sistema'),
+  );
+  assert.equal(choices[0].accountId, 'enough');
+  assert.equal(choices.find((choice) => choice.accountId === 'unknown').capacity, null);
+  funded[2].quotas = normalizeRouterQuotas({
+    quotas: {
+      chat: { unlimited: true },
+      credits: { remaining: 1 },
+    },
+  });
+  const uncertain = autoRouterCandidates(
+    funded,
+    pool,
+    now,
+    classify('Audite a segurança e refatore a arquitetura do sistema'),
+  ).find((choice) => choice.accountId === 'unknown');
+  assert.equal(uncertain.capacity, null);
+  assert.equal(
+    uncertain.funding,
+    1,
+    'Unlimited chat cannot turn an unknown credit balance into unlimited funding',
+  );
+  funded[0] = account('almost-empty', 1000, 70);
+  assert.equal(
+    autoRouterCandidates(
+      funded,
+      pool,
+      now,
+      classify('Audite a segurança e refatore a arquitetura do sistema'),
+    )[0].accountId,
+    'almost-empty',
+  );
+});
+
+test('Auto respects tool support, published context limits, remaining balances and model-scoped cooldowns', () => {
+  const request = classifyRouterRequest({
+    messages: [{ role: 'user', content: 'Corrija o código' }],
+    tools: [{ type: 'function' }],
+  });
+  const ready = account('ready', 1000);
+  const choices = autoRouterCandidates(
+    [ready],
+    [
+      { ...model('gpt-5', ['ready']), supportsTools: false },
+      { ...model('small-context', ['ready']), contextLength: 2 },
+      model('claude-sonnet', ['ready']),
+    ],
+    now,
+    request,
+  );
+  assert.equal(choices.length, 1);
+  assert.equal(
+    normalizeRouterQuotas({ quotas: { credits: { total: 200, remaining: 20 } } })[0].usedPercent,
+    90,
+  );
+  const health = createRouterHealth(),
+    choice = choices[0];
+  health.failed(choice, 'model', null, now);
+  assert.equal(health.available(choice, now), false);
+  assert.equal(health.available({ ...choice, model: 'other' }, now), true);
+  assert.equal(health.available(choice, now + 600001), true);
+  health.failed(choice, 429, '2', now);
+  assert.equal(health.available({ ...choice, model: 'other' }, now), false);
+  assert.equal(health.available(choice, now + 2001), true);
+  health.failed(choice, 429, null, now);
+  assert.equal(health.available(choice, now + 1001), true, 'A passed reset releases the cooldown');
+});
+
+test('routing discovery shares cached model and quota queries and never reads usage history', async () => {
+  const calls = [];
+  const service = createRouterOverviewService({
+    origin: 'http://local',
+    autoSupported: true,
+    fetchJson: async (route) => {
+      calls.push(route);
+      if (route === '/api/providers')
+        return { connections: [{ id: 'ready', provider: 'codex', testStatus: 'success' }] };
+      if (route.endsWith('/models')) return { models: [{ id: 'gpt-codex' }] };
+      if (route === '/api/usage/ready')
+        return { quotas: { session: { total: 100, remaining: 50 } } };
+      throw Error('History must not be queried for routing');
+    },
+  });
+  const result = await service.routing();
+  assert.equal(result.modelsAvailable, true);
+  assert.equal(result.accounts[0].quotas[0].usedPercent, 50);
+  await service.routing();
+  assert.equal(calls.length, 3);
+  assert.ok(!calls.some((route) => route.includes('stats')));
+});
+
+test('Copilot Responses compatibility uses the native stream translator and fails closed on another version', () => {
+  const before = 'n=this.buildHeaders(d,c),p=(0,h.h)(a,b,c,d);';
+  assert.equal(
+    patchRouterCopilotResponses(before),
+    'n=this.buildHeaders(d,!0),p=(0,h.h)(a,b,!0,d);',
+  );
+  assert.throws(() => patchRouterCopilotResponses('another build'), /incompatível/);
+  assert.throws(() => patchRouterCopilotResponses(before + before), /incompatível/);
+});
+
+test('recent routing failures survive restart, expire, and persist no credentials or request text', () => {
+  const choice = { accountId: 'ready', model: '9router/cx/gpt-5', resetAt: Date.now() + 60000 };
+  const health = createRouterHealth();
+  health.failed(choice, 'model');
+  const saved = JSON.parse(JSON.stringify(health.snapshot()));
+  const restored = createRouterHealth(saved);
+  assert.equal(restored.available(choice), false);
+  assert.equal(restored.available({ ...choice, model: '9router/cx/gpt-4.1' }), true);
+  assert.equal(restored.available(choice, Date.now() + 600001), true);
+  assert.deepEqual(
+    createRouterHealth([
+      ['INVALID SECRET!', Date.now() + 10000],
+      ['ready:*', 'secret'],
+    ]).snapshot(),
+    [],
+  );
+  assert.equal(createRouterHealth({ token: 'SECRET' }).available(choice), true);
+});
+
+test('model-specific credits do not exhaust unrelated versions or explicitly zero-cost models', () => {
+  const ready = account('ready', 1000);
+  ready.quotas = normalizeRouterQuotas({
+    quotas: {
+      'gemini-3.1-pro': { total: 100, remaining: 0 },
+      premium_interactions: { total: 100, remaining: 0 },
+      chat: { unlimited: true },
+    },
+  });
+  assert.equal(
+    autoRouterCandidates([ready], [{ ...model('gpt-4.1', ['ready']), rateMultiplier: 0 }], now)
+      .length,
+    1,
+  );
+  ready.quotas = ready.quotas.filter((quota) => quota.key !== 'premium_interactions');
+  const choices = autoRouterCandidates(
+    [ready],
+    [model('gemini-3.1-pro', ['ready']), model('gemini-2.5-pro', ['ready'])],
+    now,
+  );
+  assert.deepEqual(
+    choices.map((choice) => choice.model),
+    ['9router/cx/gemini-2.5-pro'],
+  );
+});
 
 test('Auto prioritizes imminent reset, skipping exhausted, disabled, locked and review candidates', () => {
   const accounts = [

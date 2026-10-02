@@ -35,7 +35,8 @@ import {
 import { visibleHitRegions, type HitRegion } from '../src/services/dockCore.mjs';
 import { createDockHooks, encodedAgentCommand, type DockHookBridge } from './dockHooks.mjs';
 import { titlePrompt, parseTitle } from './dockTitles.mjs';
-import { conversationInstructions, parseConversation } from './dockChat.mjs';
+import { conversationInstructions } from './dockChat.mjs';
+import { parseRouterConversation } from './dockChatResponse.mjs';
 import { chooseRouterDataDirectory } from './dockRouterProfile.mjs';
 import { routerLocalAuthHeaders } from './dockRouterLocalAuth.mjs';
 import { DockRouterView } from './dockRouterView';
@@ -3172,6 +3173,14 @@ function validActualModel(value: unknown): value is string {
 }
 
 async function resolveDockRouterModel(requested: unknown): Promise<string | null> {
+  if (requested === AUTO_ROUTER_MODEL || requested == null) {
+    const { baseURL } = configured9RouterOptions(readOpenCodeConfig());
+    const source = await ensure9RouterRuntime(baseURL);
+    // The integrated adapter does discovery once for the actual request, with its quotas.
+    // Avoid a second live model scan in the Electron process before every Auto chat/title.
+    if (source === 'bundled' && bundledRouter?.origin === routerOriginForApiBase(baseURL))
+      return AUTO_ROUTER_MODEL;
+  }
   const overview = await getRouterOverview('today', false, true);
   if (requested === AUTO_ROUTER_MODEL && overview.auto.supported && overview.models.length)
     return AUTO_ROUTER_MODEL;
@@ -3191,9 +3200,20 @@ ipcMain.handle('dock:chat', async (_event, raw: unknown) => {
   if (dockChatRequests.has(petId)) return { ok: false, error: 'Este MESP ainda está respondendo.' };
   const controller = new AbortController();
   dockChatRequests.set(petId, controller);
-  const timer = setTimeout(() => controller.abort(), 120000);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    if (!controller.signal.aborted) timedOut = true;
+    controller.abort();
+  }, 120000);
   try {
-    const model = await resolveDockRouterModel(payload.model);
+    const model = await new Promise<string | null>((resolve, reject) => {
+      const cancel = () => reject(new Error('Chat interrompido.'));
+      if (controller.signal.aborted) return cancel();
+      controller.signal.addEventListener('abort', cancel, { once: true });
+      void resolveDockRouterModel(payload.model)
+        .then(resolve, reject)
+        .finally(() => controller.signal.removeEventListener('abort', cancel));
+    });
     if (!model)
       return {
         ok: false,
@@ -3228,16 +3248,19 @@ ipcMain.handle('dock:chat', async (_event, raw: unknown) => {
         error:
           response.status === 401 || response.status === 403
             ? 'A conta recusou a autenticação. Confira o login nas Configurações.'
-            : 'O modelo não conseguiu responder. Confira a conta e a disponibilidade nas Configurações.',
+            : response.status === 429 || response.status === 402
+              ? 'As contas disponíveis atingiram o limite de uso. Aguarde o reset ou conecte outra conta.'
+              : response.status === 504
+                ? 'As contas demoraram para responder. Tente novamente em instantes.'
+                : 'Não há uma conta disponível para responder agora. Confira as cotas e os acessos nas Configurações.',
       };
-    const body = (await response.json()) as {
-      model?: unknown;
-      choices?: Array<{ message?: { content?: unknown } }>;
-    };
-    const content = body.choices?.[0]?.message?.content;
-    const parsed = parseConversation(content);
+    const body: unknown = await response.json();
+    const parsed = parseRouterConversation(body);
     if (!parsed)
-      return { ok: false, error: 'O modelo não retornou uma resposta válida. Tente novamente.' };
+      return {
+        ok: false,
+        error: 'O provedor enviou uma resposta vazia ou incompleta. Tente o Auto ou outro modelo.',
+      };
     return {
       ok: true,
       ...parsed,
@@ -3249,10 +3272,12 @@ ipcMain.handle('dock:chat', async (_event, raw: unknown) => {
   } catch {
     return {
       ok: false,
-      cancelled: controller.signal.aborted,
-      error: controller.signal.aborted
-        ? 'Resposta interrompida.'
-        : 'Não foi possível conversar com o agente. Confira a conexão nas Configurações.',
+      cancelled: controller.signal.aborted && !timedOut,
+      error: timedOut
+        ? 'A resposta demorou além do limite. Tente novamente ou escolha outro modelo.'
+        : controller.signal.aborted
+          ? 'Resposta interrompida.'
+          : 'Não foi possível conversar com o agente. Confira a conexão nas Configurações.',
     };
   } finally {
     clearTimeout(timer);
@@ -3279,6 +3304,7 @@ ipcMain.handle('dock:generate-title', async (_event, payload: unknown) => {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
+        'x-mesp-purpose': 'title',
         ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
       },
       body: JSON.stringify({

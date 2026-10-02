@@ -195,7 +195,7 @@ export function DockModelPicker({
               <strong>
                 Auto <span className="dock-choice-tag">Recomendado</span>
               </strong>
-              <small>Prioriza o reset mais próximo.</small>
+              <small>Escolhe pelo pedido, pela cota e pelo reset.</small>
             </span>
             <span className="dock-choice-mark" aria-hidden="true">
               {currentModel === AUTO_ROUTER_MODEL ? '✓' : '›'}

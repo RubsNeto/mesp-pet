@@ -12,6 +12,13 @@ export const MAX_DOCK_PROJECTS = 10;
 const HISTORY_MESSAGES = 100;
 const HISTORY_MESSAGE_TEXT = 24000;
 const HISTORY_PROJECT_TEXT = 120000;
+const legacyChatErrors = new Set([
+  'O modelo não retornou uma resposta válida. Tente novamente.',
+  'O modelo não conseguiu responder. Confira a conta e a disponibilidade nas Configurações.',
+  'Não foi possível conversar com o agente. Confira a conexão nas Configurações.',
+  'Não foi possível conversar com o agente. Confira a conexão nas Configurações e tente novamente.',
+  'A conta recusou a autenticação. Confira o login nas Configurações.',
+]);
 /** Retain the initial objective and recent turns across providers, within a bounded context. */
 export function dockModelHistory(messages = []) {
   const usable = messages
@@ -20,6 +27,7 @@ export function dockModelHistory(messages = []) {
         message &&
         ['user', 'assistant'].includes(message.role) &&
         !['error', 'cancelled'].includes(message.status) &&
+        !(message.role === 'assistant' && legacyChatErrors.has(message.content ?? message.text)) &&
         typeof (message.content ?? message.text) === 'string' &&
         (message.content ?? message.text).trim(),
     )
@@ -65,6 +73,9 @@ function recentConversation(value) {
       id: message.id,
       role: message.role,
       content,
+      ...(['done', 'error', 'cancelled'].includes(message.status)
+        ? { status: message.status }
+        : {}),
       ...(message.role === 'assistant' &&
       typeof message.modelUsed === 'string' &&
       /^[A-Za-z0-9._/+:-]{1,240}$/.test(message.modelUsed)

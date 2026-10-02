@@ -90,7 +90,8 @@
           "dockRouterRuntime.cjs",
           "dockRouter.mjs",
           "dockProviderCatalog.mjs",
-          "dockRouterLocalAuth.mjs"
+          "dockRouterLocalAuth.mjs",
+          "dockChatResponse.mjs"
         ]
       },
       {

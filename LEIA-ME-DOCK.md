@@ -214,15 +214,37 @@ consultados na conta são identificados; quando o provedor só oferece um catál
 a disponibilidade é confirmada ao usar. Contas com autenticação expirada mostram
 **Reconectar** e ficam fora do Auto. O login continua no painel nativo do 9Router.
 
-Escolha **Auto · priorizar o próximo reset** e **Usar neste MESP**. A cada pedido,
-o roteador escolhe um modelo de programação e uma conta com cota disponível,
-priorizando o reset mais próximo. Ele considera as janelas de cota aplicáveis
-ao modelo e ignora contas desativadas, esgotadas ou bloqueadas temporariamente.
-Contas sem reset informado são alternativas depois das que têm reset conhecido.
-Falhas antes do início da resposta permitem tentar outra conta ou um modelo
-alternativo quando o provedor informa que o primeiro não é suportado. Uma resposta em
-andamento permanece na mesma conta. O Auto funciona pelo adaptador integrado
-compatível com o 9Router 0.5.40, sem editar as dependências compartilhadas.
+Escolha **Auto** para deixar o MESP escolher o modelo e a conta a cada pedido.
+Uma classificação local, sem consulta adicional à IA, distingue perguntas simples,
+programação comum e pedidos complexos. Modelos leves atendem perguntas simples;
+modelos mais capazes têm prioridade em investigação, arquitetura, segurança e
+refatorações. Confirmações como “continue” conservam a complexidade da tarefa anterior.
+Se não houver o modelo ideal, o Auto tenta uma alternativa disponível.
+
+Entre os modelos adequados, o Auto considera a cota disponível e deixa uma margem
+maior para tarefas complexas. Entre contas com margem suficiente, prioriza o reset
+mais próximo. Pedidos simultâneos são distribuídos entre contas adequadas para
+evitar sobrecarregar uma só. A capacidade usa a menor cota aplicável ao modelo;
+saldos e percentuais ausentes permanecem desconhecidos. Créditos de provedores
+diferentes não são convertidos artificialmente em dinheiro.
+
+O Auto ignora contas desativadas, esgotadas ou bloqueadas. Falhas de autenticação,
+limite, conexão e respostas vazias antes do início da resposta permitem uma nova
+tentativa com o mesmo contexto. Um intervalo de espera, conservado ao reiniciar,
+impede repetir uma conta ou modelo que acabou de falhar. Esse cache guarda somente
+identificadores de contas/modelos e o término da espera, sem prompts ou credenciais.
+O roteamento tem limites de espera e tentativas;
+uma resposta em andamento permanece na mesma conta e cancelar não reenvia a tarefa.
+O histórico de consumo não precisa ser carregado para responder: contas, modelos
+e cotas compartilham um cache curto, atualizado ao passar um reset.
+
+Respostas em texto, Markdown e blocos dos provedores são aceitas no chat, além do
+JSON estruturado. Conteúdo vazio não é confundido com autenticação inválida.
+Em caso de falha, **Tentar novamente** repete o pedido sem apagar seu rascunho;
+**Ver contas** abre os ajustes na mesma ilha. Erros continuam visíveis no histórico,
+mas não são enviados ao modelo como se fossem respostas válidas do agente.
+O adaptador integrado também corrige em memória a tradução de Responses do Copilot
+no 9Router 0.5.40, sem editar as dependências compartilhadas.
 
 Em **Consumo**, escolha **Geral** ou uma conta e o período: hoje, 7 dias, 30 dias
 ou todo o histórico. Pedidos, tokens e custo estimado vêm do histórico do 9Router;
@@ -264,8 +286,9 @@ Esta cópia na pasta GitHub tem dependências e runtime próprios.
 Validação: `npm test`, `npm run lint`, `npm run build`, `npm run test:dock`, `npm run test:usability`, `npm run test:history`,
 `npm run test:router` e `npm run test:router:auto`.
 Os testes usam perfis isolados e janelas ocultas. O teste do Auto executa o
-9Router instalado com um provedor local de teste e verifica seleção por reset,
-fallback, streaming e consumo por conta. Esses testes não comprovam login em
+9Router instalado com um provedor local de teste e verifica complexidade, cota,
+reset, distribuição simultânea, recuperação de respostas vazias, cancelamento,
+tradução de Responses, fallback, streaming e consumo por conta. Esses testes não comprovam login em
 contas reais nem enviam tarefas às APIs de IA.
 O teste do painel abre as páginas do 9Router instalado dentro da mesma janela,
 salva um formulário real somente no perfil de teste e verifica a preservação de

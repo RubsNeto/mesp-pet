@@ -1071,6 +1071,7 @@ export function TopDock() {
                     ? result.answer
                     : result.error || 'Não foi possível obter uma resposta. Tente novamente.',
                 ...(result.modelUsed ? { modelUsed: result.modelUsed } : {}),
+                status: result.ok ? 'done' : result.cancelled ? 'cancelled' : 'error',
               }
             : m,
         ),
@@ -1101,6 +1102,7 @@ export function TopDock() {
                 ...m,
                 content:
                   'Não foi possível conversar com o agente. Confira a conexão nas Configurações e tente novamente.',
+                status: 'error',
               }
             : m,
         ),
@@ -1493,6 +1495,30 @@ export function TopDock() {
                           <span>Respondendo · você pode recolher o painel</span>
                         </div>
                       )}
+                      {!selected.workDir &&
+                        selected.state === 'error' &&
+                        !selected.hasActiveTask && (
+                          <div className="dock-conversation-actions">
+                            <button
+                              onClick={() => {
+                                const prompt = messages[selected.id]
+                                  ?.filter((message) => message.role === 'user')
+                                  .at(-1)?.content;
+                                if (prompt) void sendConversation(selected, prompt);
+                              }}
+                            >
+                              Tentar novamente
+                            </button>
+                            <button
+                              onClick={() => {
+                                setRouterRequest({ page: 'providers', nonce: Date.now() });
+                                setView('settings');
+                              }}
+                            >
+                              Ver contas
+                            </button>
+                          </div>
+                        )}
                       {!selected.workDir && projectRequests[selected.id] && (
                         <div className="dock-project-request" role="status">
                           <span>

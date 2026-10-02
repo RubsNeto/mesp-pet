@@ -20,6 +20,7 @@ export default defineConfig(() => {
             'dockRouter.mjs',
             'dockProviderCatalog.mjs',
             'dockRouterLocalAuth.mjs',
+            'dockChatResponse.mjs',
           ])
             fs.copyFileSync(path.join('electron', file), path.join('dist-electron', file));
         },

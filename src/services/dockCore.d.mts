@@ -5,6 +5,7 @@ export interface DockSavedMessage {
   role: 'user' | 'assistant';
   content: string;
   modelUsed?: string;
+  status?: 'done' | 'error' | 'cancelled';
 }
 export function readDockConversations(
   raw: string | null,

@@ -88,6 +88,32 @@ test('switching models retains the original objective and recent context without
   assert.deepEqual(dockModelHistory(conversation.slice(0, 18)), conversation.slice(0, 18));
 });
 
+test('general-chat error statuses survive restart and errors never become assistant context', () => {
+  const conversation = [
+    { id: 'u', role: 'user', content: 'O projeto é Atlas' },
+    {
+      id: 'err',
+      role: 'assistant',
+      content: 'O provedor enviou uma resposta vazia.',
+      status: 'error',
+    },
+    {
+      id: 'old',
+      role: 'assistant',
+      content: 'O modelo não retornou uma resposta válida. Tente novamente.',
+    },
+    { id: 'cancelled', role: 'assistant', content: 'Resposta interrompida.', status: 'cancelled' },
+  ];
+  const saved = readDockConversations(
+    serializeDockConversations({ mesp: conversation }, ['mesp']),
+    ['mesp'],
+  );
+  assert.equal(saved.mesp[1].status, 'error');
+  assert.equal(saved.mesp[3].status, 'cancelled');
+  assert.deepEqual(dockModelHistory(saved.mesp), [{ role: 'user', content: 'O projeto é Atlas' }]);
+  assert.equal(saved.mesp.length, 4, 'All visible conversation messages remain preserved');
+});
+
 test('task names keep the objective on confirmations and change on substantive new requests', () => {
   for (const text of [
     'sim',

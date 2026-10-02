@@ -1,4 +1,4 @@
-/* global document, innerHeight */
+/* global document, innerHeight, window */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -15,6 +15,8 @@ const root = path.resolve(__dirname, '..');
     checks = [],
     errors = [];
   let interruptedResponse = false;
+  let emptyReplies = 0;
+  let slowDiscovery = false;
   const check = (name) => {
     checks.push(name);
     console.log(`PASS ${name}`);
@@ -29,6 +31,37 @@ const root = path.resolve(__dirname, '..');
       requests.push(payload);
       if (payload.model === 'mesp-auto') res.setHeader('x-mesp-model', 'cc/model-b');
       const prompt = payload.messages.at(-1).content;
+      if (prompt === 'Responda com conteúdo vazio' && ++emptyReplies > 1)
+        return reply({
+          choices: [{ message: { content: 'Resposta recuperada com o mesmo contexto.' } }],
+        });
+      const alternate = {
+        'Responda em texto simples': {
+          choices: [{ message: { content: 'Resposta normal sem JSON, mantendo a conversa.' } }],
+        },
+        'Responda com blocos de texto': {
+          choices: [
+            {
+              message: {
+                content: [{ type: 'text', text: 'Resposta em blocos compatível com o provedor.' }],
+              },
+            },
+          ],
+        },
+        'Responda no formato Responses': {
+          output: [
+            {
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: 'Resposta Responses preservada no chat.' }],
+            },
+          ],
+        },
+        'Responda com conteúdo vazio': {
+          choices: [{ message: { content: null, reasoning_content: 'RACIOCINIO PRIVADO' } }],
+        },
+      };
+      if (alternate[prompt]) return reply(alternate[prompt]);
       if (prompt === 'Aguarde até eu interromper') {
         res.writeHead(200);
         res.flushHeaders();
@@ -54,6 +87,8 @@ const root = path.resolve(__dirname, '..');
         ],
       });
     }
+    if (req.url === '/api/providers' && slowDiscovery)
+      await new Promise((resolve) => setTimeout(resolve, 5000));
     if (req.url === '/api/providers')
       return reply({
         connections: [
@@ -387,6 +422,57 @@ const root = path.resolve(__dirname, '..');
       'Auto · model-b',
     );
     check('Auto displays its actual per-request model above the response');
+    for (const [prompt, answer] of [
+      ['Responda em texto simples', 'Resposta normal sem JSON, mantendo a conversa.'],
+      ['Responda com blocos de texto', 'Resposta em blocos compatível com o provedor.'],
+      ['Responda no formato Responses', 'Resposta Responses preservada no chat.'],
+    ]) {
+      await ask(prompt);
+      await idle();
+      await page.getByText(answer, { exact: true }).waitFor();
+      assert.equal(
+        await page
+          .getByText('O modelo não retornou uma resposta válida.', { exact: false })
+          .count(),
+        0,
+      );
+      assert.equal(await app.evaluate(() => globalThis.__routingQA.folders), 0);
+    }
+    check(
+      'Real main-process HTTP replies accept plain text, content blocks and Responses without asking for a repository',
+    );
+    await ask('Responda com conteúdo vazio');
+    await idle();
+    await page
+      .getByText(
+        'O provedor enviou uma resposta vazia ou incompleta. Tente o Auto ou outro modelo.',
+        { exact: true },
+      )
+      .waitFor();
+    assert.equal(await page.getByText('RACIOCINIO PRIVADO').count(), 0);
+    assert.equal(
+      await page
+        .getByText('Confira a conexão do agente nas Configurações e tente novamente.', {
+          exact: true,
+        })
+        .count(),
+      0,
+    );
+    await field().fill('Rascunho preservado durante a recuperação');
+    await page.getByRole('button', { name: 'Tentar novamente', exact: true }).click();
+    await idle();
+    await page.getByText('Resposta recuperada com o mesmo contexto.', { exact: true }).waitFor();
+    assert.equal(await field().inputValue(), 'Rascunho preservado durante a recuperação');
+    assert.ok(
+      !requests
+        .at(-1)
+        .messages.some((message) =>
+          message.content.includes('O provedor enviou uma resposta vazia'),
+        ),
+    );
+    check(
+      'An empty reply gives a precise error; one-click retry preserves the draft and context without sending failed replies',
+    );
     const sendButton = page.getByRole('button', { name: 'Enviar pedido', exact: true });
     const sendBounds = await sendButton.boundingBox();
     await ask('Aguarde até eu interromper');
@@ -496,6 +582,34 @@ const root = path.resolve(__dirname, '..');
     assert.ok(persistedModels.includes('"modelUsed":"cx/model-a"'));
     assert.deepEqual(errors, []);
     check('Models and appearances persist after reload with no renderer errors');
+    // Expire discovery's short cache to exercise cancelling before HTTP chat dispatch.
+    await new Promise((resolve) => setTimeout(resolve, 15100));
+    slowDiscovery = true;
+    const beforeCancel = requests.length;
+    const pendingDiscovery = page.evaluate(
+      (petId) =>
+        window.mesp.chatDock({
+          petId,
+          prompt: 'Pergunta durante descoberta lenta',
+          model: '9router/mesp-auto',
+          history: [],
+          agent: 'mesp-code',
+        }),
+      first.id,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const cancelAt = Date.now();
+    await page.evaluate((petId) => window.mesp.cancelDockChat(petId), first.id);
+    assert.equal((await pendingDiscovery).cancelled, true);
+    assert.ok(
+      Date.now() - cancelAt < 1500,
+      'Stopping a cold discovery must not wait for provider queries',
+    );
+    assert.equal(requests.length, beforeCancel);
+    slowDiscovery = false;
+    check(
+      'Cancel during slow account discovery responds immediately and never sends the question to a provider',
+    );
     fs.writeFileSync(
       path.join(profile, 'report.json'),
       JSON.stringify(

@@ -11,6 +11,72 @@ import {
   conversationPrompt,
   parseConversation,
 } from '../electron/dockChat.mjs';
+import { parseRouterConversation, routerResponseText } from '../electron/dockChatResponse.mjs';
+
+test('router replies accept plain text, Markdown and each provider envelope without requiring JSON compliance', () => {
+  const answer = 'Olá!\n\nAqui está o plano:\n- Primeiro passo\n\n```ts\nconst ok = true;\n```';
+  for (const payload of [
+    { choices: [{ message: { content: answer } }] },
+    { choices: [{ message: { content: [{ type: 'text', text: answer }] } }] },
+    { output_text: answer },
+    {
+      output: [
+        { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: answer }] },
+      ],
+    },
+    { role: 'assistant', content: [{ type: 'text', text: answer }] },
+    { choices: [{ text: answer }] },
+  ])
+    assert.deepEqual(parseRouterConversation(payload), { answer, needsProject: false });
+  assert.deepEqual(
+    parseRouterConversation({
+      choices: [
+        {
+          message: {
+            content: '```json\n{"answer":"Preciso acessar o projeto.","needsProject":true}\n```',
+          },
+        },
+      ],
+    }),
+    { answer: 'Preciso acessar o projeto.', needsProject: true },
+  );
+  assert.deepEqual(
+    parseRouterConversation({ choices: [{ message: { content: '{"answer":"Olá"}' } }] }),
+    { answer: 'Olá', needsProject: false },
+  );
+  assert.deepEqual(parseRouterConversation({ answer: 'Escolha o projeto.', needsProject: true }), {
+    answer: 'Escolha o projeto.',
+    needsProject: true,
+  });
+  assert.deepEqual(
+    parseRouterConversation({
+      choices: [{ message: { refusal: 'Não posso realizar esse pedido.' } }],
+    }),
+    { answer: 'Não posso realizar esse pedido.', needsProject: false },
+  );
+});
+
+test('empty responses, truncated internal JSON and reasoning are never passed off as assistant answers', () => {
+  for (const payload of [
+    null,
+    {},
+    { error: { message: 'SECRET' } },
+    { choices: [] },
+    { choices: [{ message: { content: null, reasoning_content: 'SECRET' } }] },
+    { choices: [{ message: { content: [{ type: 'thinking', text: 'SECRET' }] } }] },
+    { output: [{ type: 'reasoning', summary: [{ type: 'summary_text', text: 'SECRET' }] }] },
+    { choices: [{ message: { content: '{"answer":"interrompida' } }] },
+    { choices: [{ message: { content: ' '.repeat(8) } }] },
+    { choices: [{ message: { content: 'x'.repeat(64001) } }] },
+  ])
+    assert.equal(parseRouterConversation(payload), null);
+  assert.equal(
+    routerResponseText({
+      choices: [{ message: { content: [{ type: 'tool_use', input: 'SECRET' }] } }],
+    }),
+    '',
+  );
+});
 
 function harness(t, options = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'mesp-conversation-'));

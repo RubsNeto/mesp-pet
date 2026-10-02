@@ -7,6 +7,7 @@ export interface DockMessage {
   role: 'user' | 'assistant';
   content: string;
   modelUsed?: string;
+  status?: 'done' | 'error' | 'cancelled';
 }
 
 export function DockCopyButton({ text, label }: { text: string; label: 'resposta' | 'código' }) {
@@ -211,11 +212,9 @@ export function DockConversation({
             O agente precisa de uma resposta. Se houver opções de teclado ou login, abra o Terminal.
           </div>
         )}
-        {state === 'error' && (
+        {state === 'error' && !general && (
           <div className="dock-chat-guidance">
-            {general
-              ? 'Confira a conexão do agente nas Configurações e tente novamente.'
-              : 'Confira a mensagem do agente ou abra o Terminal para continuar.'}
+            Confira a mensagem do agente ou abra o Terminal para continuar.
           </div>
         )}
       </div>
