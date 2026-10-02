@@ -2620,12 +2620,6 @@ export function MespCodeChat({
           rows={dockComposer ? 1 : 3}
         />
         <div className="mesp-composer-footer">
-          <span className="mesp-composer-context" title={workDir || 'Diretorio atual'}>
-            {workDir?.split(/[\\/]/).filter(Boolean).pop() || 'diretorio atual'}
-          </span>
-          <span className="mesp-composer-hint">
-            {occupied ? 'Enter adiciona a fila' : 'Enter envia'} · Shift+Enter quebra linha
-          </span>
           <div className="mesp-composer-actions">
             {occupied && input.trim() && (
               <button
