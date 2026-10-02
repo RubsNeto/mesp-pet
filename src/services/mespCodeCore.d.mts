@@ -5,6 +5,11 @@ export type ProjectCheckName = 'typecheck' | 'lint' | 'test' | 'build' | 'check'
 export const PROJECT_CHECK_NAMES: readonly ProjectCheckName[];
 export function isMespCodeMode(value: unknown): value is MespCodeMode;
 export function normalizeMespTokenLimit(value: unknown, fallback?: number): number;
+export function restoreMespLimits(
+  saved: unknown,
+  version: unknown,
+  defaults: { maxDurationMs: number; maxTokens: number; maxToolCalls: number },
+): { maxDurationMs: number; maxTokens: number; maxToolCalls: number };
 export function isMespTokenLimitExceeded(total: unknown, limit: unknown): boolean;
 export function resolveOpenCodeConfigValue(
   value: unknown,

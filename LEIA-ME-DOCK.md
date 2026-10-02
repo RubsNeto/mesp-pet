@@ -1,5 +1,36 @@
 # MESP Top Dock
 
+## Criar projetos e abrir o resultado
+
+Peça **Crie um site com HTML, CSS e JavaScript e mande o link**. Sem uma pasta
+aberta, o MESP cria uma pasta própria em **Documentos\MESP Projetos**, preserva
+a conversa e envia a tarefa ao OpenCode com ferramentas, usando o modelo e as
+contas do **9Router**. Com um projeto aberto, pedidos de implementação e correção
+acionam as ferramentas mesmo quando a conversa está em **Rápido**. Perguntas
+continuam usando respostas rápidas; **Plano** e **Assistido** respeitam o modo escolhido.
+
+O agente cria os arquivos e pode executar comandos e verificações. Ao concluir,
+o resultado mostra **Abrir site**, **Abrir pasta** e um link copiável. A prévia
+serve `index.html` na raiz ou o build em `dist`/`build`, verifica os scripts e
+estilos referenciados e funciona enquanto o MESP estiver aberto. Ao reiniciar,
+os arquivos e a conversa permanecem, e o MESP gera um novo link local.
+Isso não publica o projeto na internet. Aplicações que exigem um servidor backend
+precisam do serviço correspondente; a prévia integrada serve arquivos web.
+
+Uma resposta contendo apenas exemplos de código não conta como site pronto.
+Sem `index.html` ou com scripts/estilos ausentes, o MESP informa a falha.
+O pedido inicial aguarda o carregamento dos modelos em vez de ser descartado.
+O limite padrão de tarefas é de 5 minutos, 100 mil tokens e 50 chamadas de
+ferramentas. Os tokens incluem o contexto reenviado em cada etapa, por isso
+o antigo padrão de 25 mil podia interromper a criação antes da verificação.
+Somente esse padrão antigo é atualizado; limites personalizados são preservados.
+Os testes `npm run test:agent` executam o OpenCode instalado com um provedor
+simulado, criam arquivos reais, rodam `node --check`, abrem a página no Electron
+e verificam a interação JavaScript, contexto, rascunho e retomada após reiniciar.
+Também foi validada a criação de um site com uma conta real do 9Router e o
+modelo GitHub GPT-4o mini, com arquivos, prévia e interação JavaScript funcionais.
+Essa verificação não comprova a disponibilidade de todas as contas e modelos.
+
 ## Mais espaço para conversar
 
 Ao abrir o chat, a ilha tem até 760 px de largura. A conversa livre abre com
@@ -113,8 +144,9 @@ Esses testes não comprovam autenticação nas contas pessoais dos provedores.
 
 Você pode conversar sem escolher uma pasta: cumprimentos, dúvidas, explicações,
 planejamento e conteúdo usam o modelo escolhido no MESP pelo 9Router, com
-as contas conectadas nesse painel. Essas conversas não acessam arquivos nem
-executam ações externas.
+as contas conectadas nesse painel. Perguntas comuns não acessam arquivos nem
+executam ações externas. Pedidos de novos sites criam uma pasta própria e usam
+o agente para implementar o projeto.
 Se um pedido precisar de arquivos, o MESP explica antes e oferece **Escolher
 projeto e continuar**. O seletor só abre ao clicar nessa opção ou pedir
 **Abrir projeto**. Cancelar conserva a conversa e o rascunho. **Parar** interrompe

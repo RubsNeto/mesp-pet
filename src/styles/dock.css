@@ -3018,6 +3018,51 @@ body,
 }
 
 /* Compact header, one horizontal MESP row, and more room for the conversation. */
+.dock-project-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #1d1f23;
+}
+.dock-project-preview a,
+.dock-project-preview button {
+  padding: 7px 11px;
+  border-radius: 7px;
+  font-size: 11px;
+  background: #303238;
+  color: #f5f6f8;
+  text-decoration: none;
+}
+.dock-project-preview a:hover,
+.dock-project-preview button:hover {
+  background: #3b3e45;
+}
+.dock-project-preview small,
+.dock-project-preview input,
+.dock-project-preview > span {
+  width: 100%;
+  min-width: 0;
+}
+.dock-project-preview small {
+  font-size: 10px;
+  color: #9398a1;
+}
+.dock-project-preview input {
+  font: inherit;
+  font-size: 10px;
+  padding: 7px;
+  border: 0;
+  border-radius: 5px;
+  background: #131416;
+  color: #b0b5be;
+}
+.dock-preview-error {
+  font-size: 11px;
+  color: #9398a1;
+}
 .dock-mini-strip {
   position: absolute;
   top: 3px;

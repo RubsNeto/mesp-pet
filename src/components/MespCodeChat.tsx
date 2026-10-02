@@ -5,11 +5,14 @@ import type { DockMessage } from './DockConversation';
 import { dockGreetingReply, dockModelHistory } from '../services/dockCore.mjs';
 import { DockCommands, useDockCommands } from './DockCommands';
 import { dockModelLabel } from './DockModelPicker';
+import { shouldExecuteProjectRequest } from '../services/dockAgent.mjs';
+import { DockProjectPreview } from './DockProjectPreview';
 import {
   addTokenUsage,
   enqueueUniqueTask,
   normalizeStoredMespMessages,
   normalizeStoredMespQueue,
+  restoreMespLimits,
   shouldPauseQueueAfterVerification,
   takeNextQueuedTask,
   tokenUsageFromOpenCodeEvent,
@@ -128,6 +131,7 @@ interface ChatMessage {
 }
 
 interface StoredChat {
+  limitsVersion?: number;
   messages: ChatMessage[];
   sessionId: string | null;
   sessionCwd: string | null;
@@ -151,7 +155,7 @@ export interface MespCodeDockComposer {
 interface MespCodeChatProps {
   preferredModel?: string;
   onModelChange?: (model: string) => void;
-  externalPrompt?: { id: string; text: string };
+  externalPrompt?: { id: string; text: string; mode?: MespCodeMode };
   initialConversation?: DockMessage[];
   petId: string;
   workDir: string | null;
@@ -208,7 +212,7 @@ const MODE_LABELS: Record<MespCodeMode, string> = {
 };
 const DEFAULT_LIMITS: MespCodeLimits = {
   maxDurationMs: 5 * 60_000,
-  maxTokens: 25_000,
+  maxTokens: 100_000,
   maxToolCalls: 50,
 };
 const PROJECT_CHECK_ORDER: ProjectCheckName[] = ['typecheck', 'lint', 'test', 'build', 'check'];
@@ -270,20 +274,7 @@ function loadStoredChat(petId: string, workDir: string | null): StoredChat {
         parsed.mode === 'fast'
           ? parsed.mode
           : 'fast',
-      limits: {
-        maxDurationMs:
-          typeof parsed.limits?.maxDurationMs === 'number'
-            ? parsed.limits.maxDurationMs
-            : DEFAULT_LIMITS.maxDurationMs,
-        maxTokens:
-          typeof parsed.limits?.maxTokens === 'number'
-            ? parsed.limits.maxTokens
-            : DEFAULT_LIMITS.maxTokens,
-        maxToolCalls:
-          typeof parsed.limits?.maxToolCalls === 'number'
-            ? parsed.limits.maxToolCalls
-            : DEFAULT_LIMITS.maxToolCalls,
-      },
+      limits: restoreMespLimits(parsed.limits, parsed.limitsVersion, DEFAULT_LIMITS),
       queue,
       queuePaused: parsed.queuePaused === true && queue.length > 0,
       autoVerify: parsed.autoVerify === true,
@@ -534,6 +525,7 @@ export function MespCodeChat({
           selectedModel,
           mode,
           limits,
+          limitsVersion: 2,
           queue: normalizeStoredMespQueue(queue, 10),
           queuePaused,
           autoVerify,
@@ -1622,8 +1614,11 @@ export function MespCodeChat({
         cwd: task.cwd,
       };
       const canResumeSession =
-        task.mode !== 'fast' && sessionMode === task.mode && sessionCwd === task.cwd;
-      if (task.mode !== mode) {
+        task.mode !== 'fast' &&
+        task.mode === mode &&
+        sessionMode === task.mode &&
+        sessionCwd === task.cwd;
+      if (task.mode !== mode && mode !== 'fast') {
         setMode(task.mode);
         setSessionId(null);
         setSessionCwd(task.cwd);
@@ -1675,7 +1670,7 @@ export function MespCodeChat({
   );
 
   const send = useCallback(
-    (promptOverride?: string) => {
+    (promptOverride?: string, requestedMode?: MespCodeMode) => {
       const prompt = (promptOverride ?? input).trim();
       if (!prompt) return;
       if (promptOverride === undefined && dockComposerRef.current?.onCommand(prompt)) return;
@@ -1700,7 +1695,13 @@ export function MespCodeChat({
       const task: QueuedPrompt = {
         id: id('queue'),
         prompt,
-        mode,
+        mode:
+          requestedMode ||
+          (mode === 'fast' &&
+          workDir &&
+          shouldExecuteProjectRequest(prompt, recentHistory(messages))
+            ? 'autonomous'
+            : mode),
         model: effectiveModel,
         limits: { ...limits },
         cwd: workDir,
@@ -1734,14 +1735,21 @@ export function MespCodeChat({
       startPrompt,
       status?.runtime?.setupRequired,
       workDir,
+      messages,
     ],
   );
 
   const consumedPromptRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!externalPrompt || consumedPromptRef.current === externalPrompt.id || !status) return;
+    if (
+      !externalPrompt ||
+      consumedPromptRef.current === externalPrompt.id ||
+      !status ||
+      status.runtime.setupRequired
+    )
+      return;
     consumedPromptRef.current = externalPrompt.id;
-    send(externalPrompt.text);
+    send(externalPrompt.text, externalPrompt.mode);
   }, [externalPrompt, status, send]);
 
   useEffect(() => {
@@ -1815,6 +1823,15 @@ export function MespCodeChat({
     stateChangeRef.current?.('idle');
   }, [occupied, setInput]);
 
+  const previewMessage = messages
+    .filter(
+      (message) =>
+        message.role === 'assistant' &&
+        message.status === 'done' &&
+        (message.mode === 'autonomous' || message.mode === 'assisted') &&
+        message.cwd === workDir,
+    )
+    .at(-1);
   return (
     <section
       className="mesp-chat"
@@ -2172,7 +2189,10 @@ export function MespCodeChat({
           ))}
         </div>
         <p title={MODE_OPTIONS.find((option) => option.id === mode)?.short}>
-          {mode === 'fast' && 'Resposta direta pelo 9Router, com contexto curto e sem ferramentas.'}
+          {mode === 'fast' &&
+            (dockComposer
+              ? 'Perguntas recebem respostas rápidas. Pedidos de implementação usam ferramentas automaticamente.'
+              : 'Resposta direta pelo 9Router, com contexto curto e sem ferramentas.')}
           {mode === 'plan' &&
             'O MESP pode investigar o projeto, mas nao pode editar nem executar comandos.'}
           {mode === 'assisted' &&
@@ -2255,7 +2275,9 @@ export function MespCodeChat({
             <h2>O que vamos construir?</h2>
             <p>
               {mode === 'fast'
-                ? 'Pergunte e receba uma resposta leve. Para agir no repositório, use Assistido ou Autônomo.'
+                ? dockComposer
+                  ? 'Converse ou peça uma implementação. Eu crio os arquivos e verifico o resultado.'
+                  : 'Pergunte e receba uma resposta leve. Para agir no repositório, use Assistido ou Autônomo.'
                 : 'Converse com o agente, troque de modelo quando quiser e acompanhe o pet reagir ao trabalho.'}
             </p>
             <div className="mesp-chat-suggestions">
@@ -2336,6 +2358,9 @@ export function MespCodeChat({
                     <DockCopyButton text={message.text} label="resposta" />
                   )}
                 </div>
+                {message.id === previewMessage?.id && workDir && (
+                  <DockProjectPreview cwd={workDir} />
+                )}
                 {message.role === 'assistant' &&
                   message.timeline &&
                   message.timeline.length > 0 && (

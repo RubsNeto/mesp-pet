@@ -453,6 +453,20 @@ const api = {
   readProjectRules(workDir: string): Promise<Array<{ name: string; content: string }>> {
     return ipcRenderer.invoke('project:read-rules', workDir);
   },
+  prepareDockProject(opts: {
+    petId: string;
+    title: string;
+  }): Promise<{ ok: boolean; cwd?: string; error?: string }> {
+    return ipcRenderer.invoke('dock:prepare-project', opts);
+  },
+  previewDockProject(
+    cwd: string,
+  ): Promise<{ ok: boolean; url?: string; cwd?: string; unavailable?: boolean; error?: string }> {
+    return ipcRenderer.invoke('dock:preview-project', cwd);
+  },
+  openProjectFolder(cwd: string): Promise<boolean> {
+    return ipcRenderer.invoke('dock:open-project-folder', cwd);
+  },
   /** Grava um arquivo de regras do projeto. */
   writeProjectRules(opts: { workDir: string; name: string; content: string }): Promise<boolean> {
     return ipcRenderer.invoke('project:write-rules', opts);

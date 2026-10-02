@@ -40,6 +40,7 @@ import {
 } from '../services/dockCore.mjs';
 import { getPresetById } from '../services/aiPresets';
 import { AUTO_ROUTER_MODEL } from '../../electron/dockRouter.mjs';
+import { isWebProjectRequest } from '../services/dockAgent.mjs';
 import type { PetEntity, PetState } from '../types';
 
 const STORAGE = 'mesp-top-projects-v1';
@@ -250,7 +251,7 @@ export function TopDock() {
   const [showHelp, setShowHelp] = useState(false);
   const helpPanel = useRef<HTMLDivElement>(null);
   const [externalPrompts, setExternalPrompts] = useState<
-    Record<string, { id: string; text: string }>
+    Record<string, { id: string; text: string; mode?: 'autonomous' }>
   >({});
   const connected = useRef(new Set<string>());
   const pending = useRef(new Map<string, string>());
@@ -1243,7 +1244,50 @@ export function TopDock() {
         return;
       }
       if (!target.workDir) {
-        await sendConversation(target, action.prompt);
+        if (isWebProjectRequest(action.prompt, messages[target.id] || [])) {
+          if (!agentCanChange(target.state) || target.hasActiveTask) {
+            setNotice('Este MESP está trabalhando. Aguarde ou use outro personagem.');
+            return;
+          }
+          setChoosing(true);
+          try {
+            const prepared = await window.mesp?.prepareDockProject({
+              petId: target.id,
+              title: nextDockTaskTitle(action.prompt, target.taskTitle),
+            });
+            if (!prepared?.ok || !prepared.cwd) {
+              setNotice(prepared?.error || 'Não foi possível preparar o projeto.');
+              if (!preserveDraft && !inputRef.current) setInput(action.prompt);
+              return;
+            }
+            const cwd = prepared.cwd;
+            commitProjects((prev) =>
+              prev.map((p) =>
+                p.id === target.id
+                  ? {
+                      ...p,
+                      workDir: cwd,
+                      projectName: 'Projeto web',
+                      agentPresetId: 'mesp-code',
+                      taskTitle: p.titlePinned
+                        ? p.taskTitle
+                        : nextDockTaskTitle(action.prompt, p.taskTitle),
+                    }
+                  : p,
+              ),
+            );
+            setOpened((prev) => new Set(prev).add(target.id));
+            setExternalPrompts((prev) => ({
+              ...prev,
+              [target.id]: { id: crypto.randomUUID(), text: action.prompt, mode: 'autonomous' },
+            }));
+            setNotice(
+              'Criando os arquivos na pasta própria deste MESP. O link aparece ao concluir.',
+            );
+          } finally {
+            setChoosing(false);
+          }
+        } else await sendConversation(target, action.prompt);
       } else {
         setOpened((prev) => new Set(prev).add(target.id));
         sendPrompt(target.id, action.prompt, target.agentPresetId || 'codex');

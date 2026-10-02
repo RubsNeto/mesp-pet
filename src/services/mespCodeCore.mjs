@@ -12,6 +12,21 @@ export function normalizeMespTokenLimit(value, fallback = 25_000) {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
   return Math.max(1_000, Math.min(200_000, Math.floor(value)));
 }
+export function restoreMespLimits(saved, version, defaults) {
+  const value = saved && typeof saved === 'object' ? saved : {};
+  const previousDefault =
+    version !== 2 &&
+    value.maxDurationMs === 300_000 &&
+    value.maxTokens === 25_000 &&
+    value.maxToolCalls === 50;
+  const number = (key) =>
+    typeof value[key] === 'number' && Number.isFinite(value[key]) ? value[key] : defaults[key];
+  return {
+    maxDurationMs: number('maxDurationMs'),
+    maxTokens: previousDefault ? defaults.maxTokens : number('maxTokens'),
+    maxToolCalls: number('maxToolCalls'),
+  };
+}
 
 export function isMespTokenLimitExceeded(total, limit) {
   return (

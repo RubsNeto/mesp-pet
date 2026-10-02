@@ -45,7 +45,7 @@ export interface KiroChatPanelProps {
   onTranscriptChange?: (text: string) => void;
   onTaskStarted?: (prompt: string) => void;
   onRouterModelChange?: (model: string) => void;
-  externalPrompt?: { id: string; text: string };
+  externalPrompt?: { id: string; text: string; mode?: 'autonomous' };
   initialConversation?: DockMessage[];
   dockComposer?: MespCodeDockComposer;
   /** Esconde a UI (não mata o processo). */
