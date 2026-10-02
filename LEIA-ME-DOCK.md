@@ -238,6 +238,22 @@ uma resposta em andamento permanece na mesma conta e cancelar não reenvia a tar
 O histórico de consumo não precisa ser carregado para responder: contas, modelos
 e cotas compartilham um cache curto, atualizado ao passar um reset.
 
+Perguntas curtas como “O que é uma API?” e “Qual é a diferença entre React e Vue?”
+usam modelos leves, mesmo mencionando programação. Pedidos para executar, corrigir
+ou investigar continuam usando a categoria apropriada. Entre modelos leves na
+mesma condição de cota/reset, variantes rápidas sem raciocínio prolongado têm
+prioridade. O histórico continua sendo enviado normalmente.
+
+O roteador de perfis locais existentes é preparado em segundo plano ao abrir o
+MESP. Depois da primeira consulta, modelos e cotas recentes não bloqueiam o envio
+enquanto se atualizam; o reaproveitamento é limitado a cinco minutos. Um reset
+passado, dados mais antigos e a atualização manual exigem nova consulta. Contas
+desativadas continuam sendo verificadas na configuração local, e erros de
+autenticação/cota continuam acionando a proteção do Auto. Perguntas leves usam
+um limite de oito segundos por tentativa antes de buscar uma alternativa.
+Na conversa livre, o título por IA só é solicitado depois da resposta, para não
+competir pela conta durante o pedido principal. O título provisório aparece imediatamente.
+
 Respostas em texto, Markdown e blocos dos provedores são aceitas no chat, além do
 JSON estruturado. Conteúdo vazio não é confundido com autenticação inválida.
 Em caso de falha, **Tentar novamente** repete o pedido sem apagar seu rascunho;

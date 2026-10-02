@@ -412,8 +412,15 @@ const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1'
     // Force the runtime's actual discovery after enabling the additional live test models.
     await delay(15100);
     const light = await send('mesp-auto', false, 'ses_light', 'Qual é a capital do Brasil?');
-    assert.equal(requests.at(-1).model, 'mesp-mini');
     assert.equal(light.response.headers.get('x-mesp-complexity'), 'light');
+    assert.equal(requests.at(-1).model, 'mesp-mini', log.slice(-2500));
+    const technicalQuestion = await send('mesp-auto', false, 'ses_light_api', 'O que é uma API?');
+    assert.equal(requests.at(-1).model, 'mesp-mini');
+    assert.equal(technicalQuestion.response.headers.get('x-mesp-complexity'), 'light');
+    assert.ok(Number(technicalQuestion.response.headers.get('x-mesp-routing-ms')) < 100);
+    const warmup = await fetch(`${origin}/api/mesp/warmup`);
+    assert.equal(warmup.status, 202);
+    assert.equal((await warmup.json()).warming, true);
     await send('mesp-auto', false, 'ses_standard', 'Corrija o formulário React');
     assert.equal(requests.at(-1).model, 'fallback-coder');
     await send(
@@ -554,6 +561,8 @@ const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1'
         manualModelWorks: true,
         usageRecordedByAccount: true,
         complexitySelectsModel: true,
+        technicalQuestionsUseLightModel: true,
+        warmRoutingUnder100ms: true,
         staleQuotaDoesNotRepeatFailures: true,
         emptyResponseFallback: true,
         timedOutAccountHandled: true,

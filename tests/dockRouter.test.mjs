@@ -488,6 +488,165 @@ test('routing discovery shares cached model and quota queries and never reads us
   assert.ok(!calls.some((route) => route.includes('stats')));
 });
 
+test('short technical explanations use a light model without downgrading execution or complex follow-ups', () => {
+  const classify = (content, extra = {}) =>
+    classifyRouterRequest({ messages: [{ role: 'user', content }], ...extra });
+  for (const prompt of [
+    'O que é uma API?',
+    'Qual é a diferença entre React e Vue?',
+    'Me explique arquitetura de sistemas',
+    'O que é refatoração?',
+    'Olá!',
+  ]) {
+    assert.equal(classify(prompt).level, 1, prompt);
+    assert.equal(classify(prompt, { tools: [{ type: 'function' }] }).level, 1, prompt);
+  }
+  assert.equal(classify('Explique e corrija o erro do formulário React').level, 2);
+  assert.equal(
+    classify('Qual é a vulnerabilidade? Analise e audite a segurança do sistema').level,
+    3,
+  );
+  assert.equal(classify('O que é uma API?', { tools: [{}], tool_choice: 'required' }).level, 2);
+  assert.equal(classify('Explique a arquitetura e segurança de um sistema distribuído').level, 3);
+  assert.equal(classify('Explique em detalhes aprofundados como funciona uma API').level, 2);
+  assert.equal(classify('O que é liderança? Responda em 2000 palavras').level, 2);
+});
+
+test('light requests prefer non-reasoning lightweight models while keeping funded nearest resets first', () => {
+  const request = classifyRouterRequest({
+    messages: [{ role: 'user', content: 'O que é uma API?' }],
+  });
+  const models = [
+    model('gpt-5-mini', ['near']),
+    model('gpt-4o-mini', ['near']),
+    model('gpt-4o-mini', ['far']),
+  ];
+  const choices = autoRouterCandidates(
+    [account('near', 1000), account('far', 60000)],
+    models,
+    now,
+    request,
+  );
+  assert.equal(choices[0].model, '9router/cx/gpt-4o-mini');
+  assert.equal(choices[0].accountId, 'near');
+  const depleted = autoRouterCandidates(
+    [account('near', 1000, 100), account('far', 60000)],
+    models,
+    now,
+    request,
+  );
+  assert.equal(depleted[0].accountId, 'far');
+});
+
+test('routing uses recent models and quotas immediately while a slow refresh runs once in the background', async () => {
+  let clock = Date.now();
+  let refreshing = false;
+  const deferred = [];
+  const calls = [];
+  const service = createRouterOverviewService({
+    origin: 'http://local',
+    autoSupported: true,
+    now: () => clock,
+    fetchJson: async (route) => {
+      calls.push(route);
+      if (route === '/api/providers')
+        return { connections: [{ id: 'ready', provider: 'codex', testStatus: 'success' }] };
+      if (refreshing) await new Promise((resolve) => deferred.push(resolve));
+      return route.endsWith('/models')
+        ? { models: [{ id: 'gpt-5-mini' }] }
+        : { quotas: { credits: { total: 100, remaining: refreshing ? 25 : 50 } } };
+    },
+  });
+  await service.routing();
+  clock += 61000;
+  refreshing = true;
+  const start = performance.now();
+  const [first, second] = await Promise.all([service.routing(), service.routing()]);
+  assert.ok(performance.now() - start < 100, 'Background metadata must not delay model dispatch');
+  assert.equal(first.accounts[0].quotas[0].remaining, 50);
+  assert.deepEqual(second, first);
+  assert.equal(calls.filter((route) => route.endsWith('/models')).length, 2);
+  assert.equal(calls.filter((route) => route === '/api/usage/ready').length, 2);
+  deferred.splice(0).forEach((resolve) => resolve());
+  await new Promise((resolve) => setImmediate(resolve));
+  const updated = await service.routing();
+  assert.equal(updated.accounts[0].quotas[0].remaining, 25);
+});
+
+test('background authentication failure removes a cached account instead of extending its availability', async () => {
+  let clock = Date.now();
+  let expired = false;
+  const service = createRouterOverviewService({
+    origin: 'http://local',
+    autoSupported: true,
+    now: () => clock,
+    fetchJson: async (route) => {
+      if (route === '/api/providers')
+        return { connections: [{ id: 'ready', provider: 'codex', testStatus: 'success' }] };
+      if (expired) {
+        const error = new Error('HTTP 401');
+        error.status = 401;
+        throw error;
+      }
+      return route.endsWith('/models')
+        ? { models: [{ id: 'gpt-5-mini' }] }
+        : { quotas: { credits: { total: 100, remaining: 50 } } };
+    },
+  });
+  await service.routing();
+  clock += 61000;
+  expired = true;
+  await service.routing();
+  clock += 16000;
+  const updated = await service.routing();
+  assert.equal(updated.accounts[0].health, 'auth');
+  assert.equal(updated.modelsAvailable, false);
+});
+
+test('passed resets and old caches wait for fresh quota data rather than inventing a renewed balance', async () => {
+  for (const age of [16000, 301000]) {
+    let clock = Date.now();
+    const resetAt = clock + 10000;
+    let changed = false;
+    let release;
+    const service = createRouterOverviewService({
+      origin: 'http://local',
+      autoSupported: true,
+      now: () => clock,
+      fetchJson: async (route) => {
+        if (route === '/api/providers')
+          return { connections: [{ id: 'ready', provider: 'codex', testStatus: 'success' }] };
+        if (route.endsWith('/models')) return { models: [{ id: 'gpt-5-mini' }] };
+        if (changed)
+          await new Promise((resolve) => {
+            release = resolve;
+          });
+        return {
+          quotas: {
+            credits: {
+              total: 100,
+              remaining: changed ? 80 : 0,
+              resetAt: new Date(changed ? clock + 60000 : resetAt).toISOString(),
+            },
+          },
+        };
+      },
+    });
+    await service.routing();
+    clock += age;
+    changed = true;
+    let completed = false;
+    const pending = service.routing().then((result) => {
+      completed = true;
+      return result;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(completed, false, 'A reset cannot pretend that the quota has already renewed');
+    release();
+    assert.equal((await pending).accounts[0].quotas[0].remaining, 80);
+  }
+});
+
 test('Copilot Responses compatibility uses the native stream translator and fails closed on another version', () => {
   const before = 'n=this.buildHeaders(d,c),p=(0,h.h)(a,b,c,d);';
   assert.equal(

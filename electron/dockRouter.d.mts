@@ -65,6 +65,7 @@ export interface RouterAutoChoice {
   fit: number;
   funding: number;
   rateMultiplier: number | null;
+  speed: number;
 }
 export interface RouterOverview {
   accountSource: 'mesp' | '9router' | 'external';
@@ -120,6 +121,7 @@ export function createRouterOverviewService(options: {
   headers?: Record<string, string> | (() => Record<string, string>);
   fetchJson?: (route: string) => Promise<unknown>;
   autoSupported?: boolean;
+  now?: () => number;
 }): {
   overview(period?: string, force?: boolean): Promise<RouterOverview>;
   models(force?: boolean): Promise<RouterOverview>;

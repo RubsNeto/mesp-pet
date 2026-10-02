@@ -1051,7 +1051,6 @@ export function TopDock() {
           : p,
       ),
     );
-    analyzeTitle(id, prompt, target.agentPresetId || 'codex');
     try {
       const result = await window.mesp.chatDock({
         petId: id,
@@ -1060,6 +1059,8 @@ export function TopDock() {
         prompt,
         history,
       });
+      // Answer first: an optional title must not compete for the account's capacity.
+      if (result.ok) analyzeTitle(id, prompt, target.agentPresetId || 'mesp-code');
       setMessages((prev) => ({
         ...prev,
         [id]: (prev[id] || []).map((m) =>

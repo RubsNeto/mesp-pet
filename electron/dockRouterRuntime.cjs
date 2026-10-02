@@ -97,6 +97,7 @@ const { pipeline } = require('node:stream/promises');
       // Bound retries. Each upstream attempt has one account, avoiding nested native retry loops.
       const tried = new Set();
       let lastStatus = 503;
+      let selectedAt = null;
       for (let attempt = 0; attempt < 8 && Date.now() - startedAt < 80000; attempt++) {
         if (controller.signal.aborted) return;
         const available = choices.filter(
@@ -112,6 +113,7 @@ const { pipeline } = require('node:stream/promises');
         );
         const choice = available[0];
         if (!choice) break;
+        selectedAt ??= Date.now();
         tried.add(`${choice.accountId}:${choice.model}`);
         const routingId = randomUUID();
         const context = {
@@ -153,7 +155,7 @@ const { pipeline } = require('node:stream/promises');
               ? 45000
               : request.level === 2
                 ? 25000
-                : 15000,
+                : 8000,
         );
         const timer = setTimeout(() => attemptController.abort(), timeout);
         try {
@@ -229,6 +231,7 @@ const { pipeline } = require('node:stream/promises');
             'x-mesp-model': choice.model.replace(/^9router\//, ''),
             'x-mesp-account': choice.accountId,
             'x-mesp-complexity': request.complexity,
+            'x-mesp-routing-ms': String(Math.max(0, selectedAt - startedAt)),
           });
           if (payload) res.end(JSON.stringify(payload));
           else if (response.body) await pipeline(Readable.fromWeb(response.body), res);
@@ -285,6 +288,10 @@ const { pipeline } = require('node:stream/promises');
         });
       if (req.method === 'GET' && req.url === '/api/mesp/last-route')
         return json(res, 200, lastRoute);
+      if (req.method === 'GET' && req.url === '/api/mesp/warmup') {
+        void service.routing().catch(() => {});
+        return json(res, 202, { warming: true });
+      }
       const context = contexts.get(req.headers['x-mesp-route-id']);
       delete req.headers['x-mesp-route-id'];
       if (context) return globalThis.__mespRouterContext.run(context, () => handler(req, res));

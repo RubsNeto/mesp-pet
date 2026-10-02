@@ -157,14 +157,34 @@ export function classifyRouterRequest(body = {}, purpose = '') {
       text,
     ) || /```/.test(text);
   const requirements = (text.match(/(?:^|\n)\s*(?:[-*]|\d+[.)])\s/g) || []).length;
-  const level =
-    advancedSignals >= 2 ||
-    text.length > 4000 ||
-    requirements >= 6 ||
-    (advancedSignals > 0 && (coding || text.length > 300)) ||
-    (tools && inputChars > 24000)
+  const extendedAnswer =
+    /\b(?:detalhad\w*|aprofund\w*|profundidade|passo a passo|step by step|in depth|comprehensive|extens\w*)\b/.test(
+      text,
+    ) || /\b(?:[1-9]\d{3,}|[5-9]\d{2})\s*(?:palavras|words|linhas|lines)\b/.test(text);
+  const quickQuestion =
+    !followUp &&
+    !extendedAnswer &&
+    text.length <= 450 &&
+    requirements < 2 &&
+    advancedSignals < 2 &&
+    /^(?:(?:oi|ola|bom dia|boa tarde|boa noite)[!, .]*$|o que (?:e|sao|significa)\b|qual (?:e|a|o|a diferenca|o significado)\b|quais (?:sao|as|os)\b|(?:me )?explique\b|defina\b|quanto (?:e|da)\b)/.test(
+      text,
+    ) &&
+    !/\b(?:corrija|corrigir|conserte|resolva|implemente|implementar|crie|criar|altere|alterar|edite|editar|execute|executar|investigue|investigar|refatore|refatorar|migre|migrar|publique|publicar|instale|instalar|acesse|acessar|pesquise|pesquisar|analise|analisar|audite|auditar)\b/.test(
+      text,
+    ) &&
+    !/```/.test(text) &&
+    (!tools || body.tool_choice == null || body.tool_choice === 'auto') &&
+    messages.at(-1)?.role !== 'tool';
+  const level = quickQuestion
+    ? 1
+    : advancedSignals >= 2 ||
+        text.length > 4000 ||
+        requirements >= 6 ||
+        (advancedSignals > 0 && (coding || text.length > 300)) ||
+        (tools && inputChars > 24000)
       ? 3
-      : coding || tools || text.length > 450 || advancedSignals > 0
+      : coding || tools || extendedAnswer || text.length > 450 || advancedSignals > 0
         ? 2
         : 1;
   return { complexity: ['light', 'standard', 'advanced'][level - 1], level, tools, inputChars };
@@ -250,6 +270,15 @@ export function autoRouterCandidates(accounts, models, now = Date.now(), request
         quality,
         quotaKnown: quotas.length > 0,
         live: model.source === 'live',
+        speed: /nano|flash[- ]?lite/.test(name)
+          ? 0
+          : /flash|instant|gpt-4o-mini/.test(name)
+            ? 1
+            : /haiku|mini|lite|small|fast|luna/.test(name)
+              ? /gpt-[5-9]|reason/.test(name)
+                ? 3
+                : 2
+              : 4,
         level,
         fit,
         funding,
@@ -264,6 +293,7 @@ export function autoRouterCandidates(accounts, models, now = Date.now(), request
       (a.resetAt ?? Infinity) - (b.resetAt ?? Infinity) ||
       Number(b.live) - Number(a.live) ||
       (b.capacity ?? -1) - (a.capacity ?? -1) ||
+      (request?.level === 1 ? a.speed - b.speed : 0) ||
       (request ? (a.rateMultiplier ?? 1) - (b.rateMultiplier ?? 1) : 0) ||
       b.quality - a.quality ||
       a.accountId.localeCompare(b.accountId) ||
@@ -361,7 +391,13 @@ export function normalizeRouterStats(payload) {
 }
 
 /** Explicit summaries only. Never return raw provider, usage or history payloads over IPC. */
-export function createRouterOverviewService({ origin, headers = {}, fetchJson, autoSupported }) {
+export function createRouterOverviewService({
+  origin,
+  headers = {},
+  fetchJson,
+  autoSupported,
+  now = Date.now,
+}) {
   const cache = new Map(),
     quotaCache = new Map(),
     modelCache = new Map();
@@ -395,22 +431,29 @@ export function createRouterOverviewService({ origin, headers = {}, fetchJson, a
       return error.status ? { error: 'local_query_failed', status: error.status } : null;
     }
   };
-  const cachedGet = async (store, id, route, force) => {
+  const cachedGet = async (store, id, route, force, background = false) => {
     const old = store.get(id);
     const resetPassed =
       old &&
       normalizeRouterQuotas(old.value).some(
-        (quota) => quota.resetAt > old.at && quota.resetAt <= Date.now(),
+        (quota) => quota.resetAt > old.at && quota.resetAt <= now(),
       );
-    if (old && !force && !resetPassed && Date.now() - old.at < 60000) return old.value;
+    if (old && !force && !resetPassed && now() - old.at < 60000) return old.value;
+    const canReuse = old && background && !force && !resetPassed && now() - old.at < 300000;
     const requests = store === modelCache ? modelRequests : quotaRequests;
-    if (requests.has(id)) return requests.get(id);
-    const request = optional(route);
+    if (requests.has(id)) return canReuse ? old.value : requests.get(id);
+    const request = optional(route).then((value) => {
+      // Transient refresh errors do not erase a recently confirmed catalogue/quota.
+      // Authentication failures do invalidate it. Reuse never extends its age.
+      if (value != null && (!value.error || [401, 403].includes(value.status)))
+        store.set(id, { at: now(), value });
+      else if (!old) store.set(id, { at: now(), value });
+      requests.delete(id);
+      cache.delete('routing');
+      return value;
+    });
     requests.set(id, request);
-    const value = await request;
-    requests.delete(id);
-    store.set(id, { at: Date.now(), value });
-    return value;
+    return canReuse ? old.value : request;
   };
   return {
     async models(force = false) {
@@ -427,11 +470,9 @@ export function createRouterOverviewService({ origin, headers = {}, fetchJson, a
       }
       const cached = cache.get(cacheKey);
       const resetPassed = cached?.accounts.some((account) =>
-        account.quotas.some(
-          (quota) => quota.resetAt > cached.updatedAt && quota.resetAt <= Date.now(),
-        ),
+        account.quotas.some((quota) => quota.resetAt > cached.updatedAt && quota.resetAt <= now()),
       );
-      if (cached && !force && !resetPassed && Date.now() - cached.updatedAt < 15000) return cached;
+      if (cached && !force && !resetPassed && now() - cached.updatedAt < 15000) return cached;
       const run = (async () => {
         const [connectionsPayload, statsPayload, capability] = await Promise.all([
           optional('/api/providers'),
@@ -469,12 +510,14 @@ export function createRouterOverviewService({ origin, headers = {}, fetchJson, a
                           raw.id,
                           `/api/usage/${encodeURIComponent(raw.id)}`,
                           force,
+                          routingOnly,
                         ),
                     cachedGet(
                       modelCache,
                       raw.id,
                       `/api/providers/${encodeURIComponent(raw.id)}/models`,
                       force,
+                      routingOnly,
                     ),
                   ])
                 : [null, null];
@@ -598,7 +641,7 @@ export function createRouterOverviewService({ origin, headers = {}, fetchJson, a
         const choices = Array.from(models.values()).sort(
           (a, b) => a.providerName.localeCompare(b.providerName) || a.name.localeCompare(b.name),
         );
-        const candidates = autoRouterCandidates(accounts, choices);
+        const candidates = autoRouterCandidates(accounts, choices, now());
         const available = new Map();
         for (const candidate of candidates) {
           const ids = available.get(candidate.model) || [];
@@ -609,7 +652,7 @@ export function createRouterOverviewService({ origin, headers = {}, fetchJson, a
           .filter((model) => available.has(model.id))
           .map((model) => ({ ...model, accountIds: available.get(model.id) }));
         const result = {
-          updatedAt: Date.now(),
+          updatedAt: now(),
           period,
           accounts,
           models: validChoices,

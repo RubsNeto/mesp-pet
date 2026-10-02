@@ -919,6 +919,11 @@ async function ensure9RouterRuntime(baseURL: string): Promise<RouterRuntimeSourc
           await fs.promises.writeFile(managedMarker, 'managed-local-runtime-v1\n', 'utf8');
         }
         routerRuntimeSource = 'bundled';
+        // Prepare account metadata in the background; keep native dashboard readiness intact.
+        void fetch(`${origin}/api/mesp/warmup`, {
+          headers: localRouterHeaders(origin),
+          signal: AbortSignal.timeout(1500),
+        }).catch(() => {});
         return routerRuntimeSource;
       }
       await new Promise((resolve) => setTimeout(resolve, 150));
@@ -4059,7 +4064,26 @@ app.whenReady().then(() => {
   // This preview never changes the user's login startup configuration.
   createWindow();
   createTray();
-  // Router starts only when the user opens an MESP Code project.
+  // Existing local accounts can warm up before the first question. Isolated tests
+  // and first-time profiles retain on-demand initialization, with no login popup.
+  if (!process.env.MESP_DOCK_DATA_DIR && process.env.MESP_DOCK_TEST_HIDDEN !== '1') {
+    const warmupTimer = setTimeout(() => {
+      if (applicationQuitting) return;
+      const { baseURL } = configured9RouterOptions(readOpenCodeConfig());
+      if (!isLoopbackRouterURL(baseURL)) return;
+      const profile = chooseRouterDataDirectory({
+        ownDirectory: path.join(app.getPath('userData'), '9router'),
+        appData: app.getPath('appData'),
+        isolated: false,
+      });
+      if (
+        profile.source === '9router' ||
+        isExistingFile(path.join(profile.directory, '.mesp-managed-v1'))
+      )
+        void ensure9RouterRuntime(baseURL).catch(() => {});
+    }, 750);
+    warmupTimer.unref();
+  }
 
   // Atalhos globais: mostrar/esconder e alternar modo foco.
   try {
