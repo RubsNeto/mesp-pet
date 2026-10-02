@@ -305,6 +305,12 @@ export function normalizeStoredMespMessages(value, limit = 80) {
         if (typeof message[key] === 'string') normalized[key] = message[key].slice(0, 4_096);
       }
       if (typeof message.cwd === 'string' || message.cwd === null) normalized.cwd = message.cwd;
+      if (
+        message.role === 'assistant' &&
+        typeof message.modelUsed === 'string' &&
+        /^[A-Za-z0-9._/+:-]{1,240}$/.test(message.modelUsed)
+      )
+        normalized.modelUsed = message.modelUsed;
       for (const key of ['tokens', 'inputTokens', 'outputTokens', 'durationMs', 'firstTokenMs']) {
         const number = optionalFiniteNumber(message[key]);
         if (number !== undefined) normalized[key] = number;

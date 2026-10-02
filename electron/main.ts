@@ -44,6 +44,7 @@ import {
   routerConnectionSummary,
   createRouterOverviewService,
   AUTO_ROUTER_MODEL,
+  routerRunModel,
 } from './dockRouter.mjs';
 import { spawn, spawnSync, ChildProcessWithoutNullStreams } from 'node:child_process';
 import * as path from 'node:path';
@@ -223,6 +224,9 @@ let dockHooks: Promise<DockHookBridge> | null = null;
 
 interface MespCodeProcessRun {
   requestId: string;
+  startedAt: number;
+  autoModel: boolean;
+  sessionId: string | null;
   child: ChildProcessWithoutNullStreams;
   cancelled: boolean;
   limitError?: string;
@@ -249,6 +253,8 @@ interface MespCodeServerState {
 
 interface MespCodeServerRun {
   requestId: string;
+  startedAt: number;
+  autoModel: boolean;
   cwd: string;
   sessionId: string | null;
   controller: AbortController;
@@ -279,6 +285,7 @@ interface BundledRouterState {
 const mespCodeProcesses = new Map<string, MespCodeProcessRun>();
 const mespCodeFetches = new Map<string, MespCodeFetchRun>();
 const mespCodeServerRuns = new Map<string, MespCodeServerRun>();
+const sessionRouteModels = new Map<string, unknown>();
 const projectCheckRuns = new Map<string, ProjectCheckRun>();
 
 let mespCodeServer: MespCodeServerState | null = null;
@@ -649,7 +656,7 @@ function localRouterHeaders(origin: string) {
     bundledRouter?.origin === origin ? bundledRouter.dataDir : undefined,
   );
 }
-async function getRouterOverview(period = 'today', force = false) {
+async function getRouterOverview(period = 'today', force = false, modelsOnly = false) {
   const { baseURL, apiKey } = configured9RouterOptions(readOpenCodeConfig());
   const origin = routerOriginForApiBase(baseURL);
   if (!origin) throw new Error('Contas e consumo estão disponíveis pelo 9Router local.');
@@ -673,7 +680,9 @@ async function getRouterOverview(period = 'today', force = false) {
       }),
     };
   }
-  return routerOverview.service.overview(period, force);
+  return modelsOnly
+    ? routerOverview.service.models(force)
+    : routerOverview.service.overview(period, force);
 }
 
 function routerRuntimeEnvironment(
@@ -846,7 +855,36 @@ async function ensure9RouterRuntime(baseURL: string): Promise<RouterRuntimeSourc
       routerRuntimeSource = 'unavailable';
       return routerRuntimeSource;
     }
-    child.stdout.resume();
+    child.stdout.setEncoding('utf8');
+    let routeBuffer = '';
+    child.stdout.on('data', (chunk: string) => {
+      routeBuffer += chunk;
+      const lines = routeBuffer.split('\n');
+      routeBuffer = (lines.pop() || '').slice(-8192);
+      for (const line of lines) {
+        if (!line.startsWith('MESP_MODEL ')) continue;
+        try {
+          const route = JSON.parse(line.slice(11));
+          if (typeof route.session !== 'string' || !validActualModel(route.model)) continue;
+          sessionRouteModels.set(route.session, route);
+          if (sessionRouteModels.size > 100)
+            sessionRouteModels.delete(sessionRouteModels.keys().next().value!);
+          for (const [petId, run] of [...mespCodeServerRuns, ...mespCodeProcesses]) {
+            const modelUsed = routerRunModel(route, run);
+            if (modelUsed) {
+              safeSend('mesp-code:event', {
+                petId,
+                requestId: run.requestId,
+                kind: 'event',
+                event: { type: 'model_used', modelUsed },
+              });
+            }
+          }
+        } catch {
+          /* Ignore unrelated runtime output. */
+        }
+      }
+    });
     child.stderr.resume();
     let launchError = false;
     child.once('error', () => {
@@ -893,7 +931,10 @@ async function ensure9RouterRuntime(baseURL: string): Promise<RouterRuntimeSourc
   return bundledRouterPromise;
 }
 
-async function sync9RouterModels(force = false): Promise<void> {
+async function sync9RouterModels(
+  force = false,
+  discovered?: Awaited<ReturnType<typeof getRouterOverview>>,
+): Promise<void> {
   const now = Date.now();
   if (!force && (now - lastModelSyncAt < 60_000 || now - lastModelSyncAttemptAt < 5_000)) return;
   if (modelSyncPromise) return modelSyncPromise;
@@ -947,7 +988,7 @@ async function sync9RouterModels(force = false): Promise<void> {
       ).sort((a, b) => a.localeCompare(b));
       if (isLoopbackRouterURL(baseURL)) {
         try {
-          const overview = await getRouterOverview('today', force);
+          const overview = discovered || (await getRouterOverview('today', force, true));
           modelIds = overview.models.map((model) => model.id.replace(/^9router\//, ''));
           if (overview.auto.supported && overview.models.length)
             modelIds.unshift(AUTO_ROUTER_MODEL.replace(/^9router\//, ''));
@@ -1377,6 +1418,12 @@ ipcMain.handle('dock:router-overview', async (_event, payload: unknown) => {
     options.force === true,
   );
 });
+ipcMain.handle('dock:router-models', async (_event, force: unknown) => {
+  const data = await getRouterOverview('today', force === true, true);
+  // Prepare the project's isolated agent catalogue without holding the inline menu open.
+  void sync9RouterModels(true, data);
+  return data;
+});
 
 // Legacy entry points now reveal the settings tab in the existing island.
 ipcMain.handle('opencode:open-router-dashboard', (event, page: unknown) => {
@@ -1658,6 +1705,15 @@ async function runFastMespCode(options: {
       );
     }
     rejectedRouterCredentialHash = null;
+    const actualModel = response.headers.get('x-mesp-model');
+    if (model === AUTO_ROUTER_MODEL && validActualModel(actualModel)) {
+      safeSend('mesp-code:event', {
+        petId,
+        requestId,
+        kind: 'event',
+        event: { type: 'model_used', modelUsed: actualModel },
+      });
+    }
     setRouterConnectionStatus(
       'ready',
       apiKey
@@ -1781,6 +1837,8 @@ async function runAssistedMespCode(options: {
 
   const run: MespCodeServerRun = {
     requestId,
+    startedAt,
+    autoModel: model === AUTO_ROUTER_MODEL,
     cwd,
     sessionId: options.sessionId,
     controller,
@@ -2148,9 +2206,16 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
     return { ok: false, error: (err as Error).message };
   }
 
-  const run: MespCodeProcessRun = { requestId, child, cancelled: false };
-  mespCodeProcesses.set(petId, run);
   const startedAt = Date.now();
+  const run: MespCodeProcessRun = {
+    requestId,
+    child,
+    cancelled: false,
+    startedAt,
+    autoModel: model === AUTO_ROUTER_MODEL,
+    sessionId,
+  };
+  mespCodeProcesses.set(petId, run);
   let firstTokenAt: number | null = null;
   safeSend('mesp-code:event', { petId, requestId, kind: 'started', mode, engine: 'opencode' });
   let stdoutBuffer = '';
@@ -2179,6 +2244,18 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
     if (!trimmed) return;
     try {
       const event = JSON.parse(trimmed) as Record<string, unknown>;
+      const eventSession = eventSessionId(event);
+      if (eventSession) {
+        run.sessionId = eventSession;
+        const modelUsed = routerRunModel(sessionRouteModels.get(eventSession), run);
+        if (modelUsed)
+          safeSend('mesp-code:event', {
+            petId,
+            requestId,
+            kind: 'event',
+            event: { type: 'model_used', modelUsed },
+          });
+      }
       if (event.type === 'error') {
         structuredError = openCodeEventError(event) || structuredError;
         noteRouterAuthenticationError(structuredError);
@@ -3085,8 +3162,17 @@ ipcMain.handle('app:notify', (_evt, payloadRaw: unknown): boolean => {
 
 // ----- Comando externo "one-shot" -------------------------------------------
 
+function validActualModel(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    /^[A-Za-z0-9._/+:-]{1,240}$/.test(value) &&
+    value !== 'mesp-auto' &&
+    value !== AUTO_ROUTER_MODEL
+  );
+}
+
 async function resolveDockRouterModel(requested: unknown): Promise<string | null> {
-  const overview = await getRouterOverview();
+  const overview = await getRouterOverview('today', false, true);
   if (requested === AUTO_ROUTER_MODEL && overview.auto.supported && overview.models.length)
     return AUTO_ROUTER_MODEL;
   if (typeof requested === 'string' && overview.models.some((model) => model.id === requested))
@@ -3145,6 +3231,7 @@ ipcMain.handle('dock:chat', async (_event, raw: unknown) => {
             : 'O modelo não conseguiu responder. Confira a conta e a disponibilidade nas Configurações.',
       };
     const body = (await response.json()) as {
+      model?: unknown;
       choices?: Array<{ message?: { content?: unknown } }>;
     };
     const content = body.choices?.[0]?.message?.content;
@@ -3155,6 +3242,9 @@ ipcMain.handle('dock:chat', async (_event, raw: unknown) => {
       ok: true,
       ...parsed,
       answer: redactMespSecrets(parsed.answer, configuredMespSecrets()),
+      ...(model === AUTO_ROUTER_MODEL && validActualModel(response.headers.get('x-mesp-model'))
+        ? { modelUsed: response.headers.get('x-mesp-model')! }
+        : {}),
     };
   } catch {
     return {

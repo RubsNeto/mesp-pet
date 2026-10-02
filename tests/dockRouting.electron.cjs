@@ -1,4 +1,4 @@
-/* global document, innerHeight */
+/* global document, innerHeight, innerWidth */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -27,6 +27,7 @@ const root = path.resolve(__dirname, '..');
       for await (const chunk of req) chunks.push(chunk);
       const payload = JSON.parse(Buffer.concat(chunks).toString());
       requests.push(payload);
+      if (payload.model === 'mesp-auto') res.setHeader('x-mesp-model', 'cc/model-b');
       const prompt = payload.messages.at(-1).content;
       if (prompt === 'Aguarde até eu interromper') {
         res.writeHead(200);
@@ -143,6 +144,8 @@ const root = path.resolve(__dirname, '..');
           });
         setTimeout(() => {
           emit({ kind: 'started', mode: payload.mode, engine: 'opencode-server' });
+          if (payload.model === '9router/mesp-auto')
+            emit({ kind: 'event', event: { type: 'model_used', modelUsed: 'cx/model-a' } });
           emit({ kind: 'event', event: { type: 'session_created', sessionID: 'ses_qa_context' } });
           emit({
             kind: 'event',
@@ -231,7 +234,7 @@ const root = path.resolve(__dirname, '..');
     const field = () => page.getByRole('textbox', { name: 'Pedir ao MESP', exact: true });
     const ask = async (text) => {
       await field().fill(text);
-      await field().press('Enter');
+      if (!/^\/(model|models|modelos)(\s|$)/.test(text)) await field().press('Enter');
     };
     const idle = async () => {
       try {
@@ -331,7 +334,13 @@ const root = path.resolve(__dirname, '..');
     await ask('/model');
     const selector = page.getByRole('listbox', { name: 'Modelos disponíveis', exact: true });
     await selector.waitFor();
-    await page.waitForFunction(() => document.querySelectorAll('.dock-model-option').length === 3);
+    await page.waitForFunction(
+      () => document.querySelectorAll('.dock-inline-model-list [data-model]').length === 3,
+    );
+    assert.equal(
+      await page.getByRole('tab', { name: 'Chat', exact: true }).getAttribute('aria-selected'),
+      'true',
+    );
     assert.equal(
       await selector.locator('[aria-selected="true"]').getAttribute('data-model'),
       '9router/mesp-auto',
@@ -344,6 +353,79 @@ const root = path.resolve(__dirname, '..');
       new Set(['9router/mesp-auto', '9router/cx/model-a', '9router/cc/model-b']),
     );
     check('/model lists Auto and models from every configured account');
+    for (const alias of ['/models', '/modelos']) {
+      await field().fill(alias);
+      await selector.waitFor();
+      assert.equal(await selector.getByRole('option').count(), 3);
+    }
+    await field().fill('/modelos model-b');
+    assert.equal(await selector.getByRole('option').count(), 1);
+    await field().press('Escape');
+    assert.equal(await field().inputValue(), '');
+    await ask('/model');
+    await selector.waitFor();
+    check('Model aliases open immediately in chat, filter inline and close with Escape');
+    for (const command of ['/models', '/modelos']) {
+      await field().fill(command);
+      await selector.waitFor();
+      await field().press('Escape');
+      await selector.waitFor({ state: 'hidden' });
+      assert.equal(await field().inputValue(), '');
+    }
+    for (const size of [
+      { width: 320, height: 560 },
+      { width: 384, height: 680 },
+      { width: 680, height: 800 },
+    ]) {
+      await app.evaluate(
+        ({ BrowserWindow }, size) =>
+          BrowserWindow.getAllWindows()[0].setBounds({ x: 0, y: 0, ...size }),
+        size,
+      );
+      await field().fill('/model');
+      await selector.waitFor();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const bounds = await page.locator('.dock-inline-model-popover').evaluate((el) => {
+        const rect = el.getBoundingClientRect(),
+          header = document.querySelector('.dock-header').getBoundingClientRect();
+        return {
+          top: rect.top,
+          left: rect.left,
+          right: rect.right,
+          bottom: rect.bottom,
+          headerBottom: header.bottom,
+          width: innerWidth,
+          height: innerHeight,
+        };
+      });
+      assert.ok(
+        bounds.top >= bounds.headerBottom &&
+          bounds.left >= 0 &&
+          bounds.right <= bounds.width &&
+          bounds.bottom <= bounds.height,
+        JSON.stringify(bounds),
+      );
+      await page.locator('.top-dock').screenshot({
+        path: path.join(profile, `inline-models-${size.width}.png`),
+        omitBackground: true,
+      });
+      await field().press('Escape');
+    }
+    await field().fill('/model Claude');
+    assert.equal(await selector.getByRole('option').count(), 1);
+    await field().press('Enter');
+    await selector.waitFor({ state: 'hidden' });
+    assert.equal(await field().inputValue(), '');
+    assert.equal(
+      await page.getByRole('tab', { name: 'Chat', exact: true }).getAttribute('aria-selected'),
+      'true',
+    );
+    assert.equal(requests.length, 0);
+    check(
+      'Inline model aliases, filtering, Enter, Escape and reopening work without leaving chat and fit three screen sizes',
+    );
+    await field().fill('/model');
+    await selector.waitFor();
     await selector.locator('[data-model="9router/cc/model-b"]').click();
     await ask('Qual é o nome do projeto?');
     await idle();
@@ -359,7 +441,13 @@ const root = path.resolve(__dirname, '..');
     await idle();
     assert.equal(requests.at(-1).model, 'mesp-auto');
     assert.ok(requests.at(-1).messages.some((m) => m.content === 'O projeto se chama Atlas'));
+    await page.getByText('Auto · model-b', { exact: true }).waitFor();
     check('Auto changes routing without erasing the history');
+    assert.equal(
+      (await page.locator('.dock-response-model').last().textContent()).trim(),
+      'Auto · model-b',
+    );
+    check('Auto displays its actual per-request model above the response');
     const sendButton = page.getByRole('button', { name: 'Enviar pedido', exact: true });
     const sendBounds = await sendButton.boundingBox();
     await ask('Aguarde até eu interromper');
@@ -411,6 +499,10 @@ const root = path.resolve(__dirname, '..');
     const calls = await app.evaluate(() => globalThis.__routingQA.calls);
     fs.writeFileSync(path.join(profile, 'calls.json'), JSON.stringify(calls, null, 2));
     assert.equal(calls.length, 1);
+    assert.equal(
+      (await page.locator('.mesp-message .dock-response-model').last().textContent()).trim(),
+      'Auto · model-a',
+    );
     assert.ok(calls[0].history.some((m) => m.content === 'O projeto se chama Atlas'));
     assert.equal(await field().inputValue(), 'Meu rascunho continua aqui');
     check(
@@ -420,9 +512,8 @@ const root = path.resolve(__dirname, '..');
     await commandList.waitFor();
     assert.equal(await commandList.getByRole('option').count(), 10);
     await commandList.getByRole('option', { name: /Modelos/ }).click();
-    await field().press('Enter');
     await selector.waitFor();
-    await page.keyboard.press('Control+k');
+    await field().press('Escape');
     check('The same slash menu works in the project composer without losing context');
     await ask('/model');
     await selector.waitFor();
@@ -452,6 +543,13 @@ const root = path.resolve(__dirname, '..');
     );
     assert.equal(saved.find((p) => p.id === first.id).routerModel, '9router/cx/model-a');
     assert.deepEqual(saved.find((p) => p.id === first.id).traits, first.traits);
+    const persistedModels = await page.evaluate(() =>
+      Object.keys(localStorage)
+        .filter((key) => key.startsWith('mesp-code'))
+        .map((key) => localStorage.getItem(key))
+        .join(''),
+    );
+    assert.ok(persistedModels.includes('"modelUsed":"cx/model-a"'));
     assert.deepEqual(errors, []);
     check('Models and appearances persist after reload with no renderer errors');
     fs.writeFileSync(

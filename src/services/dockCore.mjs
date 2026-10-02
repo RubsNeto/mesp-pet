@@ -61,7 +61,16 @@ function recentConversation(value) {
     if (result.length >= HISTORY_MESSAGES || size + content.length > HISTORY_PROJECT_TEXT) break;
     seen.add(message.id);
     size += content.length;
-    result.push({ id: message.id, role: message.role, content });
+    result.push({
+      id: message.id,
+      role: message.role,
+      content,
+      ...(message.role === 'assistant' &&
+      typeof message.modelUsed === 'string' &&
+      /^[A-Za-z0-9._/+:-]{1,240}$/.test(message.modelUsed)
+        ? { modelUsed: message.modelUsed }
+        : {}),
+    });
   }
   return result.reverse();
 }

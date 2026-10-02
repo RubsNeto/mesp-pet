@@ -30,6 +30,24 @@ import {
   totalTokensFromUsage,
 } from '../src/services/mespCodeCore.mjs';
 
+test('project response attribution survives a completed session reload without accepting malformed model names', () => {
+  const saved = normalizeStoredMespMessages([
+    {
+      id: 'response',
+      role: 'assistant',
+      text: 'Concluído',
+      status: 'done',
+      modelUsed: 'cx/model-a',
+    },
+    { id: 'user', role: 'user', text: 'Continue', modelUsed: 'cc/forged' },
+    { id: 'invalid', role: 'assistant', text: 'Anterior', modelUsed: '<img src=x>' },
+  ]);
+  assert.equal(saved[0].modelUsed, 'cx/model-a');
+  assert.equal(saved[1].modelUsed, undefined);
+  assert.equal(saved[2].modelUsed, undefined);
+  assert.deepEqual(normalizeStoredMespMessages(JSON.parse(JSON.stringify(saved))), saved);
+});
+
 test('accepts only supported MESP modes', () => {
   assert.equal(isMespCodeMode('fast'), true);
   assert.equal(isMespCodeMode('plan'), true);

@@ -1,4 +1,12 @@
 /* Coucou's black top island and quiet cards; MESP's own sprites and agents. */
+.dock-response-model {
+  display: block;
+  font-size: 9px;
+  color: #858585;
+  font-weight: 400;
+  line-height: 1.4;
+  margin: 0 0 5px;
+}
 :root {
   color-scheme: dark;
   --surface-0: #000;
@@ -2190,7 +2198,9 @@ body,
   position: relative;
 }
 .dock-composer:has(.dock-command-popover),
-.mesp-composer:has(.dock-command-popover) {
+.mesp-composer:has(.dock-command-popover),
+.dock-composer:has(.dock-inline-model-popover),
+.mesp-composer:has(.dock-inline-model-popover) {
   z-index: 40;
   overflow: visible;
 }
@@ -2207,6 +2217,131 @@ body,
   background: #181818;
   box-shadow: 0 12px 32px #0008;
   animation: dock-router-enter 140ms ease-out;
+}
+.dock-inline-model-popover {
+  position: absolute;
+  z-index: 8;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #333;
+  border-radius: 14px;
+  background: #181818;
+  box-shadow: 0 12px 32px #0008;
+  overflow: hidden;
+  animation: dock-router-enter 140ms ease-out;
+}
+.dock-inline-model-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 0 4px 6px;
+  color: #ddd;
+  font-size: 12px;
+}
+.dock-inline-model-heading > span {
+  flex: 1;
+  min-width: 0;
+  color: #999;
+  font-size: 10px;
+}
+.top-dock .dock-inline-model-heading button {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: #262626;
+  color: #ddd;
+  cursor: pointer;
+  font-size: 16px;
+}
+.dock-inline-model-list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.top-dock .dock-inline-model-list > button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 110px) 16px;
+  gap: 8px;
+  align-items: center;
+  justify-items: stretch;
+  width: 100%;
+  height: auto;
+  min-height: 36px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  color: #ddd;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.dock-inline-model-list strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+}
+.dock-inline-model-list small {
+  min-width: 0;
+  color: #999;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.top-dock .dock-inline-model-list > button:hover,
+.top-dock .dock-inline-model-list > button[data-highlighted='true'] {
+  background: #2a2a2a;
+}
+.top-dock .dock-inline-model-popover button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.top-dock .dock-inline-model-popover button:focus-visible {
+  outline: 1px solid #aaa;
+  outline-offset: -2px;
+}
+.dock-inline-model-help,
+.dock-inline-model-note,
+.dock-inline-model-empty {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 6px;
+  color: #999;
+  font-size: 10px;
+}
+.dock-inline-model-help {
+  padding-bottom: 0;
+}
+.top-dock .dock-inline-model-empty button {
+  display: block;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: #292929;
+  color: #eee;
+  cursor: pointer;
+}
+@media (max-width: 420px) {
+  .top-dock .dock-inline-model-list > button {
+    grid-template-columns: minmax(0, 1fr) 16px;
+    column-gap: 6px;
+    row-gap: 3px;
+  }
+  .dock-inline-model-list small {
+    grid-column: 1;
+  }
+  .dock-inline-model-list button > span {
+    grid-column: 2;
+    grid-row: 1 / 3;
+  }
 }
 .dock-command-heading {
   display: flex;
@@ -2269,6 +2404,8 @@ body,
 }
 @media (prefers-reduced-motion: reduce) {
   .dock-command-popover,
+  .dock-inline-model-popover,
+  .top-dock .dock-inline-model-list > button,
   .top-dock .dock-command-list button {
     animation: none;
     transition: none;

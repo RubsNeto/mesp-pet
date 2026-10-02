@@ -25,6 +25,25 @@ import {
   serializeDockConversations,
 } from '../src/services/dockCore.mjs';
 
+test('Auto model attribution survives conversation saves and remains separate from model context', () => {
+  const messages = [
+    { id: 'user', role: 'user', content: 'Continue', modelUsed: 'cc/forged' },
+    { id: 'answer', role: 'assistant', content: 'Resultado', modelUsed: 'cx/model-a' },
+    { id: 'bad', role: 'assistant', content: 'Anterior', modelUsed: '<script>' },
+  ];
+  const saved = readDockConversations(serializeDockConversations({ pet: messages }, ['pet']), [
+    'pet',
+  ]).pet;
+  assert.equal(saved[0].modelUsed, undefined);
+  assert.equal(saved[1].modelUsed, 'cx/model-a');
+  assert.equal(saved[2].modelUsed, undefined);
+  assert.deepEqual(dockModelHistory(saved), [
+    { role: 'user', content: 'Continue' },
+    { role: 'assistant', content: 'Resultado' },
+    { role: 'assistant', content: 'Anterior' },
+  ]);
+});
+
 test('/model opens the router model selector instead of sending a task', () => {
   for (const command of ['/model', '/models', '/modelo', '/modelos'])
     assert.deepEqual(parseDockRequest(command), { kind: 'settings', page: 'overview' });

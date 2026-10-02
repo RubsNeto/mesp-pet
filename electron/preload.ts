@@ -194,6 +194,9 @@ const api = {
   ): Promise<import('./dockRouter.mjs').RouterOverview> {
     return ipcRenderer.invoke('dock:router-overview', { period, force });
   },
+  get9RouterModels(force = false): Promise<import('./dockRouter.mjs').RouterOverview> {
+    return ipcRenderer.invoke('dock:router-models', force);
+  },
   on9RouterClosed(cb: () => void): () => void {
     const handler = () => cb();
     ipcRenderer.on('dock:router-closed', handler);

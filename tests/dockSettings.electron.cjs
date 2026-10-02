@@ -46,7 +46,7 @@ const root = path.resolve(__dirname, '..');
         runtime: { setupRequired: false },
       }));
       ipcMain.removeHandler('dock:router-overview');
-      ipcMain.handle('dock:router-overview', (_event, payload) => {
+      const overview = (_event, payload) => {
         globalThis.__settingsPeriods.push(payload.period);
         const accounts = providers.map(([provider, providerName, prefix], i) => ({
           id: `account-${i}`,
@@ -107,7 +107,10 @@ const root = path.resolve(__dirname, '..');
             },
           },
         };
-      });
+      };
+      ipcMain.handle('dock:router-overview', overview);
+      ipcMain.removeHandler('dock:router-models');
+      ipcMain.handle('dock:router-models', (event) => overview(event, { period: 'today' }));
     });
     const page = await app.firstWindow();
     page.setDefaultTimeout(15000);

@@ -220,10 +220,10 @@ const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1'
         [empty.id]: quota(100, 5000),
       }),
     );
-    const send = async (model, stream = true) => {
+    const send = async (model, stream = true, session = 'ses_qa_auto') => {
       const response = await fetch(`${origin}/v1/chat/completions`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', 'x-session-id': session },
         body: JSON.stringify({
           model,
           stream,
@@ -245,6 +245,10 @@ const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1'
     assert.equal(requests.at(-1).account, 'Bearer qa-near');
     assert.equal(requests.at(-1).model, 'mesp-coder');
     assert.equal(first.response.headers.get('x-mesp-account'), near.id);
+    assert.equal(first.response.headers.get('x-mesp-model'), 'mespqa/mesp-coder');
+    await delay(50);
+    assert.ok(log.includes('"session":"ses_qa_auto"'));
+    assert.ok(log.includes('"model":"mespqa/mesp-coder"'));
     failNear = true;
     await send('mesp-auto');
     assert.equal(requests.at(-1).account, 'Bearer qa-far');

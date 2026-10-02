@@ -71,6 +71,15 @@ export interface RouterOverview {
   auto: { available: boolean; supported: boolean; next: RouterAutoChoice | null };
 }
 export function providerName(provider: string): string;
+export function routerRunModel(
+  route: unknown,
+  run: {
+    autoModel: boolean;
+    cancelled: boolean;
+    sessionId: string | null;
+    startedAt: number;
+  },
+): string | null;
 export function normalizeRouterQuotas(payload: unknown): RouterQuota[];
 export function autoRouterCandidates(
   accounts: RouterAccount[],
@@ -85,6 +94,9 @@ export function createRouterOverviewService(options: {
   headers?: Record<string, string> | (() => Record<string, string>);
   fetchJson?: (route: string) => Promise<unknown>;
   autoSupported?: boolean;
-}): { overview(period?: string, force?: boolean): Promise<RouterOverview> };
+}): {
+  overview(period?: string, force?: boolean): Promise<RouterOverview>;
+  models(force?: boolean): Promise<RouterOverview>;
+};
 export function patchRouterAccountSelection(source: string): string;
 export const ROUTER_THEME_CSS: string;

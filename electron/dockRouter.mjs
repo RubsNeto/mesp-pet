@@ -201,13 +201,16 @@ export function createRouterOverviewService({ origin, headers = {}, fetchJson, a
   const cache = new Map(),
     quotaCache = new Map(),
     modelCache = new Map();
-  let pending = null;
+  const pending = new Map(),
+    modelRequests = new Map();
   const get =
     fetchJson ||
     (async (route) => {
       const response = await globalThis.fetch(`${origin}${route}`, {
         headers: typeof headers === 'function' ? headers() : headers,
-        signal: globalThis.AbortSignal.timeout(8000),
+        signal: globalThis.AbortSignal.timeout(
+          /\/providers\/[^/]+\/models$/.test(route) ? 2500 : 8000,
+        ),
       });
       if (!response.ok) {
         const error = new Error(`HTTP ${response.status}`);
@@ -231,24 +234,30 @@ export function createRouterOverviewService({ origin, headers = {}, fetchJson, a
         (quota) => quota.resetAt > old.at && quota.resetAt <= Date.now(),
       );
     if (old && !force && !resetPassed && Date.now() - old.at < 60000) return old.value;
-    const value = await optional(route);
+    if (store === modelCache && modelRequests.has(id)) return modelRequests.get(id);
+    const request = optional(route);
+    if (store === modelCache) modelRequests.set(id, request);
+    const value = await request;
+    if (store === modelCache) modelRequests.delete(id);
     store.set(id, { at: Date.now(), value });
     return value;
   };
   return {
-    async overview(period = 'today', force = false) {
+    async models(force = false) {
+      return this.overview('today', force, true);
+    },
+    async overview(period = 'today', force = false, modelsOnly = false) {
       if (!ROUTER_PERIODS.includes(period)) period = 'today';
-      if (pending) {
-        await pending;
-        return this.overview(period, false);
+      const cacheKey = modelsOnly ? 'models' : period;
+      if (pending.has(cacheKey)) {
+        return pending.get(cacheKey);
       }
-      const cached = cache.get(period);
+      const cached = cache.get(cacheKey);
       if (cached && !force && Date.now() - cached.updatedAt < 15000) return cached;
       const run = (async () => {
-        const [connectionsPayload, catalogPayload, statsPayload, capability] = await Promise.all([
+        const [connectionsPayload, statsPayload, capability] = await Promise.all([
           optional('/api/providers'),
-          optional('/v1/models'),
-          optional(`/api/usage/stats?period=${period}`),
+          modelsOnly ? null : optional(`/api/usage/stats?period=${period}`),
           autoSupported === undefined
             ? optional('/api/mesp/capabilities')
             : { auto: autoSupported },
@@ -258,16 +267,13 @@ export function createRouterOverviewService({ origin, headers = {}, fetchJson, a
         const rawAccounts = connectionsPayload.connections.filter(
           (a) => validId(a?.id) && typeof a.provider === 'string',
         );
-        const catalog = Array.isArray(catalogPayload?.data)
-          ? catalogPayload.data.filter((m) => validModel(m?.id))
-          : [];
         const stats = normalizeRouterStats(statsPayload);
         const accounts = [],
           models = new Map();
-        // Four at a time bounds provider polling without blocking the renderer thread.
-        for (let start = 0; start < rawAccounts.length; start += 4) {
+        // Model selection does not wait for quota/history requests. Bound live discovery to eight accounts.
+        for (let start = 0; start < rawAccounts.length; start += 8) {
           await Promise.all(
-            rawAccounts.slice(start, start + 4).map(async (raw) => {
+            rawAccounts.slice(start, start + 8).map(async (raw) => {
               const active =
                 raw.isActive !== false &&
                 !['error', 'failed', 'invalid', 'unauthorized', 'expired'].includes(raw.testStatus);
@@ -278,12 +284,14 @@ export function createRouterOverviewService({ origin, headers = {}, fetchJson, a
               );
               const [usage, live] = active
                 ? await Promise.all([
-                    cachedGet(
-                      quotaCache,
-                      raw.id,
-                      `/api/usage/${encodeURIComponent(raw.id)}`,
-                      force,
-                    ),
+                    modelsOnly
+                      ? quotaCache.get(raw.id)?.value || null
+                      : cachedGet(
+                          quotaCache,
+                          raw.id,
+                          `/api/usage/${encodeURIComponent(raw.id)}`,
+                          force,
+                        ),
                     cachedGet(
                       modelCache,
                       raw.id,
@@ -349,11 +357,11 @@ export function createRouterOverviewService({ origin, headers = {}, fetchJson, a
               };
               if (account.health === 'auth') account.quotaState = 'error';
               accounts.push(account);
-              if (!active || account.health === 'auth') return;
-              const fallback = catalog.filter((m) => m.id.startsWith(`${prefix}/`));
+              if (!active || account.health === 'auth' || account.lastFailure === 'permission')
+                return;
               const liveModels =
-                Array.isArray(live?.models) && live.models.length ? live.models : null;
-              for (const entry of liveModels || fallback) {
+                Array.isArray(live?.models) && !live.warning && !live.error ? live.models : [];
+              for (const entry of liveModels) {
                 const rawId = entry.id || entry.slug || entry.model;
                 if (!validModel(rawId)) continue;
                 const id = rawId.startsWith(`${prefix}/`)
@@ -377,7 +385,7 @@ export function createRouterOverviewService({ origin, headers = {}, fetchJson, a
                     provider: account.provider,
                     providerName: account.providerName,
                     accountIds: [raw.id],
-                    source: liveModels && !live.warning ? 'live' : 'catalog',
+                    source: 'live',
                   });
               }
             }),
@@ -390,13 +398,22 @@ export function createRouterOverviewService({ origin, headers = {}, fetchJson, a
           (a, b) => a.providerName.localeCompare(b.providerName) || a.name.localeCompare(b.name),
         );
         const candidates = autoRouterCandidates(accounts, choices);
+        const available = new Map();
+        for (const candidate of candidates) {
+          const ids = available.get(candidate.model) || [];
+          ids.push(candidate.accountId);
+          available.set(candidate.model, ids);
+        }
+        const validChoices = choices
+          .filter((model) => available.has(model.id))
+          .map((model) => ({ ...model, accountIds: available.get(model.id) }));
         const result = {
           updatedAt: Date.now(),
           period,
           accounts,
-          models: choices,
+          models: validChoices,
           totals: stats?.totals || null,
-          modelsAvailable: Array.isArray(catalogPayload?.data) || choices.length > 0,
+          modelsAvailable: validChoices.length > 0,
           accountSource:
             capability?.source === '9router'
               ? '9router'
@@ -410,14 +427,14 @@ export function createRouterOverviewService({ origin, headers = {}, fetchJson, a
             next: candidates[0] || null,
           },
         };
-        cache.set(period, result);
+        cache.set(cacheKey, result);
         return result;
       })();
-      pending = run;
+      pending.set(cacheKey, run);
       try {
         return await run;
       } finally {
-        pending = null;
+        pending.delete(cacheKey);
       }
     },
   };
@@ -458,6 +475,25 @@ export function routerPage(page) {
     : ROUTER_PAGES.dashboard;
 }
 /** Only account counts reach the renderer, never credentials or provider-specific data. */
+export function routerRunModel(route, run) {
+  if (
+    !route ||
+    !run?.autoModel ||
+    run.cancelled ||
+    !run.sessionId ||
+    route.session !== run.sessionId ||
+    !Number.isFinite(route.startedAt) ||
+    !Number.isFinite(run.startedAt) ||
+    route.startedAt < run.startedAt ||
+    typeof route.model !== 'string' ||
+    !/^[A-Za-z0-9._/+:-]{1,240}$/.test(route.model) ||
+    route.model === 'mesp-auto' ||
+    route.model === AUTO_ROUTER_MODEL
+  )
+    return null;
+  return route.model;
+}
+
 export function routerConnectionSummary(payload) {
   if (!payload || !Array.isArray(payload.connections)) return null;
   const providers = new Map();

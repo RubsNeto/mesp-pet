@@ -41,6 +41,7 @@ const { pipeline } = require('node:stream/promises');
     res.end(JSON.stringify(body));
   };
   const autoRequest = async (req, res, body) => {
+    const startedAt = Date.now();
     const controller = new AbortController();
     res.on('close', () => {
       if (!res.writableFinished) controller.abort();
@@ -140,6 +141,16 @@ const { pipeline } = require('node:stream/promises');
           await response.body?.cancel();
           contexts.delete(routingId);
           continue;
+        }
+        const session = req.headers['x-session-id'] || req.headers['x-session-affinity'];
+        if (response.ok && typeof session === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(session)) {
+          process.stdout.write(
+            `MESP_MODEL ${JSON.stringify({
+              session,
+              startedAt,
+              model: choice.model.replace(/^9router\//, ''),
+            })}\n`,
+          );
         }
         res.writeHead(response.status, {
           'content-type': response.headers.get('content-type') || 'application/json',

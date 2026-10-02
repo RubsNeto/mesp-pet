@@ -5,7 +5,7 @@ const COMMANDS = [
     command: '/model',
     name: 'Modelos',
     detail: 'Escolher a IA ou Auto',
-    search: 'modelo model ia auto',
+    search: 'modelo modelos model models ia auto',
   },
   {
     command: '/accounts',

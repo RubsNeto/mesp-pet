@@ -1,10 +1,12 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { PetState } from '../types';
+import { dockModelLabel } from './DockModelPicker';
 
 export interface DockMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  modelUsed?: string;
 }
 
 export function DockCopyButton({ text, label }: { text: string; label: 'resposta' | 'código' }) {
@@ -180,6 +182,11 @@ export function DockConversation({
                   }
                 >
                   <div className="dock-message-text">
+                    {m.role === 'assistant' && m.modelUsed && (
+                      <small className="dock-response-model" title={m.modelUsed}>
+                        Auto · {dockModelLabel(m.modelUsed)}
+                      </small>
+                    )}
                     <DockReplyText content={m.content} />
                   </div>
                   {m.role === 'assistant' && <DockCopyButton text={m.content} label="resposta" />}

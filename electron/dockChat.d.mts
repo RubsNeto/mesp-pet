@@ -1,4 +1,5 @@
 export interface DockChatReply {
+  modelUsed?: string;
   ok: boolean;
   answer?: string;
   needsProject?: boolean;

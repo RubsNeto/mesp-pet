@@ -8,8 +8,26 @@ import {
   autoRouterCandidates,
   createRouterOverviewService,
   patchRouterAccountSelection,
+  routerRunModel,
 } from '../electron/dockRouter.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
+
+test('Auto attribution separates simultaneous sessions and rejects previous, cancelled and manual runs', () => {
+  const route = { session: 'ses_a', startedAt: 200, model: 'cx/model-a' };
+  const run = { sessionId: 'ses_a', startedAt: 100, autoModel: true, cancelled: false };
+  assert.equal(routerRunModel(route, run), 'cx/model-a');
+  for (const changed of [
+    { sessionId: 'ses_b' },
+    { startedAt: 300 },
+    { cancelled: true },
+    { autoModel: false },
+    { sessionId: null },
+  ])
+    assert.equal(routerRunModel(route, { ...run, ...changed }), null);
+  for (const model of ['mesp-auto', '9router/mesp-auto', '<script>', '', 'x'.repeat(241)])
+    assert.equal(routerRunModel({ ...route, model }, run), null);
+  assert.equal(routerRunModel(undefined, run), null);
+});
 import { readFileSync } from 'node:fs';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { createHmac } from 'node:crypto';
@@ -109,6 +127,68 @@ test('expired accounts do not advertise fallback models or enter Auto routing', 
   assert.equal(overview.accounts[0].quotaState, 'error');
   assert.deepEqual(overview.models, []);
   assert.equal(overview.auto.available, false);
+});
+
+test('model discovery does not wait for consumption and coalesces concurrent refreshes', async () => {
+  const calls = [];
+  const service = createRouterOverviewService({
+    origin: 'http://localhost',
+    autoSupported: true,
+    fetchJson: async (route) => {
+      calls.push(route);
+      if (route === '/api/providers')
+        return { connections: [{ id: 'ready', provider: 'codex', testStatus: 'success' }] };
+      if (route === '/api/providers/ready/models') return { models: [{ id: 'gpt-codex' }] };
+      throw new Error('Consumption and catalog must not be queried by the model menu');
+    },
+  });
+  const [first, second] = await Promise.all([service.models(true), service.models(true)]);
+  assert.strictEqual(first, second);
+  assert.deepEqual(
+    first.models.map((m) => m.id),
+    ['9router/cx/gpt-codex'],
+  );
+  assert.equal(first.totals, null);
+  assert.equal(first.auto.available, true);
+  assert.deepEqual(calls, ['/api/providers', '/api/providers/ready/models']);
+});
+
+test('model menu omits unconfirmed, exhausted, locked and forbidden account models', async () => {
+  const connections = [
+    { id: 'ready', provider: 'codex', testStatus: 'success' },
+    { id: 'empty', provider: 'claude', testStatus: 'success' },
+    {
+      id: 'locked',
+      provider: 'gemini-cli',
+      testStatus: 'success',
+      modelLock_all: new Date(Date.now() + 60000).toISOString(),
+    },
+    { id: 'forbidden', provider: 'github', testStatus: 'success', errorCode: 403 },
+    { id: 'unconfirmed', provider: 'openai', testStatus: 'success' },
+  ];
+  const service = createRouterOverviewService({
+    origin: 'http://localhost',
+    autoSupported: true,
+    fetchJson: async (route) => {
+      if (route === '/api/providers') return { connections };
+      if (route.endsWith('/unconfirmed/models'))
+        return { models: [{ id: 'static-model' }], warning: 'Discovery failed' };
+      if (route.endsWith('/models')) return { models: [{ id: 'model' }] };
+      if (route === '/api/usage/empty')
+        return { quotas: { session: { used: 100, total: 100, remaining: 0 } } };
+      return {};
+    },
+  });
+  const overview = await service.overview();
+  assert.deepEqual(
+    overview.models.map((m) => m.id),
+    ['9router/cx/model'],
+  );
+  const quick = await service.models();
+  assert.deepEqual(
+    quick.models.map((m) => m.id),
+    ['9router/cx/model'],
+  );
 });
 
 test('router windows open only known local configuration routes', () => {

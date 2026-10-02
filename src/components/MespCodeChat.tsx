@@ -4,6 +4,8 @@ import { DockCopyButton, DockReplyText } from './DockConversation';
 import type { DockMessage } from './DockConversation';
 import { dockGreetingReply, dockModelHistory } from '../services/dockCore.mjs';
 import { DockCommands, useDockCommands } from './DockCommands';
+import { DockInlineModels, isDockModelCommand, useDockInlineModels } from './DockInlineModels';
+import { dockModelLabel } from './DockModelPicker';
 import {
   addTokenUsage,
   enqueueUniqueTask,
@@ -104,6 +106,7 @@ export interface MespCodeStatus {
 
 interface ChatMessage {
   id: string;
+  modelUsed?: string;
   role: 'user' | 'assistant';
   text: string;
   tools: string[];
@@ -401,7 +404,7 @@ export function MespCodeChat({
     if (dockComposerRef.current) dockComposerRef.current.onChange(value);
     else setLocalInput(value);
   }, []);
-  const commands = useDockCommands(input, setInput, isDockComposer);
+  const commands = useDockCommands(input, setInput, isDockComposer && !isDockModelCommand(input));
   useEffect(() => {
     if (visible && dockComposer?.focusRequest) composerField.current?.focus();
   }, [visible, dockComposer?.focusRequest]);
@@ -488,6 +491,21 @@ export function MespCodeChat({
     });
   }, [models, modelFilter, modelQuery]);
   const occupied = busy || verifyingMessageId !== null || pendingAutoVerify !== null;
+  const inlineModels = useDockInlineModels({
+    value: input,
+    enabled: isDockComposer && visible,
+    currentModel: effectiveModel,
+    canChange: !occupied,
+    onClose: () => setInput(''),
+    onChoose: (model) => {
+      setSelectedModel(model);
+      onModelChange?.(model);
+      if (status && !models.includes(model))
+        onStatusChange({ ...status, models: [...models, model], model });
+      setInput('');
+      composerField.current?.focus();
+    },
+  });
   const appliedPreferredModel = useRef<string | null>(null);
   const pendingPreferredModel = useRef<string | null>(null);
   useEffect(() => {
@@ -753,6 +771,22 @@ export function MespCodeChat({
                   )
                 : { ...message, text: `${message.text}${data.text}` }
               : message,
+          ),
+        );
+        return;
+      }
+      if (data.kind === 'event' && data.event?.type === 'model_used') {
+        const modelUsed = data.event.modelUsed;
+        if (
+          wasCancelled ||
+          typeof modelUsed !== 'string' ||
+          !/^[A-Za-z0-9._/+:-]{1,240}$/.test(modelUsed)
+        )
+          return;
+        const assistantId = activeAssistantRef.current;
+        setMessages((previous) =>
+          previous.map((message) =>
+            message.id === assistantId ? { ...message, modelUsed } : message,
           ),
         );
         return;
@@ -2293,6 +2327,11 @@ export function MespCodeChat({
                 )}
                 <div className={message.role === 'assistant' ? 'dock-response-row' : undefined}>
                   <div className="mesp-message-content">
+                    {message.role === 'assistant' && message.modelUsed && (
+                      <small className="dock-response-model" title={message.modelUsed}>
+                        Auto · {dockModelLabel(message.modelUsed)}
+                      </small>
+                    )}
                     {message.text ? (
                       <DockReplyText content={message.text} />
                     ) : message.status === 'streaming' ? (
@@ -2541,16 +2580,25 @@ export function MespCodeChat({
         className="mesp-composer"
         onSubmit={(event) => {
           event.preventDefault();
-          void send();
+          if (inlineModels.open) inlineModels.choose();
+          else void send();
         }}
       >
         <DockCommands menu={commands} />
+        <DockInlineModels
+          menu={inlineModels}
+          onConnect={() => {
+            setInput('');
+            dockComposerRef.current?.onCommand('/accounts');
+          }}
+        />
         <textarea
-          {...commands.inputProps}
+          {...(inlineModels.open ? inlineModels.inputProps : commands.inputProps)}
           ref={composerField}
           value={input}
           onChange={(event) => commands.onInput(event.target.value)}
           onKeyDown={(event) => {
+            if (inlineModels.onKeyDown(event)) return;
             if (commands.onKeyDown(event)) return;
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
