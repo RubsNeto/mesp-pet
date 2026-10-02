@@ -1,4 +1,4 @@
-/* global document, innerHeight, innerWidth */
+/* global document, innerHeight */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -234,7 +234,7 @@ const root = path.resolve(__dirname, '..');
     const field = () => page.getByRole('textbox', { name: 'Pedir ao MESP', exact: true });
     const ask = async (text) => {
       await field().fill(text);
-      if (!/^\/(model|models|modelos)(\s|$)/.test(text)) await field().press('Enter');
+      await field().press('Enter');
     };
     const idle = async () => {
       try {
@@ -273,6 +273,11 @@ const root = path.resolve(__dirname, '..');
     assert.equal(requests.length, 0);
     assert.equal(await app.evaluate(() => globalThis.__routingQA.folders), 0);
     check('Greeting stays immediate and never opens a repository or a native agent');
+    assert.equal(await page.locator('.dock-conversation:visible, .mesp-chat:visible').count(), 1);
+    assert.equal(await page.locator('textarea:visible').count(), 1);
+    assert.equal(await page.locator('.dock-inline-model-popover').count(), 0);
+    assert.equal(await page.locator('.dock-session-boundary:visible').count(), 0);
+    check('The restored free chat has one conversation, one composer and no model overlay');
     await field().fill('/');
     const commandList = page.getByRole('listbox', { name: 'Comandos disponíveis', exact: true });
     await commandList.waitFor();
@@ -334,13 +339,7 @@ const root = path.resolve(__dirname, '..');
     await ask('/model');
     const selector = page.getByRole('listbox', { name: 'Modelos disponíveis', exact: true });
     await selector.waitFor();
-    await page.waitForFunction(
-      () => document.querySelectorAll('.dock-inline-model-list [data-model]').length === 3,
-    );
-    assert.equal(
-      await page.getByRole('tab', { name: 'Chat', exact: true }).getAttribute('aria-selected'),
-      'true',
-    );
+    await page.waitForFunction(() => document.querySelectorAll('.dock-model-option').length === 3);
     assert.equal(
       await selector.locator('[aria-selected="true"]').getAttribute('data-model'),
       '9router/mesp-auto',
@@ -354,78 +353,18 @@ const root = path.resolve(__dirname, '..');
     );
     check('/model lists Auto and models from every configured account');
     for (const alias of ['/models', '/modelos']) {
-      await field().fill(alias);
+      await page.keyboard.press('Control+k');
+      await ask(alias);
       await selector.waitFor();
-      assert.equal(await selector.getByRole('option').count(), 3);
-    }
-    await field().fill('/modelos model-b');
-    assert.equal(await selector.getByRole('option').count(), 1);
-    await field().press('Escape');
-    assert.equal(await field().inputValue(), '');
-    await ask('/model');
-    await selector.waitFor();
-    check('Model aliases open immediately in chat, filter inline and close with Escape');
-    for (const command of ['/models', '/modelos']) {
-      await field().fill(command);
-      await selector.waitFor();
-      await field().press('Escape');
-      await selector.waitFor({ state: 'hidden' });
-      assert.equal(await field().inputValue(), '');
-    }
-    for (const size of [
-      { width: 320, height: 560 },
-      { width: 384, height: 680 },
-      { width: 680, height: 800 },
-    ]) {
-      await app.evaluate(
-        ({ BrowserWindow }, size) =>
-          BrowserWindow.getAllWindows()[0].setBounds({ x: 0, y: 0, ...size }),
-        size,
+      assert.equal(
+        await page
+          .getByRole('tab', { name: 'Configurações', exact: true })
+          .getAttribute('aria-selected'),
+        'true',
       );
-      await field().fill('/model');
-      await selector.waitFor();
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      const bounds = await page.locator('.dock-inline-model-popover').evaluate((el) => {
-        const rect = el.getBoundingClientRect(),
-          header = document.querySelector('.dock-header').getBoundingClientRect();
-        return {
-          top: rect.top,
-          left: rect.left,
-          right: rect.right,
-          bottom: rect.bottom,
-          headerBottom: header.bottom,
-          width: innerWidth,
-          height: innerHeight,
-        };
-      });
-      assert.ok(
-        bounds.top >= bounds.headerBottom &&
-          bounds.left >= 0 &&
-          bounds.right <= bounds.width &&
-          bounds.bottom <= bounds.height,
-        JSON.stringify(bounds),
-      );
-      await page.locator('.top-dock').screenshot({
-        path: path.join(profile, `inline-models-${size.width}.png`),
-        omitBackground: true,
-      });
-      await field().press('Escape');
+      assert.equal(await page.locator('.dock-inline-model-popover').count(), 0);
     }
-    await field().fill('/model Claude');
-    assert.equal(await selector.getByRole('option').count(), 1);
-    await field().press('Enter');
-    await selector.waitFor({ state: 'hidden' });
-    assert.equal(await field().inputValue(), '');
-    assert.equal(
-      await page.getByRole('tab', { name: 'Chat', exact: true }).getAttribute('aria-selected'),
-      'true',
-    );
-    assert.equal(requests.length, 0);
-    check(
-      'Inline model aliases, filtering, Enter, Escape and reopening work without leaving chat and fit three screen sizes',
-    );
-    await field().fill('/model');
-    await selector.waitFor();
+    check('Model aliases use the existing settings page inside the same island');
     await selector.locator('[data-model="9router/cc/model-b"]').click();
     await ask('Qual é o nome do projeto?');
     await idle();
@@ -508,12 +447,17 @@ const root = path.resolve(__dirname, '..');
     check(
       'Opening a project transfers free conversation context into MESP Code and preserves the draft',
     );
+    assert.equal(await page.locator('.dock-conversation:visible, .mesp-chat:visible').count(), 1);
+    assert.equal(await page.locator('textarea:visible').count(), 1);
+    assert.equal(await page.locator('.dock-inline-model-popover').count(), 0);
+    check('The project also has only one visible conversation and composer');
     await field().fill('/');
     await commandList.waitFor();
     assert.equal(await commandList.getByRole('option').count(), 10);
     await commandList.getByRole('option', { name: /Modelos/ }).click();
+    await field().press('Enter');
     await selector.waitFor();
-    await field().press('Escape');
+    await page.keyboard.press('Control+k');
     check('The same slash menu works in the project composer without losing context');
     await ask('/model');
     await selector.waitFor();

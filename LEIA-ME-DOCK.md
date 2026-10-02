@@ -8,14 +8,13 @@ resultado e histórico. O aplicativo não encerra tarefas em andamento para
 efetuar essa migração; uma sessão salva como ativa é identificada como interrompida
 somente depois que o aplicativo tiver sido encerrado.
 
-Digite **/model**, **/models** ou **/modelos** na conversa livre ou no projeto
-para abrir a lista sobre o campo, mantendo o chat visível. Acrescente um nome,
-como **/model gemini**, para filtrar. Clique no modelo para aplicar; também é possível
-usar **↓**, **↑** e **Enter**. Com apenas um resultado, **Enter** na busca seleciona
-esse modelo. O modelo atual fica marcado, e **Auto** aparece no início.
-A consulta rápida não espera o consumo: usa a lista confirmada de cada conta,
-sem anunciar modelos de contas expiradas ou apenas presentes no catálogo geral.
-As Configurações mantêm a lista completa com busca e filtros de provedores.
+O layout compacto anterior foi restaurado: uma área de conversa e um campo de
+mensagem. Digite **/model**, **/models** ou **/modelos** e pressione **Enter**
+para abrir a aba de modelos nas Configurações da própria ilha, sem um segundo
+painel sobre a conversa. A busca e os filtros de provedores continuam disponíveis;
+o modelo atual fica marcado, e **Auto** aparece no início.
+A lista usa os modelos confirmados de cada conta, sem anunciar modelos de contas
+expiradas ou apenas presentes no catálogo geral.
 A seleção permanece individual por MESP. Novos
 personagens herdam o modelo selecionado. **Auto** escolhe conta e modelo a cada
 pedido, priorizando o reset mais próximo e pulando contas esgotadas ou inválidas.
@@ -35,8 +34,8 @@ mensagens recentes. O limite da janela de contexto do modelo continua se aplican
 Ao digitar **/**, a lista de comandos aparece acima do campo. Continue digitando
 para buscar; clique ou use **↑**, **↓**, **Tab** e **Enter** para inserir o comando.
 Pressione **Enter** novamente para executá-lo. **Esc** fecha primeiro essa lista.
-**/model** abre imediatamente o seletor, e **Enter** usa o modelo destacado.
-Os demais comandos completos são executados diretamente com **Enter**.
+**/model** abre a aba de modelos com **Enter**. Os demais comandos completos
+também são executados diretamente com **Enter**.
 Estão disponíveis modelos, conexões, consumo, cotas, abertura de projeto, novo
 MESP, lista de projetos, personalização, ajuda e recolhimento.
 

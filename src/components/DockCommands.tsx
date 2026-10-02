@@ -88,7 +88,10 @@ export function useDockCommands(value: string, onChange: (value: string) => void
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (!open || event.nativeEvent.isComposing) return false;
-    if (event.key === 'Enter' && !event.shiftKey && value === items[index]?.command) {
+    const completeCommand =
+      value === items[index]?.command ||
+      (items[index]?.command === '/model' && /^\/(?:models|modelos)$/i.test(value));
+    if (event.key === 'Enter' && !event.shiftKey && completeCommand) {
       setDismissed(value);
       return false;
     }

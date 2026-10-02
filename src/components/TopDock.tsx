@@ -6,7 +6,6 @@ import { DockProjects, DockProjectSwitcher, type ProjectFilter } from './DockPro
 import { DockConversation, type DockMessage } from './DockConversation';
 import { DockSettings } from './DockSettings';
 import { DockCommands, useDockCommands } from './DockCommands';
-import { DockInlineModels, isDockModelCommand, useDockInlineModels } from './DockInlineModels';
 import { Tracked } from '../coucou/anim';
 import { IslandStateMachine, type FsmState } from '../coucou/fsm';
 import type { BotEmoteName } from '../coucou/layout';
@@ -447,35 +446,7 @@ export function TopDock() {
       setInput(value);
     }
   }, []);
-  const commands = useDockCommands(
-    input,
-    (value) => changeDraft(selectedRef.current, value),
-    !isDockModelCommand(input),
-  );
-  const inlineModels = useDockInlineModels({
-    value: input,
-    enabled:
-      expanded &&
-      view === 'chat' &&
-      !(selected.workDir && selected.agentPresetId === 'mesp-code') &&
-      !customizing &&
-      !showProjects &&
-      !showHelp,
-    currentModel: selected.routerModel,
-    canChange: !selected.hasActiveTask && agentCanChange(selected.state),
-    onClose: () => changeDraft(selectedRef.current, ''),
-    onChoose: (model) => {
-      commitProjects((prev) =>
-        prev.map((p) =>
-          p.id === selectedRef.current
-            ? { ...p, routerModel: model, agentPresetId: 'mesp-code' }
-            : p,
-        ),
-      );
-      changeDraft(selectedRef.current, '');
-      setFocusRequest((value) => value + 1);
-    },
-  });
+  const commands = useDockCommands(input, (value) => changeDraft(selectedRef.current, value));
 
   // The opening spring and 340 ms closing curve are the actual Coucou motion helpers.
   const dimensions = useRef({
@@ -514,7 +485,6 @@ export function TopDock() {
                     : view === 'terminal' && selected.workDir
                       ? 640
                       : commands.open ||
-                          inlineModels.open ||
                           customizing ||
                           confirmQuit ||
                           showHelp ||
@@ -591,7 +561,6 @@ export function TopDock() {
     projects.length,
     confirmQuit,
     commands.open,
-    inlineModels.open,
   ]);
 
   const collapse = useCallback(() => {
@@ -1824,20 +1793,12 @@ export function TopDock() {
                   className="dock-composer"
                   onSubmit={(e) => {
                     e.preventDefault();
-                    if (inlineModels.open) inlineModels.choose();
-                    else void request(input);
+                    void request(input);
                   }}
                 >
                   <DockCommands menu={commands} />
-                  <DockInlineModels
-                    menu={inlineModels}
-                    onConnect={() => {
-                      changeDraft(selectedRef.current, '');
-                      void request('/accounts');
-                    }}
-                  />
                   <textarea
-                    {...(inlineModels.open ? inlineModels.inputProps : commands.inputProps)}
+                    {...commands.inputProps}
                     aria-label="Pedir ao MESP"
                     ref={composerInput}
                     rows={1}
@@ -1853,7 +1814,6 @@ export function TopDock() {
                     }
                     disabled={choosing}
                     onKeyDown={(event) => {
-                      if (inlineModels.onKeyDown(event)) return;
                       if (commands.onKeyDown(event)) return;
                       if (
                         event.key === 'Enter' &&

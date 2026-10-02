@@ -200,7 +200,11 @@ if (url) console.log('MESP_QA_HOOK=' + url);
         ?.textContent.includes('Resultado final da segunda tarefa.'),
     );
     assert.match(await page.locator('.dock-conversation').innerText(), /const total = 42;/);
-    assert.match(await page.locator('.dock-session-boundary').innerText(), /nova sessão do agente/);
+    assert.equal(
+      await page.locator('.dock-session-boundary').count(),
+      0,
+      'Free chat keeps a continuous history instead of suggesting a second agent session',
+    );
     assert.equal(
       await page.getByRole('textbox', { name: 'Pedir ao MESP', exact: true }).inputValue(),
       firstDraft,

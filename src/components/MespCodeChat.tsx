@@ -4,7 +4,6 @@ import { DockCopyButton, DockReplyText } from './DockConversation';
 import type { DockMessage } from './DockConversation';
 import { dockGreetingReply, dockModelHistory } from '../services/dockCore.mjs';
 import { DockCommands, useDockCommands } from './DockCommands';
-import { DockInlineModels, isDockModelCommand, useDockInlineModels } from './DockInlineModels';
 import { dockModelLabel } from './DockModelPicker';
 import {
   addTokenUsage,
@@ -404,7 +403,7 @@ export function MespCodeChat({
     if (dockComposerRef.current) dockComposerRef.current.onChange(value);
     else setLocalInput(value);
   }, []);
-  const commands = useDockCommands(input, setInput, isDockComposer && !isDockModelCommand(input));
+  const commands = useDockCommands(input, setInput, isDockComposer);
   useEffect(() => {
     if (visible && dockComposer?.focusRequest) composerField.current?.focus();
   }, [visible, dockComposer?.focusRequest]);
@@ -491,21 +490,6 @@ export function MespCodeChat({
     });
   }, [models, modelFilter, modelQuery]);
   const occupied = busy || verifyingMessageId !== null || pendingAutoVerify !== null;
-  const inlineModels = useDockInlineModels({
-    value: input,
-    enabled: isDockComposer && visible,
-    currentModel: effectiveModel,
-    canChange: !occupied,
-    onClose: () => setInput(''),
-    onChoose: (model) => {
-      setSelectedModel(model);
-      onModelChange?.(model);
-      if (status && !models.includes(model))
-        onStatusChange({ ...status, models: [...models, model], model });
-      setInput('');
-      composerField.current?.focus();
-    },
-  });
   const appliedPreferredModel = useRef<string | null>(null);
   const pendingPreferredModel = useRef<string | null>(null);
   useEffect(() => {
@@ -2580,25 +2564,16 @@ export function MespCodeChat({
         className="mesp-composer"
         onSubmit={(event) => {
           event.preventDefault();
-          if (inlineModels.open) inlineModels.choose();
-          else void send();
+          void send();
         }}
       >
         <DockCommands menu={commands} />
-        <DockInlineModels
-          menu={inlineModels}
-          onConnect={() => {
-            setInput('');
-            dockComposerRef.current?.onCommand('/accounts');
-          }}
-        />
         <textarea
-          {...(inlineModels.open ? inlineModels.inputProps : commands.inputProps)}
+          {...commands.inputProps}
           ref={composerField}
           value={input}
           onChange={(event) => commands.onInput(event.target.value)}
           onKeyDown={(event) => {
-            if (inlineModels.onKeyDown(event)) return;
             if (commands.onKeyDown(event)) return;
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();

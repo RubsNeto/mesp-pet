@@ -192,7 +192,7 @@ export function DockConversation({
                   {m.role === 'assistant' && <DockCopyButton text={m.content} label="resposta" />}
                 </div>
               </div>
-              {m.id === previousSessionLastId && (
+              {!general && m.id === previousSessionLastId && (
                 <div className="dock-session-boundary">
                   Histórico anterior preservado · nova sessão do agente
                 </div>
