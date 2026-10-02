@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { DockMascot } from './DockMascot';
+import { dockProjectStatus, unreadDockResult } from '../services/dockCore.mjs';
 import { getPresetById } from '../services/aiPresets';
 import type { PetEntity } from '../types';
 import type { FsmState } from '../coucou/fsm';
@@ -65,7 +66,7 @@ export function DockMespRail({
         const main = p.id === primaryId;
         const index = other.findIndex((m) => m.id === p.id);
         const title = p.taskTitle || p.projectName || 'Novo projeto';
-        const label = `${title} · ${p.projectName} · ${getPresetById(p.agentPresetId || '')?.name} · ${labels[p.state]}`;
+        const label = `${title} · ${p.projectName} · ${getPresetById(p.agentPresetId || '')?.name} · ${dockProjectStatus(p).label || labels[p.state]}${unreadDockResult(p) ? ' · Resultado novo' : ''}`;
         return (
           <button
             key={p.id}

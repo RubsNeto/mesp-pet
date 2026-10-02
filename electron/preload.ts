@@ -82,6 +82,14 @@ export interface MespCodeVerifyEvent {
 }
 
 const api = {
+  chatDock(
+    request: import('./dockChat.mjs').DockChatRequest,
+  ): Promise<import('./dockChat.mjs').DockChatReply> {
+    return ipcRenderer.invoke('dock:chat', request);
+  },
+  cancelDockChat(petId: string): Promise<boolean> {
+    return ipcRenderer.invoke('dock:cancel-chat', petId);
+  },
   generateDockTitle(prompt: string, agent: string): Promise<string | null> {
     return ipcRenderer.invoke('dock:generate-title', { prompt, agent });
   },

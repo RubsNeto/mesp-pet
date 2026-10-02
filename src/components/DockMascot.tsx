@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { BotEngine } from '../coucou/engine';
 import type { BotEmoteName, BotStateName } from '../coucou/layout';
-import { getSpritesForTraits } from '../assets/sprites';
+import { getDockSpritesForTraits } from '../assets/sprites';
+import { createDockMotionClock } from '../services/dockMotion.mjs';
 import type { MespTraits } from '../procedural/traits';
 import { classicDockTraits } from '../procedural/dockTraits.mjs';
 import type { PetState } from '../types';
@@ -18,7 +19,11 @@ const STATES: Record<PetState, BotStateName> = {
   sitting: 'idle',
 };
 
-export function DockMascot({
+const motionClock = createDockMotionClock(
+  (paint) => requestAnimationFrame(paint),
+  (frame) => cancelAnimationFrame(frame),
+);
+export const DockMascot = memo(function DockMascot({
   traits,
   state,
   emote,
@@ -26,6 +31,7 @@ export function DockMascot({
   mini = false,
   petting = false,
   active = true,
+  animated = true,
 }: {
   traits: MespTraits;
   state: PetState;
@@ -34,6 +40,7 @@ export function DockMascot({
   mini?: boolean;
   petting?: boolean;
   active?: boolean;
+  animated?: boolean;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const engine = useRef<BotEngine | null>(null);
@@ -52,47 +59,40 @@ export function DockMascot({
     bot.isMini = mini;
     engine.current = bot;
     const cleanTraits = classicDockTraits(traits);
-    const sets = {
-      normal: getSpritesForTraits(cleanTraits),
-    };
+    const set = getDockSpritesForTraits(cleanTraits);
     const images = new Map<string, HTMLImageElement>();
-    Object.values(sets).forEach((set) =>
-      Object.values(set.frames)
-        .flat()
-        .forEach((url) => {
-          if (images.has(url)) return;
-          const img = new Image();
-          img.src = url;
-          images.set(url, img);
-        }),
-    );
+    [set.open, set.closed, set.sleeping, set.error].forEach((url) => {
+      if (images.has(url)) return;
+      const img = new Image();
+      img.src = url;
+      images.set(url, img);
+    });
     bot.customBody = (x, radius) => {
       const shape = bot.eyeOverride;
       // Expressions keep the MESP's own white eye instead of replacing it with coloured symbols.
-      const set = sets.normal;
       const closed =
         pettingRef.current ||
         (shape && ['heart', 'happy', 'closed', 'line', 'wink'].includes(shape));
       el.dataset.eye = closed || bot.open < 0.25 || bot.state === 'sleeping' ? 'closed' : 'open';
       const frame =
         closed || bot.open < 0.25
-          ? set.frames.idle[7]
+          ? set.closed
           : bot.state === 'sleeping'
-            ? set.frames.sleeping[0]
+            ? set.sleeping
             : bot.state === 'dizzy' || bot.state === 'error'
-              ? set.frames.error[0]
-              : set.frames.idle[0];
+              ? set.error
+              : set.open;
       const image = images.get(frame);
       if (!image?.complete || !image.naturalWidth) return;
       const d = radius * 2.9;
       x.imageSmoothingEnabled = false;
       x.rotate(bot.roll);
-      if (pettingRef.current && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      if (pettingRef.current && !reduced.matches) {
         const breath = Math.sin(performance.now() / 170) * 0.018;
         x.scale(1 + breath, 1 - breath);
       }
       x.drawImage(image, -d / 2, -d / 2, d, d);
-      const eye = set.eye[frame];
+      const eye = frame === set.open ? set.eye : null;
       if (eye) {
         for (const slot of eye.slots) {
           const scale = d / 96;
@@ -110,39 +110,32 @@ export function DockMascot({
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      el.width = Math.round(116 * dpr);
-      el.height = Math.round(104 * dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const scale = dpr * (mini ? 0.5 : 1);
+      el.width = Math.round(116 * scale);
+      el.height = Math.round(104 * scale);
+      ctx.setTransform(scale, 0, 0, scale, 0, 0);
+      resume.current?.();
     };
     resize();
     const onMouse = (e: MouseEvent) => {
-      if (mini) return;
+      if (mini || !activeRef.current || !inView) return;
       const r = el.getBoundingClientRect();
       bot.lookX = Math.max(-1, Math.min(1, (e.clientX - r.x - r.width / 2) / 170));
       bot.lookY = Math.max(-1, Math.min(1, (e.clientY - r.y - r.height / 2) / 170));
     };
-    document.addEventListener('mousemove', onMouse, { passive: true });
+    if (!mini && animated) document.addEventListener('mousemove', onMouse, { passive: true });
     window.addEventListener('resize', resize);
-    let raf = 0,
-      previous = performance.now(),
-      lastPaint = 0;
+    let stopAnimation: (() => void) | null = null;
+    let inView = true;
+    let previous = performance.now();
     let lastExternalState: PetState | null = null;
     const tick = (now: number) => {
-      raf = 0;
-      if (!activeRef.current) {
-        el.dataset.paused = 'true';
-        return;
-      }
-      el.dataset.paused = 'false';
-      raf = requestAnimationFrame(tick);
-      if (now - lastPaint < (reduced.matches ? 100 : 1000 / (mini ? 20 : 40))) return;
       if (lastExternalState !== stateRef.current) {
         lastExternalState = stateRef.current;
         bot.setState(STATES[stateRef.current]);
       }
       bot.update(Math.min(0.04, (now - previous) / 1000));
       previous = now;
-      lastPaint = now;
       if (reduced.matches) {
         bot.sx = 1;
         bot.sy = 1;
@@ -155,26 +148,57 @@ export function DockMascot({
       bot.draw(ctx, 116, 104);
       el.dataset.squashed = bot.sy < 0.94 && bot.sx > 1.04 ? 'true' : 'false';
     };
-    raf = requestAnimationFrame(tick);
-    resume.current = () => {
-      if (!raf && activeRef.current) {
+    const synchronize = () => {
+      const shouldAnimate =
+        animated && activeRef.current && inView && document.visibilityState !== 'hidden';
+      el.dataset.paused = String(!shouldAnimate);
+      if (shouldAnimate && !stopAnimation) {
         previous = performance.now();
-        raf = requestAnimationFrame(tick);
+        stopAnimation = motionClock.subscribe(tick, reduced.matches ? 5 : mini ? 12 : 30);
+      } else if (!shouldAnimate && stopAnimation) {
+        stopAnimation();
+        stopAnimation = null;
       }
+      if (!stopAnimation) tick(performance.now());
     };
-    if (!reduced.matches && !mini) bot.greet();
+    const observer = new IntersectionObserver(([entry]) => {
+      inView = entry.isIntersecting;
+      synchronize();
+    });
+    observer.observe(el);
+    images.forEach((img) => {
+      img.onload = () => {
+        if (!stopAnimation) tick(performance.now());
+      };
+    });
+    resume.current = synchronize;
+    document.addEventListener('visibilitychange', synchronize);
+    const motionChanged = () => {
+      stopAnimation?.();
+      stopAnimation = null;
+      synchronize();
+    };
+    reduced.addEventListener('change', motionChanged);
+    if (!reduced.matches && !mini && animated) bot.greet();
+    synchronize();
     return () => {
-      cancelAnimationFrame(raf);
+      stopAnimation?.();
+      observer.disconnect();
+      images.forEach((img) => {
+        img.onload = null;
+      });
+      document.removeEventListener('visibilitychange', synchronize);
+      reduced.removeEventListener('change', motionChanged);
       bot.dispose();
       document.removeEventListener('mousemove', onMouse);
       window.removeEventListener('resize', resize);
       engine.current = null;
       resume.current = null;
     };
-  }, [traits, mini]);
+  }, [traits, mini, animated]);
   useEffect(() => {
-    if (active) resume.current?.();
-  }, [active]);
+    resume.current?.();
+  }, [active, state, petting]);
   useEffect(() => {
     if (!reaction || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     if (emote === 'slap') engine.current?.slap();
@@ -187,4 +211,4 @@ export function DockMascot({
   return (
     <canvas ref={canvas} className="dock-mascot" width="116" height="104" aria-hidden="true" />
   );
-}
+});

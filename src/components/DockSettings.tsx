@@ -27,6 +27,39 @@ function resetLabel(resetAt: number | null) {
     ? `Reset em ${hours}h ${minutes % 60}min`
     : `Reset em ${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
+function ConnectionIcon({ provider }: { provider: string }) {
+  return (
+    <svg
+      width="26"
+      height="26"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {provider === 'codex' ? (
+        <>
+          <rect x="3" y="4" width="18" height="16" rx="4" />
+          <path d="m7 9 3 3-3 3m6 0h4" />
+        </>
+      ) : provider === 'claude' ? (
+        <path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M5.6 18.4 18.4 5.6" />
+      ) : provider === 'gemini-cli' ? (
+        <path d="M12 2c0 6-4 10-10 10 6 0 10 4 10 10 0-6 4-10 10-10-6 0-10-4-10-10Z" />
+      ) : (
+        <>
+          <rect x="3" y="3" width="7" height="7" rx="2" />
+          <rect x="14" y="3" width="7" height="7" rx="2" />
+          <rect x="3" y="14" width="7" height="7" rx="2" />
+          <rect x="14" y="14" width="7" height="7" rx="2" />
+        </>
+      )}
+    </svg>
+  );
+}
 function quotaName(key: string) {
   return key
     .replace(/session/g, 'Sessão')
@@ -153,15 +186,18 @@ export function DockSettings({
   }, []);
   useEffect(() => {
     mounted.current = true;
-    void refresh();
     const unsubscribe = window.mesp?.on9RouterClosed(() => void refresh(true));
-    const timer = window.setInterval(() => void refresh(), 30000);
     return () => {
       mounted.current = false;
       unsubscribe?.();
-      window.clearInterval(timer);
     };
   }, [refresh]);
+  useEffect(() => {
+    if (!active) return;
+    void refresh(true);
+    const timer = window.setInterval(() => void refresh(), 30000);
+    return () => window.clearInterval(timer);
+  }, [active, refresh]);
   useEffect(() => {
     void refresh();
   }, [period, refresh]);
@@ -218,8 +254,8 @@ export function DockSettings({
         <>
           <div className="dock-settings-heading">
             <div>
-              <h2>Contas e modelos</h2>
-              <p>Sua IA, reunida no MESP.</p>
+              <h2>Conexões</h2>
+              <p>Conecte suas contas e escolha a IA deste MESP.</p>
             </div>
             <button
               className="dock-settings-refresh"
@@ -241,6 +277,31 @@ export function DockSettings({
               </svg>
             </button>
           </div>
+          <nav className="dock-connect-buttons" aria-label="Conectar provedores">
+            {PROVIDERS.map((provider) => {
+              const connected = overview?.accounts.some((item) => item.provider === provider.id);
+              const action = `${connected ? 'Gerenciar' : 'Conectar'} ${provider.name}`;
+              return (
+                <button
+                  key={provider.id}
+                  onClick={() => open(provider.id)}
+                  aria-label={action}
+                  title={action}
+                >
+                  <ConnectionIcon provider={provider.id} />
+                  <span>{provider.name}</span>
+                </button>
+              );
+            })}
+            <button
+              onClick={() => open('providers')}
+              aria-label="Outros provedores"
+              title="Todas as conexões disponíveis"
+            >
+              <ConnectionIcon provider="other" />
+              <span>Todos</span>
+            </button>
+          </nav>
           <div className="dock-router-health" role="status">
             <span className={`dock-status ${ready ? 'state-success' : 'state-waiting'}`} />
             <strong>9Router</strong>
@@ -447,17 +508,6 @@ export function DockSettings({
               )}
             </div>
           </section>
-          <div className="dock-connect-buttons">
-            {PROVIDERS.map((provider) => (
-              <button key={provider.id} onClick={() => void open(provider.id)}>
-                {overview?.accounts.some((item) => item.provider === provider.id)
-                  ? 'Gerenciar'
-                  : 'Conectar'}{' '}
-                {provider.name}
-              </button>
-            ))}
-            <button onClick={() => open('providers')}>Outros provedores</button>
-          </div>
           <div className="dock-settings-bottom">
             <span>
               {overview

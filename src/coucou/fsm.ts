@@ -11,7 +11,7 @@ export class IslandStateMachine {
   /** home → petit delay, seconds. */
   homeToPetitDelay = 15;
   /** petit → hidden delay, seconds. */
-  petitToHiddenDelay = 60;
+  petitToHiddenDelay = 3;
   /** coucou → petit once the greeting animation ends (no hover). */
   greetAutoCollapseDelay = 0.6;
   /** coucou → petit while the mouse hovers the greeting. */
@@ -22,6 +22,7 @@ export class IslandStateMachine {
   private petitHide: number | null = null;
   private homeCollapse: number | null = null;
   private greetCollapse: number | null = null;
+  private dismissing = false;
 
   // ── Inputs ──────────────────────────────────────────────────────────────────
 
@@ -37,7 +38,7 @@ export class IslandStateMachine {
         this.transition('petit');
         break;
       case 'petit':
-        this.clear('petitHide');
+        if (!this.dismissing) this.clear('petitHide');
         break;
       case 'home':
         this.clear('homeCollapse');
@@ -94,7 +95,9 @@ export class IslandStateMachine {
   /// Explicit close (OK button, Escape, an alert being answered).
   forcePetit() {
     this.cancelTimers();
+    this.dismissing = true;
     this.transition('petit');
+    this.schedulePetitHide();
   }
 
   forceHidden() {
@@ -105,7 +108,8 @@ export class IslandStateMachine {
   // ── Timers ──────────────────────────────────────────────────────────────────
 
   private schedulePetitHide() {
-    this.clear('petitHide');
+    // Closing can trigger both blur and mouseleave. Keep the original deadline.
+    if (this.petitHide != null) return;
     this.petitHide = window.setTimeout(() => {
       this.petitHide = null;
       if (this.state === 'petit') this.transition('hidden');
@@ -136,6 +140,7 @@ export class IslandStateMachine {
   }
 
   cancelTimers() {
+    this.dismissing = false;
     this.clear('petitHide');
     this.clear('homeCollapse');
     this.clear('greetCollapse');

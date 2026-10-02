@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { PetState } from '../types';
 
 export interface DockMessage {
@@ -107,6 +107,8 @@ export function DockConversation({
   project,
   agent,
   previousSessionLastId,
+  general = false,
+  children,
 }: {
   messages: DockMessage[];
   state: PetState;
@@ -114,6 +116,8 @@ export function DockConversation({
   project: string;
   agent: string;
   previousSessionLastId?: string;
+  general?: boolean;
+  children?: ReactNode;
 }) {
   const log = useRef<HTMLDivElement>(null);
   const following = useRef(true);
@@ -198,10 +202,13 @@ export function DockConversation({
         )}
         {state === 'error' && (
           <div className="dock-chat-guidance">
-            Confira a mensagem do agente ou abra o Terminal para continuar.
+            {general
+              ? 'Confira a conexão do agente nas Configurações e tente novamente.'
+              : 'Confira a mensagem do agente ou abra o Terminal para continuar.'}
           </div>
         )}
       </div>
+      {children}
       {showLatest && (
         <button
           className="dock-latest-message"

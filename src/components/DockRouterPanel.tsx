@@ -81,8 +81,21 @@ export function DockRouterPanel({
           previous = signature;
         }
       }
-      frame = requestAnimationFrame(measure);
     };
+    const scheduleMeasure = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        measure();
+      });
+    };
+    const resizeObserver = new ResizeObserver(scheduleMeasure);
+    if (viewport.current) resizeObserver.observe(viewport.current);
+    const island = viewport.current?.closest('.top-dock');
+    const mutations = new MutationObserver(scheduleMeasure);
+    if (island)
+      mutations.observe(island, { attributes: true, attributeFilter: ['style', 'class'] });
+    window.addEventListener('resize', scheduleMeasure);
     measure();
     const signature = `${page}:${request}`;
     const target = lastRequest.current === signature ? latest.current.page : page;
@@ -109,6 +122,9 @@ export function DockRouterPanel({
     return () => {
       stopped = true;
       cancelAnimationFrame(frame);
+      resizeObserver.disconnect();
+      mutations.disconnect();
+      window.removeEventListener('resize', scheduleMeasure);
       window.mesp?.hide9RouterPanel();
     };
   }, [active, page, request, attempt]);

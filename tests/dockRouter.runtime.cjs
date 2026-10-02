@@ -60,6 +60,7 @@ const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1'
       account: req.headers.authorization,
       model: body.model,
       prompt: body.messages?.at(-1)?.content,
+      messages: body.messages,
     });
     if (unsupportedModel && body.model === 'mesp-coder') {
       unsupportedCalls++;
@@ -226,7 +227,11 @@ const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1'
         body: JSON.stringify({
           model,
           stream,
-          messages: [{ role: 'user', content: 'Validar Auto' }],
+          messages: [
+            { role: 'user', content: 'O projeto se chama Atlas' },
+            { role: 'assistant', content: 'Vou manter esse contexto.' },
+            { role: 'user', content: 'Validar Auto' },
+          ],
         }),
         signal: AbortSignal.timeout(20000),
       });
@@ -243,10 +248,18 @@ const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1'
     failNear = true;
     await send('mesp-auto');
     assert.equal(requests.at(-1).account, 'Bearer qa-far');
+    assert.ok(
+      requests.at(-1).messages.some((message) => message.content === 'O projeto se chama Atlas'),
+      'Fallback keeps the same conversation context',
+    );
     assert.ok(!requests.some((item) => item.account === 'Bearer qa-empty'));
     failNear = false;
     await send('mespqa/mesp-coder', false);
     assert.equal(requests.at(-1).model, 'mesp-coder');
+    assert.ok(
+      requests.at(-1).messages.some((message) => message.content === 'O projeto se chama Atlas'),
+      'Manual model keeps context too',
+    );
     const stats = await api('/api/usage/stats?period=all');
     assert.ok(stats.totalRequests >= 3);
     assert.ok(Object.values(stats.byAccount).some((item) => item.connectionId === near.id));

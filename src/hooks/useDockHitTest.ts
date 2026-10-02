@@ -5,6 +5,7 @@ export function useDockHitTest(): void {
   useEffect(() => {
     if (!window.mesp?.setDockHitRegions) return;
     let previous = '';
+    let frame = 0;
     const update = () => {
       const regions = [...document.querySelectorAll<HTMLElement>('.interactive')].flatMap((el) => {
         if (!el.checkVisibility()) return [];
@@ -24,10 +25,34 @@ export function useDockHitTest(): void {
       previous = serialized;
       void window.mesp!.setDockHitRegions(regions);
     };
+    const schedule = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        update();
+      });
+    };
+    const resize = new ResizeObserver(schedule);
+    const observeRegions = () =>
+      document.querySelectorAll('.interactive').forEach((el) => resize.observe(el));
+    observeRegions();
+    const mutations = new MutationObserver((changes) => {
+      if (changes.some((change) => change.type === 'childList')) observeRegions();
+      schedule();
+    });
+    mutations.observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['style', 'class', 'hidden'],
+    });
+    window.addEventListener('resize', schedule);
     update();
-    const timer = window.setInterval(update, 40);
     return () => {
-      window.clearInterval(timer);
+      cancelAnimationFrame(frame);
+      resize.disconnect();
+      mutations.disconnect();
+      window.removeEventListener('resize', schedule);
       void window.mesp?.setDockHitRegions([]);
     };
   }, []);

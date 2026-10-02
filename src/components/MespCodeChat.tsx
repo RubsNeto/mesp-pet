@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PetState } from '../types';
 import { DockCopyButton, DockReplyText } from './DockConversation';
+import type { DockMessage } from './DockConversation';
+import { dockGreetingReply, dockModelHistory } from '../services/dockCore.mjs';
+import { DockCommands, useDockCommands } from './DockCommands';
 import {
   addTokenUsage,
   enqueueUniqueTask,
@@ -147,6 +150,7 @@ interface MespCodeChatProps {
   preferredModel?: string;
   onModelChange?: (model: string) => void;
   externalPrompt?: { id: string; text: string };
+  initialConversation?: DockMessage[];
   petId: string;
   workDir: string | null;
   visible: boolean;
@@ -307,19 +311,7 @@ function seconds(milliseconds: number): string {
 }
 
 function recentHistory(messages: ChatMessage[]) {
-  const result: Array<{ role: 'user' | 'assistant'; content: string }> = [];
-  let length = 0;
-  for (let index = messages.length - 1; index >= 0 && result.length < 8; index -= 1) {
-    const message = messages[index];
-    if (!message.text.trim() || message.status === 'error' || message.status === 'cancelled') {
-      continue;
-    }
-    const content = message.text.trim().slice(0, 6000);
-    if (length + content.length > 20_000) break;
-    result.unshift({ role: message.role, content });
-    length += content.length;
-  }
-  return result;
+  return dockModelHistory(messages);
 }
 
 function modelParts(model: string | null | undefined): { provider: string; name: string } {
@@ -359,11 +351,25 @@ export function MespCodeChat({
   onStatusChange,
   onPetStateChange,
   externalPrompt,
+  initialConversation,
   dockComposer,
   onTaskStarted,
 }: MespCodeChatProps) {
-  const initialRef = useRef(loadStoredChat(petId, workDir));
-  const [messages, setMessages] = useState<ChatMessage[]>(initialRef.current.messages);
+  const [initialChat] = useState(() => loadStoredChat(petId, workDir));
+  const initialRef = useRef(initialChat);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    const saved = initialRef.current.messages;
+    if (saved.length) return saved;
+    return (initialConversation || [])
+      .filter((message) => message.content.trim())
+      .map((message) => ({
+        id: message.id,
+        role: message.role,
+        text: message.content,
+        tools: [],
+        status: 'done',
+      }));
+  });
   const [sessionId, setSessionId] = useState<string | null>(initialRef.current.sessionId);
   const [sessionCwd, setSessionCwd] = useState<string | null>(initialRef.current.sessionCwd);
   const [sessionMode, setSessionMode] = useState<MespCodeMode | null>(
@@ -395,6 +401,7 @@ export function MespCodeChat({
     if (dockComposerRef.current) dockComposerRef.current.onChange(value);
     else setLocalInput(value);
   }, []);
+  const commands = useDockCommands(input, setInput, isDockComposer);
   useEffect(() => {
     if (visible && dockComposer?.focusRequest) composerField.current?.focus();
   }, [visible, dockComposer?.focusRequest]);
@@ -482,6 +489,7 @@ export function MespCodeChat({
   }, [models, modelFilter, modelQuery]);
   const occupied = busy || verifyingMessageId !== null || pendingAutoVerify !== null;
   const appliedPreferredModel = useRef<string | null>(null);
+  const pendingPreferredModel = useRef<string | null>(null);
   useEffect(() => {
     if (
       !preferredModel ||
@@ -491,9 +499,12 @@ export function MespCodeChat({
     )
       return;
     appliedPreferredModel.current = preferredModel;
+    pendingPreferredModel.current = preferredModel;
     setSelectedModel(preferredModel);
   }, [preferredModel, occupied, models]);
   useEffect(() => {
+    if (pendingPreferredModel.current && selectedModel !== pendingPreferredModel.current) return;
+    pendingPreferredModel.current = null;
     if (selectedModel && models.includes(selectedModel)) onModelChange?.(selectedModel);
   }, [selectedModel, models, onModelChange]);
 
@@ -1629,7 +1640,10 @@ export function MespCodeChat({
           mode: task.mode,
           sessionId: canResumeSession ? sessionId : null,
           cwd: task.cwd || undefined,
-          history: task.mode === 'fast' ? recentHistory(messages) : undefined,
+          history:
+            task.mode === 'fast' || !canResumeSession || !sessionId
+              ? recentHistory(messages)
+              : undefined,
           limits: task.limits,
         });
         if (!result.ok) {
@@ -1647,6 +1661,16 @@ export function MespCodeChat({
       const prompt = (promptOverride ?? input).trim();
       if (!prompt) return;
       if (promptOverride === undefined && dockComposerRef.current?.onCommand(prompt)) return;
+      const greeting = dockComposerRef.current ? dockGreetingReply(prompt) : null;
+      if (greeting) {
+        setMessages((previous) => [
+          ...previous,
+          { id: id('user'), role: 'user', text: prompt, tools: [], status: 'done' },
+          { id: id('assistant'), role: 'assistant', text: greeting, tools: [], status: 'done' },
+        ]);
+        if (promptOverride === undefined || input.trim() === prompt) setInput('');
+        return;
+      }
       if (status?.runtime?.setupRequired) {
         setAnnouncement('Configure pelo menos um provedor antes de enviar uma tarefa.');
         return;
@@ -2516,11 +2540,14 @@ export function MespCodeChat({
           void send();
         }}
       >
+        <DockCommands menu={commands} />
         <textarea
+          {...commands.inputProps}
           ref={composerField}
           value={input}
-          onChange={(event) => setInput(event.target.value)}
+          onChange={(event) => commands.onInput(event.target.value)}
           onKeyDown={(event) => {
+            if (commands.onKeyDown(event)) return;
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
               if (!event.repeat) void send();
@@ -2547,21 +2574,8 @@ export function MespCodeChat({
           <span className="mesp-composer-hint">
             {occupied ? 'Enter adiciona a fila' : 'Enter envia'} · Shift+Enter quebra linha
           </span>
-          {occupied ? (
-            <div className="mesp-composer-actions">
-              <button
-                type="button"
-                className="mesp-composer-stop"
-                onClick={() => void cancel()}
-                disabled={cancelling}
-              >
-                <span aria-hidden="true">■</span>{' '}
-                {cancelling
-                  ? 'Parando...'
-                  : verifyingMessageId || pendingAutoVerify
-                    ? 'Parar verificacao'
-                    : 'Parar'}
-              </button>
+          <div className="mesp-composer-actions">
+            {occupied && input.trim() && (
               <button
                 type="submit"
                 className="mesp-composer-queue"
@@ -2574,17 +2588,51 @@ export function MespCodeChat({
               >
                 Adicionar a fila
               </button>
-            </div>
-          ) : (
+            )}
             <button
-              type="submit"
-              className="mesp-composer-send"
-              aria-label={dockComposer ? 'Enviar pedido' : undefined}
-              disabled={!input.trim() || !effectiveModel || status?.runtime?.setupRequired}
+              type={occupied ? 'button' : 'submit'}
+              className={`mesp-composer-action ${occupied ? 'mesp-composer-stop' : 'mesp-composer-send'}`}
+              aria-label={occupied ? (cancelling ? 'Parando...' : 'Parar') : 'Enviar pedido'}
+              title={
+                occupied
+                  ? verifyingMessageId || pendingAutoVerify
+                    ? 'Parar verificação'
+                    : 'Parar tarefa'
+                  : 'Enviar pedido'
+              }
+              aria-busy={cancelling || undefined}
+              onClick={occupied ? () => void cancel() : undefined}
+              disabled={
+                occupied
+                  ? cancelling
+                  : !input.trim() || !effectiveModel || status?.runtime?.setupRequired
+              }
             >
-              Enviar <span aria-hidden="true">↑</span>
+              <svg
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                aria-hidden="true"
+              >
+                {occupied ? (
+                  <rect
+                    x="6"
+                    y="6"
+                    width="12"
+                    height="12"
+                    rx="1.5"
+                    fill="currentColor"
+                    stroke="none"
+                  />
+                ) : (
+                  <path d="M12 19V5m-6 6 6-6 6 6" />
+                )}
+              </svg>
             </button>
-          )}
+          </div>
         </div>
       </form>
 

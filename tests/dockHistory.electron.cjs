@@ -3,7 +3,6 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const net = require('node:net');
-const { spawnSync } = require('node:child_process');
 const { _electron } = require(process.env.PLAYWRIGHT_PATH || 'playwright');
 const root = path.resolve(__dirname, '..');
 
@@ -64,6 +63,15 @@ if (url) console.log('MESP_QA_HOOK=' + url);
       ipcMain.handle('dialog:select-folder', () => folder);
       ipcMain.removeHandler('dock:generate-title');
       ipcMain.handle('dock:generate-title', () => null);
+      globalThis.__historyQA = [];
+      ipcMain.removeHandler('dock:chat');
+      ipcMain.handle(
+        'dock:chat',
+        (_event, payload) =>
+          new Promise((resolve) => {
+            globalThis.__historyQA.push({ payload, resolve, done: false });
+          }),
+      );
       // Exercise the real IPC route without replacing the user's system clipboard.
       globalThis.__mespQaCopies = [];
       globalThis.__mespQaCopyEnabled = true;
@@ -84,33 +92,15 @@ if (url) console.log('MESP_QA_HOOK=' + url);
     await page.getByRole('textbox', { name: 'Pedir ao MESP', exact: true }).press('Enter');
   };
   const complete = async (id, content) => {
-    await page.waitForFunction(
-      (petId) =>
-        window.qaOutput
-          .filter((message) => message.petId === petId)
-          .some((message) => message.data.includes('MESP_QA_HOOK=')),
-      id,
+    await app.evaluate(
+      (_electron, { id, content }) => {
+        const call = globalThis.__historyQA.find((call) => call.payload.petId === id && !call.done);
+        if (!call) throw new Error('Missing router conversation request');
+        call.done = true;
+        call.resolve({ ok: true, answer: content, needsProject: false });
+      },
+      { id, content },
     );
-    const output = await page.evaluate(
-      (petId) =>
-        window.qaOutput
-          .filter((message) => message.petId === petId)
-          .map((message) => message.data)
-          .join(''),
-      id,
-    );
-    const hook = output.match(/MESP_QA_HOOK=(http:\/\/127\.0\.0\.1:\d+\/mesp\/[a-f0-9]+)/)?.[1];
-    assert.ok(hook);
-    const result = spawnSync(
-      process.execPath,
-      [
-        path.join(profile, 'session-hooks', 'notify.cjs'),
-        hook,
-        JSON.stringify({ type: 'agent-turn-complete', 'last-assistant-message': content }),
-      ],
-      { windowsHide: true, timeout: 5000 },
-    );
-    assert.equal(result.status, 0);
     await page.waitForFunction(
       (text) =>
         [...document.querySelectorAll('.dock-message-text')].some((element) =>
@@ -123,14 +113,7 @@ if (url) console.log('MESP_QA_HOOK=' + url);
   try {
     await setup();
     await page.locator('.dock-compact').click();
-    await ask('Abrir projeto');
-    await page.waitForFunction(
-      () => document.querySelector('.terminal-status')?.textContent === 'conectado',
-    );
     await ask('echo HISTORIA_REAL_MESP');
-    await page.waitForFunction(() =>
-      document.querySelector('.dock-chat-reply')?.textContent.includes('HISTORIA_REAL_MESP'),
-    );
     const code = 'const total = 42;';
     const firstReply =
       `Resultado da revisão.\n\n\`\`\`ts\r\n${code}\r\n\`\`\`\n\n` +
@@ -195,9 +178,6 @@ if (url) console.log('MESP_QA_HOOK=' + url);
       () => JSON.parse(localStorage.getItem('mesp-top-projects-v1'))[1].id,
     );
     await ask('echo HISTORIA_SEGUNDO_MESP');
-    await page.waitForFunction(() =>
-      document.querySelector('.dock-chat-reply')?.textContent.includes('HISTORIA_SEGUNDO_MESP'),
-    );
     await complete(secondId, 'Conversa do segundo MESP.');
     const secondDraft = 'Rascunho reservado para o segundo MESP';
     await page.getByRole('textbox', { name: 'Pedir ao MESP', exact: true }).fill(secondDraft);
@@ -224,9 +204,6 @@ if (url) console.log('MESP_QA_HOOK=' + url);
     assert.equal(
       await page.getByRole('textbox', { name: 'Pedir ao MESP', exact: true }).inputValue(),
       firstDraft,
-    );
-    await page.waitForFunction(
-      () => document.querySelector('.terminal-status')?.textContent === 'conectado',
     );
     assert.equal(
       await page.evaluate(() =>
@@ -299,29 +276,35 @@ if (url) console.log('MESP_QA_HOOK=' + url);
         return { ok: true };
       });
     });
-    await page.evaluate((reply) => {
-      const projects = JSON.parse(localStorage.getItem('mesp-top-projects-v1'));
-      projects[0].agent = 'mesp-code';
-      projects[0].routerModel = '9router/mesp-auto';
-      localStorage.setItem('mesp-top-projects-v1', JSON.stringify(projects));
-      localStorage.setItem(
-        'mesp-code-chat-mesp-primary',
-        JSON.stringify({
-          messages: [
-            {
-              id: 'code-user',
-              role: 'user',
-              text: 'Revise este código.',
-              status: 'done',
-              tools: [],
-            },
-            { id: 'code-reply', role: 'assistant', text: reply, status: 'done', tools: [] },
-          ],
-          mode: 'fast',
-          selectedModel: '9router/mesp-auto',
-        }),
-      );
-    }, firstReply);
+    await page.addInitScript(
+      ({ reply, project }) => {
+        if (localStorage.getItem('qa-code-seeded')) return;
+        localStorage.setItem('qa-code-seeded', '1');
+        const projects = JSON.parse(localStorage.getItem('mesp-top-projects-v1'));
+        projects[0].agent = 'mesp-code';
+        projects[0].workDir = project;
+        projects[0].routerModel = '9router/mesp-auto';
+        localStorage.setItem('mesp-top-projects-v1', JSON.stringify(projects));
+        localStorage.setItem(
+          'mesp-code-chat-mesp-primary',
+          JSON.stringify({
+            messages: [
+              {
+                id: 'code-user',
+                role: 'user',
+                text: 'Revise este código.',
+                status: 'done',
+                tools: [],
+              },
+              { id: 'code-reply', role: 'assistant', text: reply, status: 'done', tools: [] },
+            ],
+            mode: 'fast',
+            selectedModel: '9router/mesp-auto',
+          }),
+        );
+      },
+      { reply: firstReply, project },
+    );
     await page.reload();
     await page.locator('.dock-compact').click();
     const codeChat = page.getByRole('region', { name: 'Chat MESP Code', exact: true });

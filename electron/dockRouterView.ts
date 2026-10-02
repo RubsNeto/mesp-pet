@@ -98,7 +98,7 @@ export class DockRouterView {
           sandbox: true,
           webSecurity: true,
           allowRunningInsecureContent: false,
-          backgroundThrottling: false,
+          backgroundThrottling: process.env.MESP_DOCK_TEST_HIDDEN !== '1',
           partition: 'mesp-router-local',
         },
       });
@@ -182,15 +182,17 @@ export class DockRouterView {
           }
           return;
         }
-        if (input.key !== 'Escape') return;
+        if (input.key !== 'Escape' || input.isAutoRepeat) return;
         // Native dialogs get first use of Escape; otherwise collapse the island.
         void contents
           .executeJavaScript(
             "Array.from(document.querySelectorAll('[role=dialog], .fixed.inset-0')).some(element => getComputedStyle(element).display !== 'none')",
           )
           .then((modalOpen) => {
-            if (!modalOpen && !this.parent.isDestroyed())
+            if (!modalOpen && !this.parent.isDestroyed()) {
+              this.parent.webContents.focus();
               this.parent.webContents.send('dock:router-escape');
+            }
           })
           .catch(() => {});
       });

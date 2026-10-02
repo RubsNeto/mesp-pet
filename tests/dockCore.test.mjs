@@ -7,8 +7,15 @@ import {
   aggregateDockState,
   visibleHitRegions,
   parseDockRequest,
+  dockGreetingReply,
+  dockModelHistory,
   findDockProject,
   taskTitle,
+  nextDockTaskTitle,
+  dockTitleContext,
+  unreadDockResult,
+  dockProjectStatus,
+  restoreDockTask,
   shouldPromoteProject,
   isTaskCompletion,
   terminalReply,
@@ -17,6 +24,157 @@ import {
   readDockConversations,
   serializeDockConversations,
 } from '../src/services/dockCore.mjs';
+
+test('/model opens the router model selector instead of sending a task', () => {
+  for (const command of ['/model', '/models', '/modelo', '/modelos'])
+    assert.deepEqual(parseDockRequest(command), { kind: 'settings', page: 'overview' });
+  assert.equal(parseDockRequest('/model explicar').kind, 'send');
+});
+
+test('slash commands map to local actions without sending them to a provider', () => {
+  for (const [command, action] of [
+    ['/accounts', { kind: 'settings', page: 'providers' }],
+    ['/usage', { kind: 'settings', page: 'usage' }],
+    ['/quota', { kind: 'settings', page: 'quota' }],
+    ['/project', { kind: 'new-project' }],
+    ['/new', { kind: 'new-mesp' }],
+    ['/projects', { kind: 'projects' }],
+    ['/appearance', { kind: 'customize' }],
+    ['/help', { kind: 'help' }],
+    ['/minimize', { kind: 'collapse' }],
+  ])
+    assert.deepEqual(parseDockRequest(command), action);
+});
+
+test('switching models retains the original objective and recent context without sending failed turns', () => {
+  const conversation = Array.from({ length: 90 }, (_, index) => ({
+    role: index % 2 ? 'assistant' : 'user',
+    content: `Turn ${index}`,
+  }));
+  conversation[0].content = 'Project Atlas, preserve this objective';
+  const history = dockModelHistory([
+    ...conversation,
+    { role: 'assistant', text: 'failed', status: 'error' },
+    { role: 'user', text: 'continue' },
+  ]);
+  assert.equal(history.length, 40);
+  assert.equal(history[0].content, conversation[0].content);
+  assert.equal(history.at(-1).content, 'continue');
+  assert.ok(!history.some((message) => message.content === 'failed'));
+  const large = dockModelHistory(
+    conversation.map((message) => ({ ...message, content: message.content + 'x'.repeat(10000) })),
+  );
+  assert.ok(large.reduce((size, message) => size + message.content.length, 0) <= 48000);
+  assert.ok(large.every((message) => message.content.length <= 6000));
+  assert.deepEqual(dockModelHistory(conversation.slice(0, 18)), conversation.slice(0, 18));
+});
+
+test('task names keep the objective on confirmations and change on substantive new requests', () => {
+  for (const text of [
+    'sim',
+    'Continue!',
+    'pode seguir',
+    'Faça isso.',
+    'tente novamente',
+    'ok, obrigado',
+  ])
+    assert.equal(nextDockTaskTitle(text, 'Corrigir checkout'), 'Corrigir checkout');
+  for (const text of [
+    'Continue corrigindo o relatório fiscal',
+    'Sim, agora implemente login',
+    'Criar API de clientes',
+  ])
+    assert.equal(nextDockTaskTitle(text, 'Corrigir checkout'), text);
+  assert.equal(nextDockTaskTitle('sim'), 'sim');
+});
+test('naming receives bounded recent user context and excludes unrelated private properties', () => {
+  const context = JSON.parse(
+    dockTitleContext(
+      { projectName: 'CRM', taskTitle: 'Integrar WhatsApp', token: 'secret' },
+      'continue',
+      ['old', 'old2', 'old3', 'old4', 'continue'],
+    ),
+  );
+  assert.equal(context.projeto, 'CRM');
+  assert.equal(context.tarefaAtual, 'Integrar WhatsApp');
+  assert.deepEqual(context.pedidosAnteriores, ['old2', 'old3', 'old4']);
+  assert.equal(context.pedidoAtual, 'continue');
+  assert.ok(!JSON.stringify(context).includes('secret'));
+  assert.ok(
+    dockTitleContext({}, 'x'.repeat(10000), Array(100).fill('x'.repeat(10000))).length < 6000,
+  );
+});
+test('project status gives current work priority over previous results and attention priority over completion', () => {
+  assert.deepEqual(dockProjectStatus({ state: 'idle' }), { group: 'ready', label: 'Pronto' });
+  assert.equal(dockProjectStatus({ completedAt: 100, state: 'idle' }).group, 'completed');
+  assert.equal(
+    dockProjectStatus({ completedAt: 100, hasActiveTask: true, state: 'working' }).group,
+    'active',
+  );
+  assert.equal(dockProjectStatus({ state: 'waiting', hasActiveTask: true }).group, 'attention');
+  assert.equal(dockProjectStatus({ completedAt: 100, taskInterrupted: true }).group, 'attention');
+  assert.equal(dockProjectStatus({ completedAt: 100, taskError: true }).group, 'attention');
+});
+test('completion and acknowledgement persist without falsely restoring running agents', () => {
+  const saved = normalizeDockProjects([
+    {
+      id: 'mesp-a',
+      name: 'ERP',
+      workDir: null,
+      completedAt: 100,
+      resultSeenAt: 50,
+      hasActiveTask: true,
+    },
+  ])[0];
+  assert.equal(saved.completedAt, 100);
+  assert.equal(saved.taskInterrupted, true);
+  assert.equal(saved.hasActiveTask, undefined);
+  assert.equal(unreadDockResult(saved), true);
+  assert.equal(unreadDockResult({ ...saved, resultSeenAt: 100 }), false);
+  assert.deepEqual(restoreDockTask({ completedAt: -1, resultSeenAt: Infinity }), {});
+  assert.deepEqual(restoreDockTask(null), {});
+  assert.equal(restoreDockTask({ completedAt: 100, resultSeenAt: 999 }).resultSeenAt, 100);
+});
+test('status questions open local project filters without intercepting real tasks', () => {
+  for (const text of [
+    'O que terminou?',
+    'quem finalizou?',
+    'Ver projetos concluídos',
+    'tarefas finalizadas',
+  ])
+    assert.deepEqual(parseDockRequest(text), { kind: 'projects', filter: 'completed' });
+  for (const text of ['Quem está trabalhando?', 'projetos em andamento', 'tarefas ativas'])
+    assert.deepEqual(parseDockRequest(text), { kind: 'projects', filter: 'active' });
+  assert.deepEqual(parseDockRequest('projetos com erro'), {
+    kind: 'projects',
+    filter: 'attention',
+  });
+  assert.equal(parseDockRequest('Analise projetos concluídos no mês passado').kind, 'send');
+});
+
+test('simple greetings never require agent setup while actual questions and actions remain agent requests', () => {
+  for (const greeting of [
+    'oi',
+    ' Olá! ',
+    'OI!!!',
+    'Bom dia',
+    'boa tarde!',
+    'Boa noite.',
+    'Oi, tudo bem?',
+    'como vai?',
+  ])
+    assert.match(dockGreetingReply(greeting), /eu aviso antes/);
+  for (const request of [
+    'Oi, corrija o erro no projeto',
+    'Olá, explique React',
+    'Como vai funcionar o deploy?',
+    'Abrir projeto',
+    'Qual o melhor modelo?',
+    'Ver consumo',
+    'oi\ncorrija meu código',
+  ])
+    assert.equal(dockGreetingReply(request), null);
+});
 
 test('chat history rejects damaged saves, removed projects and invalid messages', () => {
   for (const raw of ['{broken', 'null', '[]', '"text"'])

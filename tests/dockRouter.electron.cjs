@@ -265,6 +265,19 @@ const root = path.resolve(__dirname, '..');
       `(() => {const input=document.querySelector('.fixed.inset-0 input');const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(input,'MESP QA local');input.dispatchEvent(new Event('input',{bubbles:true}));})()`,
     );
     await screenshot('router-inline-form.png');
+    fs.writeFileSync(
+      path.join(profile, 'form-layout.json'),
+      JSON.stringify(
+        await native(`(() => {
+      const input=document.querySelector('.fixed.inset-0 input');
+      const parents=[];
+      for(let el=input;el;el=el.parentElement){const r=el.getBoundingClientRect(),s=getComputedStyle(el);parents.push({tag:el.tagName,class:el.className,x:r.x,y:r.y,w:r.width,h:r.height,display:s.display,position:s.position,transform:s.transform,overflow:s.overflow});}
+      return {viewport:{width:innerWidth,height:innerHeight},parents};
+    })()`),
+        null,
+        2,
+      ),
+    );
     await page.getByRole('button', { name: 'Recolher painel', exact: true }).click();
     await page.waitForFunction(
       () => !document.querySelector('.top-dock')?.classList.contains('mode-home'),
@@ -272,11 +285,27 @@ const root = path.resolve(__dirname, '..');
     for (let attempt = 0; attempt < 30 && (await viewInfo()).visible; attempt++)
       await new Promise((resolve) => setTimeout(resolve, 100));
     assert.equal((await viewInfo()).visible, false);
-    await open('providers');
+    const preservedUrl = (await viewInfo()).url;
+    await page.locator('.dock-compact').click();
+    await page.waitForSelector('.top-dock.mode-home.view-settings');
+    await waitNative('document.querySelector(".fixed.inset-0 input")?.value === "MESP QA local"');
+    assert.equal(
+      (await viewInfo()).url,
+      preservedUrl,
+      'Reopening resumes the same connection form',
+    );
     assert.equal(
       await native('document.querySelector(".fixed.inset-0 input")?.value'),
       'MESP QA local',
     );
+    await page.getByRole('button', { name: 'Recolher painel', exact: true }).click();
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.querySelector('.top-dock.mode-hidden'), {
+      polling: 50,
+    });
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.top-dock.mode-home.view-settings');
+    await waitNative('document.querySelector(".fixed.inset-0 input")?.value === "MESP QA local"');
     // Changing tabs also hides the native view instead of covering the chat.
     await app.evaluate(({ BrowserWindow }) => {
       const view = BrowserWindow.getAllWindows()[0].contentView.children.find((child) =>
@@ -301,7 +330,7 @@ const root = path.resolve(__dirname, '..');
       'MESP QA local',
     );
     const modal = await native(
-      '(() => {const rect=document.querySelector(".fixed.inset-0 > div").getBoundingClientRect();return {x:rect.x,y:rect.y,right:rect.right,bottom:rect.bottom,width:innerWidth,height:innerHeight};})()',
+      '(() => {const rect=document.querySelector(".fixed.inset-0 > .relative").getBoundingClientRect();return {x:rect.x,y:rect.y,right:rect.right,bottom:rect.bottom,width:innerWidth,height:innerHeight};})()',
     );
     assert.ok(
       modal.x >= 0 &&
@@ -323,6 +352,43 @@ const root = path.resolve(__dirname, '..');
       4,
     );
     assert.equal((await viewInfo()).windows, 1);
+    for (const size of [
+      { width: 320, height: 560 },
+      { width: 680, height: 480 },
+    ]) {
+      await app.evaluate(
+        ({ BrowserWindow }, size) =>
+          BrowserWindow.getAllWindows()[0].setBounds({ x: 0, y: 0, ...size }),
+        size,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 650));
+      const form = await native(`(() => {
+      const modal = document.querySelector('.fixed.inset-0 > .relative');
+        const rect = modal.getBoundingClientRect();
+        const inputs = [...modal.querySelectorAll('input')].map(input => {const r=input.getBoundingClientRect();return {width:r.width,right:r.right};});
+        return {width:innerWidth,height:innerHeight,x:rect.x,y:rect.y,right:rect.right,bottom:rect.bottom,scroll:modal.scrollWidth,client:modal.clientWidth,inputs};
+      })()`);
+      assert.ok(
+        form.x >= 0 &&
+          form.y >= 0 &&
+          form.right <= form.width + 1 &&
+          form.bottom <= form.height + 1,
+        JSON.stringify(form),
+      );
+      assert.ok(
+        form.scroll <= form.client + 1,
+        'Connection form fits without horizontal scrolling',
+      );
+      assert.ok(
+        form.inputs.every((input) => input.width > 100 && input.right <= form.right + 1),
+        JSON.stringify(form),
+      );
+      assert.equal(
+        await native('document.querySelector(".fixed.inset-0 input")?.value'),
+        'MESP QA local',
+      );
+      await screenshot(`router-form-${size.width}x${size.height}.png`);
+    }
     // Submit an actual native form using only the isolated profile and loopback.
     await native(`(() => {
       const inputs=Array.from(document.querySelectorAll('.fixed.inset-0 input'));

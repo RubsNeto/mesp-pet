@@ -12,6 +12,32 @@ export const MAX_DOCK_PROJECTS = 10;
 const HISTORY_MESSAGES = 100;
 const HISTORY_MESSAGE_TEXT = 24000;
 const HISTORY_PROJECT_TEXT = 120000;
+/** Retain the initial objective and recent turns across providers, within a bounded context. */
+export function dockModelHistory(messages = []) {
+  const usable = messages
+    .filter(
+      (message) =>
+        message &&
+        ['user', 'assistant'].includes(message.role) &&
+        !['error', 'cancelled'].includes(message.status) &&
+        typeof (message.content ?? message.text) === 'string' &&
+        (message.content ?? message.text).trim(),
+    )
+    .map((message) => ({
+      role: message.role,
+      content: (message.content ?? message.text).trim().slice(0, 6000),
+    }));
+  const indices = new Set();
+  let size = 0;
+  const add = (index) => {
+    if (indices.has(index) || size + usable[index].content.length > 48000) return;
+    indices.add(index);
+    size += usable[index].content.length;
+  };
+  for (let index = 0; index < Math.min(4, usable.length); index++) add(index);
+  for (let index = usable.length - 1; index >= 0 && indices.size < 40; index--) add(index);
+  return [...indices].sort((a, b) => a - b).map((index) => usable[index]);
+}
 /** Bound recent chat text so streaming transcripts cannot fill the local profile. */
 function recentConversation(value) {
   if (!Array.isArray(value)) return [];
@@ -120,6 +146,7 @@ export function normalizeDockProjects(value) {
       ...(typeof p.taskTitle === 'string' && p.taskTitle.trim()
         ? { taskTitle: taskTitle(p.taskTitle), titlePinned: p.titlePinned === true }
         : {}),
+      ...restoreDockTask(p),
     }));
 }
 export function projectName(path) {
@@ -140,6 +167,61 @@ export function taskTitle(prompt) {
     .trim();
   const chars = Array.from(clean);
   return chars.length > 86 ? `${chars.slice(0, 85).join('').trimEnd()}…` : clean;
+}
+/** Keep a useful objective when the next turn only confirms or resumes it. */
+export function nextDockTaskTitle(prompt, previous) {
+  const normalized = String(prompt || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[.!?,;:]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return previous &&
+    /^(?:sim|ok|okay|certo|beleza|pode (?:fazer|seguir|continuar|executar)|(?:continue|continuar|prossiga|execute|refaca)(?: por favor)?|faca isso|tente novamente)(?: obrigado| obrigada)?$/.test(
+      normalized,
+    )
+    ? taskTitle(previous)
+    : taskTitle(prompt);
+}
+/** Only conversation text enters the isolated naming query, never files or credentials. */
+export function dockTitleContext(project, prompt, previousPrompts = []) {
+  return JSON.stringify({
+    projeto: String(project.projectName || '').slice(0, 80),
+    tarefaAtual: String(project.taskTitle || '').slice(0, 86),
+    pedidosAnteriores: previousPrompts
+      .filter((text) => typeof text === 'string' && text !== prompt)
+      .slice(-3)
+      .map((text) => text.slice(0, 900)),
+    pedidoAtual: String(prompt).slice(0, 2400),
+  });
+}
+export function unreadDockResult(project) {
+  return Boolean(project.completedAt && (project.resultSeenAt || 0) < project.completedAt);
+}
+export function dockProjectStatus(project) {
+  if (project.state === 'waiting') return { group: 'attention', label: 'Precisa de você' };
+  if (project.hasActiveTask || ['thinking', 'working'].includes(project.state))
+    return { group: 'active', label: 'Em andamento' };
+  if (project.state === 'error' || project.taskError)
+    return { group: 'attention', label: 'Erro na tarefa' };
+  if (project.taskInterrupted) return { group: 'attention', label: 'Sessão interrompida' };
+  if (project.completedAt || project.state === 'success')
+    return { group: 'completed', label: 'Concluído' };
+  return { group: 'ready', label: 'Pronto' };
+}
+/** A saved busy flag describes an interrupted session, never a live agent after restart. */
+export function restoreDockTask(saved) {
+  if (!saved || typeof saved !== 'object') return {};
+  const result = {};
+  if (Number.isSafeInteger(saved.completedAt) && saved.completedAt > 0) {
+    result.completedAt = saved.completedAt;
+    if (Number.isSafeInteger(saved.resultSeenAt) && saved.resultSeenAt > 0)
+      result.resultSeenAt = Math.min(saved.resultSeenAt, saved.completedAt);
+  }
+  if (saved.hasActiveTask === true || saved.taskInterrupted === true) result.taskInterrupted = true;
+  if (saved.taskError === true) result.taskError = true;
+  return result;
 }
 /** A tool finishing is not a task finishing; only promote submitted turns. */
 export function shouldPromoteProject(project, next) {
@@ -197,6 +279,21 @@ const plain = (s) =>
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim();
+/** A greeting belongs to the MESP itself, before any agent login or project flow. */
+export function dockGreetingReply(text) {
+  if (typeof text !== 'string' || text.length > 100) return null;
+  const greeting = plain(text)
+    .replace(/[.,!?…]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (
+    !/^(?:(?:oi|ola|oie|hello|hi|bom dia|boa tarde|boa noite)(?: tudo bem| como vai)?|tudo bem|como vai)$/.test(
+      greeting,
+    )
+  )
+    return null;
+  return 'Oi! Pode me perguntar ou pedir uma ação. Se precisar acessar os arquivos de um projeto, eu aviso antes.';
+}
 const AGENT_NAMES = {
   codex: 'codex',
   'codex cli': 'codex',
@@ -214,6 +311,18 @@ const AGENT_NAMES = {
 export function parseDockRequest(text) {
   const raw = text.trim();
   const command = plain(raw).replace(/[.!?]+$/, '');
+  const shortcuts = {
+    '/accounts': { kind: 'settings', page: 'providers' },
+    '/usage': { kind: 'settings', page: 'usage' },
+    '/quota': { kind: 'settings', page: 'quota' },
+    '/project': { kind: 'new-project' },
+    '/new': { kind: 'new-mesp' },
+    '/projects': { kind: 'projects' },
+    '/appearance': { kind: 'customize' },
+    '/help': { kind: 'help' },
+    '/minimize': { kind: 'collapse' },
+  };
+  if (shortcuts[command]) return shortcuts[command];
   if (
     /^(?:ajuda|comandos|mostrar comandos|mostre os comandos|o que posso pedir|como usar(?: o mesp)?)$/.test(
       command,
@@ -221,6 +330,7 @@ export function parseDockRequest(text) {
   )
     return { kind: 'help' };
   if (
+    /^\/(?:models?|modelos?)$/.test(command) ||
     /^(?:(?:abrir|abra|ver|mostrar|mostre) )?(?:as )?(?:configuracoes|modelos)$/.test(command) ||
     /^(?:escolher|trocar|configurar)(?: o)? modelo$/.test(command)
   )
@@ -250,6 +360,30 @@ export function parseDockRequest(text) {
           ? 'gemini-cli'
           : 'codex',
     };
+  const statusRequest = command.match(
+    /^(?:(?:ver|mostrar|mostre|listar|liste) )?(?:os |as |meus |minhas )?(?:projetos|tarefas|mesps?) (concluidos|concluidas|finalizados|finalizadas|em andamento|ativos|ativas|com erro|pendentes)$/,
+  );
+  if (statusRequest)
+    return {
+      kind: 'projects',
+      filter: /concluid|finalizad/.test(statusRequest[1])
+        ? 'completed'
+        : /andamento|ativ/.test(statusRequest[1])
+          ? 'active'
+          : 'attention',
+    };
+  if (
+    /^(?:o que|qual projeto|quais projetos|quem) (?:ja )?(?:terminou|finalizou|concluiu)$/.test(
+      command,
+    )
+  )
+    return { kind: 'projects', filter: 'completed' };
+  if (
+    /^(?:quem|qual projeto|quais projetos) (?:esta|estao) (?:trabalhando|em andamento)$/.test(
+      command,
+    )
+  )
+    return { kind: 'projects', filter: 'active' };
   if (
     /^(?:(?:mostrar|mostre|listar|liste|ver|quais sao) )?(?:os )?(?:meus )?(?:projetos|mesps?)$/.test(
       command,

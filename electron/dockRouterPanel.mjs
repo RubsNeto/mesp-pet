@@ -131,6 +131,10 @@ export const ROUTER_CATALOG_SCRIPT = String.raw`(() => {
       root.closest('.custom-scrollbar')?.classList.add('mesp-router-catalog-scroll');
       if (catalog === 'tools') root.classList.add('grid', 'mesp-router-catalog-grid');
       if (catalog === 'providers') Array.from(root.children).forEach(section => {
+        if (section.matches('.fixed, [role="dialog"]')) {
+          section.classList.remove('mesp-router-catalog-section');
+          return;
+        }
         root.classList.add('grid', 'mesp-router-catalog-grid');
         section.classList.add('mesp-router-catalog-section');
         const heading = section.querySelector('h2');
@@ -243,9 +247,18 @@ html[data-mesp-catalog="providers"] button.mesp-router-catalog-action { display:
 html[data-mesp-catalog="providers"] button.mesp-router-catalog-action > span { display: grid; place-items: center; width: 26px; height: 26px; font-size: 22px !important; }
 html[data-mesp-catalog="providers"] button.mesp-router-catalog-action::after { content: attr(data-mesp-label); height: 26px; font-size: 10.5px; line-height: 13px; font-weight: 450; text-align: center; }
 html[data-mesp-catalog="providers"] button.mesp-router-catalog-action:hover { background: #252525 !important; }
-.fixed.inset-0 { padding: 8px !important; backdrop-filter: blur(5px); }
+.fixed.inset-0 { display: flex !important; padding: 8px !important; backdrop-filter: none !important; align-items: center !important; justify-content: center !important; }
 .fixed.inset-0 > div { max-width: calc(100vw - 16px) !important; max-height: calc(100dvh - 16px) !important; min-width: 0 !important; overflow-y: auto !important; }
 .fixed.inset-0 [class*="max-w-"] { max-width: calc(100vw - 16px) !important; }
+.fixed.inset-0 > .relative { display: flex !important; flex-direction: column; width: min(448px, calc(100vw - 16px)) !important; overflow: hidden !important; }
+.fixed.inset-0 > .absolute.inset-0 { max-width: none !important; max-height: none !important; backdrop-filter: none !important; }
+.fixed.inset-0 > .relative > .overflow-y-auto { min-height: 0; flex: 1 1 auto; max-height: none !important; }
+.fixed.inset-0 > div, [role="dialog"] { box-sizing: border-box; overscroll-behavior: contain; overflow-wrap: anywhere; }
+.fixed.inset-0 .flex:has(> input):has(> button), main .flex:has(> input):has(> button) { flex-wrap: wrap !important; }
+.fixed.inset-0 input:not([type="checkbox"]):not([type="radio"]), .fixed.inset-0 select, .fixed.inset-0 textarea { min-height: 36px; }
+.fixed.inset-0 button { min-height: 36px; }
+.fixed.inset-0 .font-mono, main code { overflow-wrap: anywhere; word-break: break-word; }
+.fixed.inset-0 [class*="min-w-"] { min-width: 0 !important; }
 @keyframes mesp-router-content { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }

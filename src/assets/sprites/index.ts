@@ -218,6 +218,32 @@ export function getSpritesForTraits(traits: MespTraits): SpriteSet {
   return set;
 }
 
+export interface DockSpriteSet {
+  open: string;
+  closed: string;
+  sleeping: string;
+  error: string;
+  eye: EyeConfig;
+}
+const dockSpriteCache = new Map<string, DockSpriteSet>();
+/** The dock moves the body on canvas and only needs these four expressions. */
+export function getDockSpritesForTraits(traits: MespTraits): DockSpriteSet {
+  const key = traitsKey(traits);
+  const cached = dockSpriteCache.get(key);
+  if (cached) return cached;
+  const url = (opts: Parameters<typeof composeMesp>[0]) => renderGridToDataUrl(composeMesp({ ...opts, traits }), 4);
+  const set = {
+    open: url({ eye: 'open', feet: 'normal' }),
+    closed: url({ eye: 'blink', feet: 'normal' }),
+    sleeping: url({ eye: 'closed', feet: 'sit' }),
+    error: url({ eye: 'confused', feet: 'crouch', sweatDrop: true }),
+    eye: makeEyeConfig(eyeLayout(1)),
+  };
+  if (dockSpriteCache.size >= MAX_CACHE_ENTRIES) dockSpriteCache.delete(dockSpriteCache.keys().next().value!);
+  dockSpriteCache.set(key, set);
+  return set;
+}
+
 // ---------------------------------------------------------------------------
 //  Default sprite set (paleta padrão; usado como fallback)
 // ---------------------------------------------------------------------------

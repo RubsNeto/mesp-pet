@@ -23,12 +23,45 @@ export interface DockProject {
   taskTitle?: string;
   titlePinned?: boolean;
   routerModel?: string;
+  completedAt?: number;
+  resultSeenAt?: number;
+  taskInterrupted?: boolean;
+  taskError?: boolean;
 }
 export function normalizeDockProjects(value: unknown): DockProject[];
+export function dockModelHistory(
+  messages?: Array<{
+    role: 'user' | 'assistant';
+    content?: string;
+    text?: string;
+    status?: string;
+  }>,
+): Array<{ role: 'user' | 'assistant'; content: string }>;
 export function projectName(path: string | null): string;
 export function agentCanChange(state: string): boolean;
 export function aggregateDockState(states: string[]): string;
 export function taskTitle(prompt: string): string;
+export function nextDockTaskTitle(prompt: string, previous?: string): string;
+export function dockTitleContext(
+  project: { projectName?: string; taskTitle?: string },
+  prompt: string,
+  previousPrompts?: string[],
+): string;
+export interface DockTaskState {
+  state?: string;
+  hasActiveTask?: boolean;
+  completedAt?: number;
+  resultSeenAt?: number;
+  taskInterrupted?: boolean;
+  taskError?: boolean;
+}
+export type DockProjectGroup = 'active' | 'attention' | 'completed' | 'ready';
+export function dockProjectStatus(project: DockTaskState): {
+  group: DockProjectGroup;
+  label: string;
+};
+export function unreadDockResult(project: DockTaskState): boolean;
+export function restoreDockTask(saved: unknown): Omit<DockTaskState, 'state' | 'hasActiveTask'>;
 export function shouldPromoteProject(
   project: { state: string; hasActiveTask?: boolean } | undefined,
   next: string,
@@ -43,7 +76,8 @@ export interface HitRegion {
 }
 export function visibleHitRegions(value: unknown): HitRegion[];
 export type DockRequest =
-  | { kind: 'projects' | 'new-project' | 'new-mesp' | 'customize' | 'collapse' | 'help' }
+  | { kind: 'projects'; filter?: 'active' | 'attention' | 'completed' }
+  | { kind: 'new-project' | 'new-mesp' | 'customize' | 'collapse' | 'help' }
   | {
       kind: 'settings';
       page:
@@ -61,4 +95,5 @@ export type DockRequest =
   | { kind: 'delegate'; agent: string; prompt: string }
   | { kind: 'send'; prompt: string };
 export function parseDockRequest(text: string): DockRequest;
+export function dockGreetingReply(text: string): string | null;
 export function findDockProject(projects: DockProject[], name: string): string | null;

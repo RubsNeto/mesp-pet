@@ -2,8 +2,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { KiroChatPanel } from './KiroChatPanel';
 import { DockAppearance } from './DockAppearance';
 import { DockMespRail } from './DockMespRail';
+import { DockProjects, DockProjectSwitcher, type ProjectFilter } from './DockProjects';
 import { DockConversation, type DockMessage } from './DockConversation';
 import { DockSettings } from './DockSettings';
+import { DockCommands, useDockCommands } from './DockCommands';
 import { Tracked } from '../coucou/anim';
 import { IslandStateMachine, type FsmState } from '../coucou/fsm';
 import type { BotEmoteName } from '../coucou/layout';
@@ -20,8 +22,14 @@ import {
   projectName,
   agentCanChange,
   parseDockRequest,
+  dockGreetingReply,
+  dockModelHistory,
   findDockProject,
   taskTitle,
+  nextDockTaskTitle,
+  dockTitleContext,
+  dockProjectStatus,
+  unreadDockResult,
   shouldPromoteProject,
   terminalReply,
   readDockDrafts,
@@ -30,6 +38,7 @@ import {
   serializeDockConversations,
 } from '../services/dockCore.mjs';
 import { getPresetById } from '../services/aiPresets';
+import { AUTO_ROUTER_MODEL } from '../../electron/dockRouter.mjs';
 import type { PetEntity, PetState } from '../types';
 
 const STORAGE = 'mesp-top-projects-v1';
@@ -60,7 +69,7 @@ function makeProject(
   id: string,
   name: string,
   folder: string | null,
-  agent = 'codex',
+  agent = 'mesp-code',
   traits: MespTraits = id === 'mesp-primary'
     ? simplifyDockTraits(DEFAULT_TRAITS)
     : generateDockTraits(),
@@ -70,6 +79,7 @@ function makeProject(
     projectName: name,
     workDir: folder,
     agentPresetId: agent,
+    routerModel: AUTO_ROUTER_MODEL,
     position: { x: 0, y: 0 },
     facing: 'left',
     state: 'idle',
@@ -99,19 +109,23 @@ function restoreProjects(): PetEntity[] {
             p.id,
             p.name,
             p.workDir,
-            p.agent,
+            'mesp-code',
             appearanceCustomized ? traits : simplifyDockTraits(traits),
           ),
           appearanceCustomized,
           taskTitle: p.taskTitle,
           titlePinned: p.titlePinned,
-          routerModel: p.routerModel,
+          routerModel: p.routerModel || AUTO_ROUTER_MODEL,
+          completedAt: p.completedAt,
+          resultSeenAt: p.resultSeenAt,
+          taskInterrupted: p.taskInterrupted,
+          taskError: p.taskError,
         };
       });
   } catch {
     /* Invalid saves fall back to a usable empty project. */
   }
-  return [makeProject('mesp-primary', 'Meu primeiro projeto', null)];
+  return [makeProject('mesp-primary', 'MESP', null)];
 }
 
 function restoreSelection(projects: PetEntity[]) {
@@ -168,6 +182,8 @@ export function TopDock() {
   const [selectedId, setSelectedId] = useState(initialSelection.selectedId);
   const [primaryId, setPrimaryId] = useState(initialSelection.primaryId);
   const [view, setView] = useState<'chat' | 'terminal' | 'settings'>('chat');
+  const viewRef = useRef(view);
+  viewRef.current = view;
   const [routerPanelOpen, setRouterPanelOpen] = useState(false);
   const [routerRequest, setRouterRequest] = useState<{ page: string; nonce: number }>();
   const [renaming, setRenaming] = useState(false);
@@ -183,6 +199,10 @@ export function TopDock() {
     }
   });
   const [messages, setMessages] = useState<Record<string, DockMessage[]>>(initialConversations);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  const generalRuns = useRef(new Set<string>());
+  const [projectRequests, setProjectRequests] = useState<Record<string, string>>({});
   const previousSessionLastIds = useRef(
     Object.fromEntries(
       Object.entries(initialConversations).map(([id, saved]) => [id, saved[saved.length - 1]?.id]),
@@ -225,6 +245,7 @@ export function TopDock() {
   const composerInput = useRef<HTMLTextAreaElement>(null);
   const [focusRequest, setFocusRequest] = useState(0);
   const [showProjects, setShowProjects] = useState(false);
+  const [projectFilter, setProjectFilter] = useState<ProjectFilter>('all');
   const [showHelp, setShowHelp] = useState(false);
   const helpPanel = useRef<HTMLDivElement>(null);
   const [externalPrompts, setExternalPrompts] = useState<
@@ -237,6 +258,7 @@ export function TopDock() {
   const shell = useRef<HTMLDivElement>(null);
   const expandedPanel = useRef<HTMLDivElement>(null);
   const fsm = useRef<IslandStateMachine | null>(null);
+  const keepCompactFocus = useRef(false);
   const projectsRef = useRef(projects);
   projectsRef.current = projects;
   const commitProjects = useCallback((updater: (current: PetEntity[]) => PetEntity[]) => {
@@ -252,6 +274,25 @@ export function TopDock() {
   const minisColumns = Math.ceil((projects.length - 1) / 2);
   const selectedTitle = selected.taskTitle || selected.projectName || 'O que vamos criar?';
   const activeCount = projects.filter((p) => !agentCanChange(p.state)).length;
+  const unreadResults = projects
+    .filter(unreadDockResult)
+    .sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
+  const newestResult = unreadResults.find((p) => p.id !== selected.id);
+  useEffect(() => {
+    if (
+      !expanded ||
+      view !== 'chat' ||
+      showProjects ||
+      customizing ||
+      showHelp ||
+      confirmQuit ||
+      !unreadDockResult(selected)
+    )
+      return;
+    commitProjects((prev) =>
+      prev.map((p) => (p.id === selected.id ? { ...p, resultSeenAt: p.completedAt } : p)),
+    );
+  }, [expanded, view, showProjects, customizing, showHelp, confirmQuit, selected, commitProjects]);
   const workingCount = projects.filter((p) => p.hasActiveTask || !agentCanChange(p.state)).length;
   const reducedRef = useRef(false);
   useDockHitTest();
@@ -296,6 +337,8 @@ export function TopDock() {
     fsm.current = machine;
     machine.onTransition = (_from, to) => {
       setMode(to);
+      if (to === 'petit' && keepCompactFocus.current) return;
+      keepCompactFocus.current = false;
       if (to !== 'home') void window.mesp?.focusDock(false);
     };
     machine.launch();
@@ -321,6 +364,11 @@ export function TopDock() {
             taskTitle: p.taskTitle,
             titlePinned: p.titlePinned,
             routerModel: p.routerModel,
+            completedAt: p.completedAt,
+            resultSeenAt: p.resultSeenAt,
+            hasActiveTask: p.hasActiveTask,
+            taskInterrupted: p.taskInterrupted,
+            taskError: p.taskError,
           })),
         ),
       );
@@ -330,17 +378,27 @@ export function TopDock() {
   }, [projects]);
   useEffect(() => {
     drafts.current.set(selectedId, input);
-    try {
-      localStorage.setItem(
-        DRAFT_STORAGE,
-        serializeDockDrafts(
-          drafts.current,
-          projects.map((p) => p.id),
-        ),
-      );
-    } catch {
-      setNotice('Não foi possível salvar o rascunho neste dispositivo.');
-    }
+    const save = () => {
+      try {
+        localStorage.setItem(
+          DRAFT_STORAGE,
+          serializeDockDrafts(
+            drafts.current,
+            projects.map((p) => p.id),
+          ),
+        );
+      } catch {
+        setNotice('Não foi possível salvar o rascunho neste dispositivo.');
+      }
+    };
+    const timer = window.setTimeout(save, 120);
+    window.addEventListener('beforeunload', save);
+    window.addEventListener('pagehide', save);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('beforeunload', save);
+      window.removeEventListener('pagehide', save);
+    };
   }, [input, selectedId, projects]);
   useEffect(() => {
     const save = () => {
@@ -381,6 +439,15 @@ export function TopDock() {
     [],
   );
 
+  const changeDraft = useCallback((id: string, value: string) => {
+    drafts.current.set(id, value);
+    if (selectedRef.current === id) {
+      inputRef.current = value;
+      setInput(value);
+    }
+  }, []);
+  const commands = useDockCommands(input, (value) => changeDraft(selectedRef.current, value));
+
   // The opening spring and 340 ms closing curve are the actual Coucou motion helpers.
   const dimensions = useRef({
     width: new Tracked(288),
@@ -407,23 +474,35 @@ export function TopDock() {
           ? Math.max(
               220,
               Math.min(
-                view === 'terminal' && selected.workDir
-                  ? 640
-                  : view === 'settings' ||
-                      customizing ||
-                      confirmQuit ||
-                      showHelp ||
-                      (view === 'chat' &&
-                        selected.workDir &&
-                        selected.agentPresetId === 'mesp-code')
-                    ? w <= 600 && view === 'chat' && selected.agentPresetId === 'mesp-code'
-                      ? 620
-                      : 580
-                    : selected.workDir || showProjects
-                      ? 460
-                      : w <= 600
-                        ? 400
-                        : 340,
+                showProjects
+                  ? w <= 600
+                    ? 720
+                    : 580
+                  : view === 'settings'
+                    ? w <= 600
+                      ? 720
+                      : 640
+                    : view === 'terminal' && selected.workDir
+                      ? 640
+                      : commands.open ||
+                          customizing ||
+                          confirmQuit ||
+                          showHelp ||
+                          (view === 'chat' &&
+                            selected.workDir &&
+                            selected.agentPresetId === 'mesp-code')
+                        ? w <= 600 && view === 'chat' && selected.agentPresetId === 'mesp-code'
+                          ? 720
+                          : 580
+                        : selected.workDir || showProjects || projects.length > 1
+                          ? projects.length > 1 || showProjects
+                            ? w <= 600
+                              ? 620
+                              : 580
+                            : 460
+                          : w <= 600
+                            ? 400
+                            : 340,
                 h - 24,
               ),
             )
@@ -479,21 +558,41 @@ export function TopDock() {
     customizing,
     view,
     minisColumns,
+    projects.length,
     confirmQuit,
+    commands.open,
   ]);
 
   const collapse = useCallback(() => {
     fsm.current?.forcePetit();
   }, []);
-  useEffect(() => window.mesp?.on9RouterEscape(collapse), [collapse]);
+  const escapeDock = useCallback(() => {
+    const machine = fsm.current;
+    if (!machine || machine.state === 'hidden') return;
+    if (machine.state === 'petit') machine.forceHidden();
+    else {
+      // Keep keyboard focus until the second Escape or the three-second timeout.
+      keepCompactFocus.current = true;
+      machine.forcePetit();
+    }
+  }, []);
+  useEffect(() => window.mesp?.on9RouterEscape(escapeDock), [escapeDock]);
+  const resumePanel = useCallback(() => {
+    fsm.current?.forceHome();
+    void window.mesp?.focusDock(true);
+  }, []);
   const revealChat = useCallback(() => {
+    if (fsm.current?.state !== 'home' && viewRef.current !== 'chat') {
+      resumePanel();
+      return;
+    }
     setView('chat');
     setShowProjects(false);
     setShowHelp(false);
     setFocusRequest((value) => value + 1);
     fsm.current?.forceHome();
     void window.mesp?.focusDock(true);
-  }, []);
+  }, [resumePanel]);
   useEffect(() => window.mesp?.onDockChatRequested(revealChat), [revealChat]);
   useEffect(() => {
     if (!focusRequest || !expanded || view !== 'chat') return;
@@ -516,6 +615,10 @@ export function TopDock() {
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
+      if (e.key === 'Escape' && e.repeat) {
+        e.preventDefault();
+        return;
+      }
       if (e.key === 'Escape' && showHelp) {
         e.preventDefault();
         setShowHelp(false);
@@ -536,7 +639,7 @@ export function TopDock() {
         !document.activeElement?.closest('.xterm, .mesp-access-dialog')
       ) {
         e.preventDefault();
-        collapse();
+        escapeDock();
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
@@ -545,7 +648,7 @@ export function TopDock() {
     };
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
-  }, [collapse, customizing, confirmQuit, renaming, revealChat, showHelp, showProjects]);
+  }, [escapeDock, customizing, confirmQuit, renaming, revealChat, showHelp, showProjects]);
   useEffect(() => {
     if (fsm.current)
       fsm.current.pinned =
@@ -564,6 +667,15 @@ export function TopDock() {
     setReaction((n) => n + 1);
   }, []);
   const selectProject = useCallback((id: string) => {
+    if (
+      id === selectedRef.current &&
+      viewRef.current === 'settings' &&
+      fsm.current?.state !== 'home'
+    ) {
+      fsm.current?.forceHome();
+      void window.mesp?.focusDock(true);
+      return;
+    }
     drafts.current.set(selectedRef.current, inputRef.current);
     const draft = drafts.current.get(id) || '';
     inputRef.current = draft;
@@ -612,7 +724,7 @@ export function TopDock() {
               id,
               projectName(folder),
               folder,
-              'codex',
+              'mesp-code',
               generateDockTraits(prev.map((p) => p.traits)),
             ),
           ]);
@@ -658,6 +770,7 @@ export function TopDock() {
                 lastActivityAt: Date.now(),
                 ...(promote ? { hasActiveTask: false, completedAt: Date.now() } : {}),
                 ...(next === 'error' ? { hasActiveTask: false } : {}),
+                ...(next === 'error' ? { taskError: true } : {}),
                 ...(old.agentPresetId === 'mesp-code' && next === 'idle'
                   ? { hasActiveTask: false }
                   : {}),
@@ -680,13 +793,14 @@ export function TopDock() {
               : 'O agente reportou um erro';
         void window.mesp?.notify({
           title,
-          body: `${old.taskTitle || old.projectName} · ${getPresetById(old.agentPresetId || '')?.name || 'Agente'}`,
+          body: `${old.projectName} · ${old.taskTitle || 'Tarefa'} · ${getPresetById(old.agentPresetId || '')?.name || 'Agente'}`,
         });
       }
     },
     [commitProjects, react],
   );
   const onTranscript = useCallback((id: string, text: string) => {
+    if (snapshots.current.get(id) === text) return;
     snapshots.current.set(id, text);
     setConsoleText((prev) => ({ ...prev, [id]: text }));
     const reply = replies.current.get(id);
@@ -701,11 +815,17 @@ export function TopDock() {
   useEffect(() => () => titleRequests.current.clear(), []);
   const analyzeTitle = useCallback(
     (id: string, prompt: string, agent: string) => {
-      if (projectsRef.current.find((p) => p.id === id)?.titlePinned) return;
+      const project = projectsRef.current.find((p) => p.id === id);
+      if (!project || project.titlePinned) return;
+      const previousPrompts = (messagesRef.current[id] || [])
+        .filter((m) => m.role === 'user')
+        .map((m) => m.content);
+      const contextualPrompt = dockTitleContext(project, prompt, previousPrompts);
       const requestId = Symbol(id);
       titleRequests.current.set(id, requestId);
+      if (nextDockTaskTitle(prompt, project.taskTitle) !== taskTitle(prompt)) return;
       void window.mesp
-        ?.generateDockTitle(prompt, agent)
+        ?.generateDockTitle(contextualPrompt, agent)
         .then((title) => {
           if (!title || titleRequests.current.get(id) !== requestId) return;
           commitProjects((prev) =>
@@ -737,10 +857,13 @@ export function TopDock() {
           p.id === id
             ? {
                 ...p,
-                taskTitle: p.titlePinned ? p.taskTitle : taskTitle(prompt),
+                taskTitle: p.titlePinned ? p.taskTitle : nextDockTaskTitle(prompt, p.taskTitle),
                 hasActiveTask: true,
                 state: 'thinking',
                 completedAt: undefined,
+                resultSeenAt: undefined,
+                taskInterrupted: false,
+                taskError: false,
               }
             : p,
         ),
@@ -763,10 +886,11 @@ export function TopDock() {
           id,
           current?.projectName || 'Novo MESP',
           current?.workDir || null,
-          current?.agentPresetId || 'codex',
+          'mesp-code',
           generateDockTraits(prev.map((p) => p.traits)),
         ),
         taskTitle: 'Novo MESP',
+        routerModel: current?.routerModel || AUTO_ROUTER_MODEL,
       },
     ]);
     setNotice('');
@@ -855,9 +979,12 @@ export function TopDock() {
           p.id === id
             ? {
                 ...p,
-                taskTitle: p.titlePinned ? p.taskTitle : taskTitle(prompt),
+                taskTitle: p.titlePinned ? p.taskTitle : nextDockTaskTitle(prompt, p.taskTitle),
                 hasActiveTask: true,
                 completedAt: undefined,
+                resultSeenAt: undefined,
+                taskInterrupted: false,
+                taskError: false,
                 state: 'thinking',
               }
             : p,
@@ -879,6 +1006,113 @@ export function TopDock() {
     },
     [writePrompt, commitProjects, analyzeTitle],
   );
+  const sendConversation = async (target: PetEntity, prompt: string) => {
+    const id = target.id;
+    if (generalRuns.current.has(id)) {
+      setNotice('Este MESP ainda está respondendo. Aguarde ou clique em Parar.');
+      if (selectedRef.current === id) setInput(prompt);
+      drafts.current.set(id, prompt);
+      return;
+    }
+    if (!window.mesp?.chatDock) {
+      setNotice('Abra esta versão pelo aplicativo para conversar com o agente.');
+      setInput(prompt);
+      return;
+    }
+    generalRuns.current.add(id);
+    setProjectRequests((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    const replyId = crypto.randomUUID();
+    const history = dockModelHistory(messagesRef.current[id] || []);
+    setMessages((prev) => ({
+      ...prev,
+      [id]: [
+        ...(prev[id] || []),
+        { id: crypto.randomUUID(), role: 'user', content: prompt },
+        { id: replyId, role: 'assistant', content: '' },
+      ].slice(-100) as DockMessage[],
+    }));
+    commitProjects((prev) =>
+      prev.map((p) =>
+        p.id === id
+          ? {
+              ...p,
+              state: 'thinking',
+              hasActiveTask: true,
+              taskTitle: p.titlePinned ? p.taskTitle : nextDockTaskTitle(prompt, p.taskTitle),
+              completedAt: undefined,
+              resultSeenAt: undefined,
+              taskInterrupted: false,
+              taskError: false,
+            }
+          : p,
+      ),
+    );
+    analyzeTitle(id, prompt, target.agentPresetId || 'codex');
+    try {
+      const result = await window.mesp.chatDock({
+        petId: id,
+        agent: target.agentPresetId || 'codex',
+        model: target.routerModel,
+        prompt,
+        history,
+      });
+      setMessages((prev) => ({
+        ...prev,
+        [id]: (prev[id] || []).map((m) =>
+          m.id === replyId
+            ? {
+                ...m,
+                content:
+                  result.ok && result.answer
+                    ? result.answer
+                    : result.error || 'Não foi possível obter uma resposta. Tente novamente.',
+              }
+            : m,
+        ),
+      }));
+      if (result.ok && result.needsProject)
+        setProjectRequests((prev) => ({ ...prev, [id]: prompt }));
+      if (result.ok && !result.needsProject) updateState(id, 'success');
+      else
+        commitProjects((prev) =>
+          prev.map((p) =>
+            p.id === id
+              ? {
+                  ...p,
+                  state: result.ok || result.cancelled ? 'idle' : 'error',
+                  hasActiveTask: false,
+                  taskError: !result.ok && !result.cancelled,
+                  lastActivityAt: Date.now(),
+                }
+              : p,
+          ),
+        );
+    } catch {
+      setMessages((prev) => ({
+        ...prev,
+        [id]: (prev[id] || []).map((m) =>
+          m.id === replyId
+            ? {
+                ...m,
+                content:
+                  'Não foi possível conversar com o agente. Confira a conexão nas Configurações e tente novamente.',
+              }
+            : m,
+        ),
+      }));
+      commitProjects((prev) =>
+        prev.map((p) =>
+          p.id === id ? { ...p, state: 'error', hasActiveTask: false, taskError: true } : p,
+        ),
+      );
+    } finally {
+      generalRuns.current.delete(id);
+    }
+  };
   const request = async (text: string, preserveDraft = false) => {
     if (!text.trim() || choosing) return;
     try {
@@ -906,6 +1140,8 @@ export function TopDock() {
         return;
       }
       if (action.kind === 'projects') {
+        setProjectFilter(action.filter || 'all');
+        setView('chat');
         setShowProjects(true);
         fsm.current?.forceHome();
         return;
@@ -951,53 +1187,55 @@ export function TopDock() {
       }
       let target = selected;
       if (action.kind === 'agent' || action.kind === 'delegate') {
-        const agent = action.agent;
-        const preset = getPresetById(agent);
-        const existing = projects.find(
-          (p) => p.agentPresetId === agent && p.workDir === selected.workDir,
-        );
-        if (
-          agent !== 'mesp-code' &&
-          !(existing && connected.current.has(existing.id)) &&
-          preset &&
-          window.mesp?.checkCommand &&
-          !(await window.mesp.checkCommand(preset.command))
-        ) {
-          setNotice(
-            `${preset.name} não está instalado ou não está disponível na PATH deste computador.`,
-          );
+        if (selected.hasActiveTask) {
+          setNotice('Aguarde a resposta ou pare o agente antes de trocar.');
+          if (!preserveDraft) setInput(text);
           return;
         }
-        if (existing) target = existing;
-        else if (!selected.workDir) {
-          target = { ...selected, agentPresetId: agent };
-          commitProjects((prev) => prev.map((p) => (p.id === selected.id ? target : p)));
-        } else {
-          if (projects.length >= MAX_DOCK_PROJECTS) {
-            setNotice('O limite é de 10 projetos. Escolha um MESP já aberto.');
-            setShowProjects(true);
-            return;
-          }
-          target = makeProject(
-            `mesp-${crypto.randomUUID()}`,
-            `${projectName(selected.workDir)} · ${preset?.name}`,
-            selected.workDir,
-            agent,
-            generateDockTraits(projectsRef.current.map((p) => p.traits)),
-          );
-          commitProjects((prev) => [...prev, target]);
-        }
-        selectProject(target.id);
         if (action.kind === 'agent') {
-          if (!target.workDir) await chooseProject();
+          setRouterRequest({ page: 'overview', nonce: Date.now() });
+          setView('settings');
+          resumePanel();
           return;
         }
+        const data = await window.mesp?.get9RouterOverview('today', true);
+        const provider = action.agent === 'gemini' ? 'gemini-cli' : action.agent;
+        const choice = data?.models.find((item) => item.provider === provider);
+        if (!choice && action.agent !== 'mesp-code') {
+          setNotice('Conecte essa conta e escolha um modelo nas Configurações.');
+          setView('settings');
+          setRouterRequest({ page: 'overview', nonce: Date.now() });
+          if (!preserveDraft) setInput(action.prompt);
+          return;
+        }
+        target = {
+          ...selected,
+          agentPresetId: 'mesp-code',
+          routerModel: choice?.id || AUTO_ROUTER_MODEL,
+        };
+        commitProjects((prev) => prev.map((p) => (p.id === target.id ? target : p)));
       }
       if (action.kind !== 'send' && action.kind !== 'delegate') return;
+      const greeting = dockGreetingReply(action.prompt);
+      if (greeting) {
+        setProjectRequests((prev) => {
+          const next = { ...prev };
+          delete next[target.id];
+          return next;
+        });
+        setMessages((prev) => ({
+          ...prev,
+          [target.id]: [
+            ...(prev[target.id] || []),
+            { id: crypto.randomUUID(), role: 'user', content: action.prompt },
+            { id: crypto.randomUUID(), role: 'assistant', content: greeting },
+          ].slice(-100) as DockMessage[],
+        }));
+        // A greeting neither submits a coding task nor changes an active session.
+        return;
+      }
       if (!target.workDir) {
-        const id = await chooseProject();
-        if (id) sendPrompt(id, action.prompt, target.agentPresetId || 'codex');
-        else setInput(text);
+        await sendConversation(target, action.prompt);
       } else {
         setOpened((prev) => new Set(prev).add(target.id));
         sendPrompt(target.id, action.prompt, target.agentPresetId || 'codex');
@@ -1006,13 +1244,6 @@ export function TopDock() {
       setNotice('Não foi possível concluir o pedido. Tente novamente.');
     }
   };
-  const changeDraft = useCallback((id: string, value: string) => {
-    drafts.current.set(id, value);
-    if (selectedRef.current === id) {
-      inputRef.current = value;
-      setInput(value);
-    }
-  }, []);
   const callbacks = useMemo(
     () =>
       Object.fromEntries(
@@ -1060,7 +1291,7 @@ export function TopDock() {
     <>
       <div
         className="dock-wake interactive"
-        onMouseEnter={() => fsm.current?.mouseEntered()}
+        onMouseMove={() => fsm.current?.mouseEntered()}
         aria-hidden="true"
       />
       <div
@@ -1095,16 +1326,25 @@ export function TopDock() {
             aria-label={`Abrir projetos MESP, ${activeCount} em atividade`}
             onClick={() => {
               react('squash');
-              selectProject(primary.id);
+              if (view !== 'chat') resumePanel();
+              else selectProject(primary.id);
             }}
             tabIndex={expanded ? -1 : 0}
           >
             <span className="dock-compact-title">
-              {primary.taskTitle || primary.projectName || 'MESP'}
+              {primary.projectName}
+              {primary.taskTitle && primary.taskTitle !== primary.projectName
+                ? ` · ${primary.taskTitle}`
+                : ''}
             </span>
             <span className="dock-compact-meta">
               <i className={`dock-status state-${primary.state}`} />
-              {primary.completedAt ? 'Concluído' : LABELS[primary.state]}
+              {dockProjectStatus(primary).label}
+              {unreadResults.length
+                ? ` · ${unreadResults.length} resultado${unreadResults.length === 1 ? '' : 's'} novo${unreadResults.length === 1 ? '' : 's'}`
+                : activeCount > 1
+                  ? ` · ${activeCount} em atividade`
+                  : ''}
             </span>
           </button>
           <div className="dock-greeting">
@@ -1114,6 +1354,18 @@ export function TopDock() {
           <div ref={expandedPanel} className="dock-expanded">
             <header className="dock-header">
               <div className="dock-title">
+                <button
+                  className="dock-current-project"
+                  title="Ver todos os projetos e tarefas"
+                  onClick={() => {
+                    setProjectFilter('all');
+                    setShowProjects(true);
+                    setShowHelp(false);
+                    setView('chat');
+                  }}
+                >
+                  {selected.projectName || 'Novo MESP'}
+                </button>
                 {renaming ? (
                   <input
                     className="dock-task-title-input"
@@ -1160,8 +1412,21 @@ export function TopDock() {
                 <small>
                   <span className={`dock-status state-${selected.state}`} />
                   {getPresetById(selected.agentPresetId || 'codex')?.name} ·{' '}
-                  {LABELS[selected.state]}
+                  {dockProjectStatus(selected).label}
                 </small>
+                {selected.titlePinned && (
+                  <button
+                    className="dock-auto-title"
+                    title="A próxima tarefa recebe um título automático"
+                    onClick={() =>
+                      commitProjects((prev) =>
+                        prev.map((p) => (p.id === selected.id ? { ...p, titlePinned: false } : p)),
+                      )
+                    }
+                  >
+                    Nome fixo · usar automático
+                  </button>
+                )}
               </div>
               <div className="dock-actions">
                 <button
@@ -1189,41 +1454,107 @@ export function TopDock() {
                 </button>
               </div>
             </header>
+            {projects.length > 1 &&
+              view === 'chat' &&
+              !showHelp &&
+              !customizing &&
+              !confirmQuit && (
+                <DockProjectSwitcher
+                  projects={projects}
+                  selectedId={selected.id}
+                  active={expanded}
+                  compact={
+                    selected.agentPresetId === 'mesp-code' && !!selected.workDir && !showProjects
+                  }
+                  onSelect={selectProject}
+                />
+              )}
             <div className="dock-body dock-chat-only">
               <section className="dock-workspace" aria-label={`Projeto ${selected.projectName}`}>
-                {selected.workDir && selected.agentPresetId !== 'mesp-code' && view === 'chat' && (
-                  <DockConversation
-                    key={selected.id}
-                    messages={messages[selected.id] || []}
-                    previousSessionLastId={previousSessionLastIds.current[selected.id]}
-                    state={selected.state}
-                    consoleText={consoleText[selected.id] || ''}
-                    project={selected.projectName || 'Projeto'}
-                    agent={getPresetById(selected.agentPresetId || '')?.name || 'Agente'}
-                  />
-                )}
-                {!selected.workDir && view !== 'settings' && !showHelp && !showProjects && (
-                  <div className="dock-welcome">
-                    <h2>Pode me pedir.</h2>
-                    <p>
-                      Abra um projeto, chame o Codex ou peça ajuda ao Claude.
-                      <br />
-                      Cada projeto pode ter seu próprio MESP.
-                    </p>
-                    <div className="dock-suggestions">
-                      {[
-                        'Abrir projeto',
-                        'Chame o Claude',
-                        'Meus projetos',
-                        'O que posso pedir?',
-                      ].map((text) => (
-                        <button key={text} onClick={() => void request(text, true)}>
-                          {text}
-                        </button>
-                      ))}
+                {view === 'chat' &&
+                  ((selected.workDir && selected.agentPresetId !== 'mesp-code') ||
+                    (!selected.workDir &&
+                      (messages[selected.id]?.length || selected.hasActiveTask))) && (
+                    <DockConversation
+                      key={selected.id}
+                      messages={messages[selected.id] || []}
+                      previousSessionLastId={previousSessionLastIds.current[selected.id]}
+                      state={selected.state}
+                      consoleText={consoleText[selected.id] || ''}
+                      project={
+                        selected.workDir ? selected.projectName || 'Projeto' : 'Conversa livre'
+                      }
+                      agent={getPresetById(selected.agentPresetId || '')?.name || 'Agente'}
+                      general={!selected.workDir}
+                    >
+                      {!selected.workDir && selected.hasActiveTask && (
+                        <div className="dock-conversation-actions">
+                          <span>Respondendo · você pode recolher o painel</span>
+                        </div>
+                      )}
+                      {!selected.workDir && projectRequests[selected.id] && (
+                        <div className="dock-project-request" role="status">
+                          <span>
+                            Para continuar este pedido, preciso acessar os arquivos do projeto.
+                          </span>
+                          <div>
+                            <button
+                              disabled={choosing || selected.hasActiveTask}
+                              onClick={async () => {
+                                const prompt = projectRequests[selected.id];
+                                const agent = selected.agentPresetId || 'codex';
+                                const id = await chooseProject();
+                                if (!id) return;
+                                setProjectRequests((prev) => {
+                                  const next = { ...prev };
+                                  delete next[id];
+                                  return next;
+                                });
+                                setOpened((prev) => new Set(prev).add(id));
+                                sendPrompt(id, prompt, agent);
+                              }}
+                            >
+                              Escolher projeto e continuar
+                            </button>
+                            <button
+                              onClick={() =>
+                                setProjectRequests((prev) => {
+                                  const next = { ...prev };
+                                  delete next[selected.id];
+                                  return next;
+                                })
+                              }
+                            >
+                              Continuar conversando
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </DockConversation>
+                  )}
+                {!selected.workDir &&
+                  !messages[selected.id]?.length &&
+                  view !== 'settings' &&
+                  !showHelp &&
+                  !showProjects && (
+                    <div className="dock-welcome">
+                      <h2>Pode me pedir.</h2>
+                      <p>
+                        Converse, tire dúvidas ou peça uma tarefa.
+                        <br />
+                        Se precisar de um projeto, eu aviso antes.
+                      </p>
+                      <div className="dock-suggestions">
+                        {['Abrir projeto', '/model', 'Meus projetos', 'O que posso pedir?'].map(
+                          (text) => (
+                            <button key={text} onClick={() => void request(text, true)}>
+                              {text}
+                            </button>
+                          ),
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
                 {projects
                   .filter((p) => opened.has(p.id) && p.workDir)
                   .map((p) => (
@@ -1247,6 +1578,7 @@ export function TopDock() {
                       onTaskStarted={taskCallbacks[p.id]}
                       onRouterModelChange={routerModelCallbacks[p.id]}
                       externalPrompt={externalPrompts[p.id]}
+                      initialConversation={messages[p.id]}
                       dockComposer={
                         p.agentPresetId === 'mesp-code'
                           ? {
@@ -1341,44 +1673,19 @@ export function TopDock() {
                   </div>
                 )}
                 {showProjects && (
-                  <div className="dock-project-overlay">
-                    <div className="dock-overlay-heading">
-                      <strong>Seus MESP</strong>
-                      <button aria-label="Voltar à conversa" onClick={() => setShowProjects(false)}>
-                        <Icon name="close" />
-                      </button>
-                    </div>
-                    <div className="dock-project-grid">
-                      {projects.map((p) => (
-                        <button
-                          key={p.id}
-                          className={`dock-project ${p.id === selected.id ? 'selected' : ''}`}
-                          onClick={() => {
-                            selectProject(p.id);
-                            setShowProjects(false);
-                          }}
-                        >
-                          <span className={`dock-project-dot state-${p.state}`} />
-                          <span className="dock-project-copy">
-                            <strong>{p.taskTitle || p.projectName}</strong>
-                            <small>
-                              {p.projectName} · {getPresetById(p.agentPresetId || '')?.name} ·{' '}
-                              {LABELS[p.state]}
-                            </small>
-                          </span>
-                          {!agentCanChange(p.state) && <span className="dock-working" />}
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      className="dock-inline-new"
-                      disabled={choosing || projects.length >= MAX_DOCK_PROJECTS}
-                      onClick={addMesp}
-                    >
-                      <Icon name="plus" />
-                      Novo MESP
-                    </button>
-                  </div>
+                  <DockProjects
+                    projects={projects}
+                    selectedId={selected.id}
+                    filter={projectFilter}
+                    onFilter={setProjectFilter}
+                    onSelect={selectProject}
+                    onClose={() => {
+                      setShowProjects(false);
+                      setFocusRequest((value) => value + 1);
+                    }}
+                    onAdd={addMesp}
+                    addingDisabled={choosing || projects.length >= MAX_DOCK_PROJECTS}
+                  />
                 )}
                 {customizing && (
                   <DockAppearance
@@ -1455,10 +1762,18 @@ export function TopDock() {
                 )}
               </section>
             </div>
-            {primary.id !== selected.id && primary.completedAt && (
-              <button className="dock-completed-banner" onClick={() => selectProject(primary.id)}>
-                <span>✓ {primary.taskTitle || primary.projectName}</span>
-                <span>Ver resultado ↗</span>
+            {newestResult && (
+              <button
+                className="dock-completed-banner"
+                onClick={() => selectProject(newestResult.id)}
+              >
+                <span>
+                  ✓ {newestResult.projectName} · {newestResult.taskTitle || 'Tarefa concluída'}
+                </span>
+                <span>
+                  {unreadResults.length > 1 ? `${unreadResults.length} novos · ` : ''}Ver resultado
+                  ↗
+                </span>
               </button>
             )}
             {notice && (
@@ -1479,21 +1794,25 @@ export function TopDock() {
                     void request(input);
                   }}
                 >
+                  <DockCommands menu={commands} />
                   <textarea
+                    {...commands.inputProps}
                     aria-label="Pedir ao MESP"
                     ref={composerInput}
                     rows={1}
                     title="Enter envia · Shift+Enter quebra a linha"
                     value={input}
                     onChange={(e) => {
-                      inputRef.current = e.target.value;
-                      setInput(e.target.value);
+                      commands.onInput(e.target.value);
                     }}
                     placeholder={
-                      choosing ? 'Escolha a pasta do projeto…' : 'Peça ao MESP ou a outro agente…'
+                      choosing
+                        ? 'Escolha a pasta do projeto…'
+                        : 'Peça ao MESP ou digite / para comandos…'
                     }
                     disabled={choosing}
                     onKeyDown={(event) => {
+                      if (commands.onKeyDown(event)) return;
                       if (
                         event.key === 'Enter' &&
                         !event.shiftKey &&
@@ -1505,9 +1824,15 @@ export function TopDock() {
                     }}
                   />
                   <button
-                    type="submit"
-                    aria-label="Enviar pedido"
-                    disabled={!input.trim() || choosing}
+                    type={selected.hasActiveTask ? 'button' : 'submit'}
+                    aria-label={selected.hasActiveTask ? 'Parar' : 'Enviar pedido'}
+                    title={selected.hasActiveTask ? 'Parar resposta' : 'Enviar pedido'}
+                    disabled={!selected.hasActiveTask && (!input.trim() || choosing)}
+                    onClick={
+                      selected.hasActiveTask
+                        ? () => void window.mesp?.cancelDockChat(selected.id)
+                        : undefined
+                    }
                   >
                     <svg
                       width="17"
@@ -1516,8 +1841,21 @@ export function TopDock() {
                       fill="none"
                       stroke="currentColor"
                       strokeWidth="1.8"
+                      aria-hidden="true"
                     >
-                      <path d="M12 19V5m-6 6 6-6 6 6" />
+                      {selected.hasActiveTask ? (
+                        <rect
+                          x="6"
+                          y="6"
+                          width="12"
+                          height="12"
+                          rx="1.5"
+                          fill="currentColor"
+                          stroke="none"
+                        />
+                      ) : (
+                        <path d="M12 19V5m-6 6 6-6 6 6" />
+                      )}
                     </svg>
                   </button>
                 </form>
@@ -1586,12 +1924,27 @@ export function TopDock() {
               <span>
                 {projects.length} MESP · {activeCount} em atividade
               </span>
+              {!!unreadResults.length && (
+                <button
+                  className="dock-unread-results"
+                  onClick={() => {
+                    setProjectFilter('completed');
+                    setShowProjects(true);
+                    setShowHelp(false);
+                    setView('chat');
+                  }}
+                  aria-label={`Ver ${unreadResults.length} resultados novos`}
+                >
+                  ✓ {unreadResults.length} novo{unreadResults.length === 1 ? '' : 's'}
+                </button>
+              )}
               <button
                 className="dock-more-projects"
                 aria-label="Ver todos os MESP"
                 onClick={() => {
                   setShowHelp(false);
                   setView('chat');
+                  setProjectFilter('all');
                   setShowProjects(true);
                 }}
               >

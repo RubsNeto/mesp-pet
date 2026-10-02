@@ -10,6 +10,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import type { PetEntity, PetState } from '../types';
+import type { DockMessage } from './DockConversation';
 import { AI_PRESETS, findPresetByCommand, getPresetById } from '../services/aiPresets';
 import {
   stripAnsi,
@@ -45,6 +46,7 @@ export interface KiroChatPanelProps {
   onTaskStarted?: (prompt: string) => void;
   onRouterModelChange?: (model: string) => void;
   externalPrompt?: { id: string; text: string };
+  initialConversation?: DockMessage[];
   dockComposer?: MespCodeDockComposer;
   /** Esconde a UI (não mata o processo). */
   onClose: () => void;
@@ -148,6 +150,7 @@ export function KiroChatPanel({
   onTaskStarted,
   onRouterModelChange,
   externalPrompt,
+  initialConversation,
   dockComposer,
 }: KiroChatPanelProps) {
   const [status, setStatus] = useState<TermStatus>('disconnected');
@@ -871,7 +874,7 @@ export function KiroChatPanel({
   // Esc fecha quando o terminal não tem foco; quando tem, deixa o ESC ir pro
   // processo (apps interativas usam ESC).
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || docked) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       const termEl = containerRef.current;
@@ -880,7 +883,7 @@ export function KiroChatPanel({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, visible]);
+  }, [onClose, visible, docked]);
 
   const reconnect = useCallback(() => {
     if (!window.mesp?.terminalSpawn) return;
@@ -1360,6 +1363,7 @@ export function KiroChatPanel({
           status={openCodeStatus}
           onStatusChange={setOpenCodeStatus}
           externalPrompt={externalPrompt}
+          initialConversation={initialConversation}
           dockComposer={dockComposer}
           onTaskStarted={onTaskStarted}
           onPetStateChange={(state) => petStateChangeRef.current?.(state)}

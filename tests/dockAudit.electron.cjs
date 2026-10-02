@@ -274,9 +274,24 @@ const check = (name, passed, details) => {
       (await codeInput.inputValue()).startsWith('Rascunho exclusivo do MESP Code\n\n') &&
         (await codeInput.evaluate((el) => document.activeElement === el)),
     );
+    const composerSendBounds = await page
+      .getByRole('button', { name: 'Enviar pedido', exact: true })
+      .boundingBox();
     await codeInput.fill('Primeira tarefa de revisão');
     await codeInput.press('Enter');
     await page.getByRole('button', { name: 'Parar', exact: true }).waitFor();
+    const composerStop = page.getByRole('button', { name: 'Parar', exact: true });
+    const composerStopBounds = await composerStop.boundingBox();
+    check(
+      'botão de enviar vira parar no mesmo círculo',
+      composerStopBounds.width <= 32 &&
+        composerStopBounds.width === composerStopBounds.height &&
+        Math.abs(composerStopBounds.x - composerSendBounds.x) <= 1 &&
+        (await codeInput.inputValue()) === '' &&
+        (await composerStop.isEnabled()) &&
+        (await composerStop.textContent()).trim() === '' &&
+        (await page.getByRole('button', { name: 'Enviar pedido', exact: true }).count()) === 0,
+    );
     check(
       'envio inicia e permite parar pelo chat',
       (await app.evaluate(() => globalThis.__mespAuditRequests.length)) === 1 &&
@@ -320,6 +335,10 @@ const check = (name, passed, details) => {
     await page.getByRole('button', { name: 'Continuar trabalhando', exact: true }).click();
     await page.getByRole('button', { name: 'Parar', exact: true }).click();
     await page.waitForFunction(() => !document.querySelector('.mesp-composer-stop'));
+    check(
+      'botão volta a enviar depois da interrupção',
+      await page.getByRole('button', { name: 'Enviar pedido', exact: true }).isVisible(),
+    );
     check(
       'parar encerra a tarefa e libera o MESP',
       (await page.evaluate(

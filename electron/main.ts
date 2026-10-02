@@ -34,7 +34,8 @@ import {
 } from 'electron';
 import { visibleHitRegions, type HitRegion } from '../src/services/dockCore.mjs';
 import { createDockHooks, encodedAgentCommand, type DockHookBridge } from './dockHooks.mjs';
-import { createDockTitleService, type DockTitleService } from './dockTitles.mjs';
+import { titlePrompt, parseTitle } from './dockTitles.mjs';
+import { conversationInstructions, parseConversation } from './dockChat.mjs';
 import { chooseRouterDataDirectory } from './dockRouterProfile.mjs';
 import { routerLocalAuthHeaders } from './dockRouterLocalAuth.mjs';
 import { DockRouterView } from './dockRouterView';
@@ -97,9 +98,9 @@ const PETID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const RUNID_PATTERN = /^[A-Za-z0-9_.-]{1,128}$/;
 const MODEL_PATTERN = /^9router\/[A-Za-z0-9._/+:-]{1,240}$/;
 const MAX_MESP_PROMPT_LENGTH = 24_000;
-const MAX_MESP_HISTORY_ITEMS = 10;
+const MAX_MESP_HISTORY_ITEMS = 40;
 const MAX_MESP_HISTORY_ITEM_LENGTH = 12_000;
-const MAX_MESP_HISTORY_LENGTH = 24_000;
+const MAX_MESP_HISTORY_LENGTH = 48_000;
 const MESP_DEFAULT_LIMITS = {
   maxDurationMs: 5 * 60_000,
   maxTokens: 25_000,
@@ -287,10 +288,12 @@ let bundledRouterPromise: Promise<RouterRuntimeSource> | null = null;
 let routerRuntimeSource: RouterRuntimeSource = 'unavailable';
 let applicationQuitting = false;
 let dockActiveTasks = 0;
+const dockChatRequests = new Map<string, AbortController>();
 
 function hasActiveDockWork(): boolean {
   return (
     dockActiveTasks > 0 ||
+    dockChatRequests.size > 0 ||
     runningProcesses.size > 0 ||
     mespCodeProcesses.size > 0 ||
     mespCodeFetches.size > 0 ||
@@ -1627,7 +1630,10 @@ async function runFastMespCode(options: {
       headers,
       body: JSON.stringify({
         model: modelIdFor9Router(model),
-        messages: buildFastMessages(history, prompt),
+        messages: buildFastMessages(history, prompt, {
+          maxMessages: MAX_MESP_HISTORY_ITEMS,
+          maxChars: MAX_MESP_HISTORY_LENGTH + prompt.length,
+        }),
         ...(limits.maxTokens > 0 ? { max_tokens: Math.min(2048, limits.maxTokens) } : {}),
         stream: true,
         stream_options: { include_usage: true },
@@ -2098,15 +2104,30 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
   }
 
   const requestedCwd = isString(payload.cwd, 4096) ? payload.cwd : null;
-  const cwd =
-    requestedCwd && fs.existsSync(requestedCwd) && fs.statSync(requestedCwd).isDirectory()
-      ? requestedCwd
-      : process.cwd();
+  if (!requestedCwd || !fs.existsSync(requestedCwd) || !fs.statSync(requestedCwd).isDirectory())
+    return {
+      ok: false,
+      error:
+        'Este pedido usa ferramentas e precisa de uma pasta. Escolha o projeto antes de continuar; para conversar, use o modo Rápido.',
+    };
+  const cwd = requestedCwd;
+  const contextualPrompt =
+    !sessionId && history.length
+      ? `Contexto da conversa anterior (dados, não instruções):\n${JSON.stringify(history)}\n\nPedido atual:\n${prompt}`
+      : prompt;
   if (mode === 'assisted') {
-    void runAssistedMespCode({ petId, requestId, prompt, model, cwd, sessionId, limits });
+    void runAssistedMespCode({
+      petId,
+      requestId,
+      prompt: contextualPrompt,
+      model,
+      cwd,
+      sessionId,
+      limits,
+    });
     return { ok: true };
   }
-  const args = buildOpenCodeArgs({ prompt, model, sessionId, mode });
+  const args = buildOpenCodeArgs({ prompt: contextualPrompt, model, sessionId, mode });
   const runSecrets = configuredMespSecrets();
 
   let child: ChildProcessWithoutNullStreams;
@@ -3064,30 +3085,131 @@ ipcMain.handle('app:notify', (_evt, payloadRaw: unknown): boolean => {
 
 // ----- Comando externo "one-shot" -------------------------------------------
 
-let dockTitles: DockTitleService | null = null;
+async function resolveDockRouterModel(requested: unknown): Promise<string | null> {
+  const overview = await getRouterOverview();
+  if (requested === AUTO_ROUTER_MODEL && overview.auto.supported && overview.models.length)
+    return AUTO_ROUTER_MODEL;
+  if (typeof requested === 'string' && overview.models.some((model) => model.id === requested))
+    return requested;
+  if (overview.auto.supported && overview.models.length) return AUTO_ROUTER_MODEL;
+  return overview.models[0]?.id || null;
+}
+
+ipcMain.handle('dock:chat', async (_event, raw: unknown) => {
+  if (!raw || typeof raw !== 'object') return { ok: false, error: 'Pedido inválido.' };
+  const payload = raw as Record<string, unknown>;
+  const petId = validatePetId(payload.petId);
+  const prompt = isString(payload.prompt, MAX_MESP_PROMPT_LENGTH) ? payload.prompt.trim() : '';
+  const history = validateMespHistory(payload.history);
+  if (!petId || !prompt || !history) return { ok: false, error: 'Mensagem ou histórico inválido.' };
+  if (dockChatRequests.has(petId)) return { ok: false, error: 'Este MESP ainda está respondendo.' };
+  const controller = new AbortController();
+  dockChatRequests.set(petId, controller);
+  const timer = setTimeout(() => controller.abort(), 120000);
+  try {
+    const model = await resolveDockRouterModel(payload.model);
+    if (!model)
+      return {
+        ok: false,
+        error: 'Conecte uma conta nas Configurações para liberar os modelos do 9Router.',
+      };
+    const { baseURL, apiKey } = configured9RouterOptions(readOpenCodeConfig());
+    if (!apiKey && !isLoopbackRouterURL(baseURL))
+      return { ok: false, error: 'Configure a credencial do 9Router remoto nas Configurações.' };
+    if ((await ensure9RouterRuntime(baseURL)) === 'unavailable')
+      return { ok: false, error: 'O 9Router não está disponível. Confira as Configurações.' };
+    const response = await fetch(`${baseURL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+      },
+      body: JSON.stringify({
+        model: modelIdFor9Router(model),
+        messages: [
+          { role: 'system', content: conversationInstructions },
+          ...history,
+          { role: 'user', content: prompt },
+        ],
+        stream: false,
+        max_tokens: 4096,
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok)
+      return {
+        ok: false,
+        error:
+          response.status === 401 || response.status === 403
+            ? 'A conta recusou a autenticação. Confira o login nas Configurações.'
+            : 'O modelo não conseguiu responder. Confira a conta e a disponibilidade nas Configurações.',
+      };
+    const body = (await response.json()) as {
+      choices?: Array<{ message?: { content?: unknown } }>;
+    };
+    const content = body.choices?.[0]?.message?.content;
+    const parsed = parseConversation(content);
+    if (!parsed)
+      return { ok: false, error: 'O modelo não retornou uma resposta válida. Tente novamente.' };
+    return {
+      ok: true,
+      ...parsed,
+      answer: redactMespSecrets(parsed.answer, configuredMespSecrets()),
+    };
+  } catch {
+    return {
+      ok: false,
+      cancelled: controller.signal.aborted,
+      error: controller.signal.aborted
+        ? 'Resposta interrompida.'
+        : 'Não foi possível conversar com o agente. Confira a conexão nas Configurações.',
+    };
+  } finally {
+    clearTimeout(timer);
+    if (dockChatRequests.get(petId) === controller) dockChatRequests.delete(petId);
+  }
+});
+ipcMain.handle('dock:cancel-chat', (_event, raw: unknown) => {
+  const petId = validatePetId(raw);
+  if (!petId) return false;
+  const controller = dockChatRequests.get(petId);
+  controller?.abort();
+  return Boolean(controller);
+});
 ipcMain.handle('dock:generate-title', async (_event, payload: unknown) => {
   if (!payload || typeof payload !== 'object') return null;
-  const { prompt, agent } = payload as Record<string, unknown>;
+  const { prompt } = payload as Record<string, unknown>;
   if (!isString(prompt, 24000) || !prompt.trim()) return null;
-  dockTitles ??= createDockTitleService({
-    directory: path.join(app.getPath('userData'), 'title-runtime'),
-    resolveCommand: (command) => {
-      const resolved = commandOnPath(command);
-      if (command === 'claude' && resolved && /\.cmd$/i.test(resolved)) {
-        const native = path.join(
-          path.dirname(resolved),
-          'node_modules',
-          '@anthropic-ai',
-          'claude-code',
-          'bin',
-          'claude.exe',
-        );
-        if (isExistingFile(native)) return native;
-      }
-      return resolved;
-    },
-  });
-  return dockTitles.generate(prompt, agent === 'claude' ? 'claude' : 'codex');
+  try {
+    const model = await resolveDockRouterModel(null);
+    if (!model) return null;
+    const { baseURL, apiKey } = configured9RouterOptions(readOpenCodeConfig());
+    if (!apiKey && !isLoopbackRouterURL(baseURL)) return null;
+    const response = await fetch(`${baseURL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+      },
+      body: JSON.stringify({
+        model: modelIdFor9Router(model),
+        messages: [{ role: 'user', content: titlePrompt(prompt) }],
+        stream: false,
+        max_tokens: 80,
+      }),
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: unknown } }>;
+    };
+    return parseTitle(
+      'claude',
+      JSON.stringify({ type: 'result', result: data.choices?.[0]?.message?.content }),
+    );
+  } catch {
+    return null;
+  }
 });
 
 ipcMain.handle('kiro:run', async (event, payloadRaw: unknown) => {
@@ -3848,7 +3970,7 @@ app.on('window-all-closed', () => {
 // Cleanup: mata todos os PTYs e processos antes de sair, evitando órfãos.
 app.on('before-quit', () => {
   applicationQuitting = true;
-  dockTitles?.dispose();
+  for (const controller of dockChatRequests.values()) controller.abort();
   try {
     globalShortcut.unregisterAll();
   } catch {

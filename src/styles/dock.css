@@ -195,14 +195,29 @@
   font-weight: 550;
 }
 .dock-connect-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 14px;
 }
 .top-dock .dock-connect-buttons button {
-  padding: 8px 10px;
-  background: #202125;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 70px;
+  padding: 10px 4px;
+  color: #d7d7d7;
+  background: #191919;
+  border-radius: 12px;
+}
+.dock-connect-buttons span {
+  font-size: 11px;
+  line-height: 1.3;
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 .dock-settings button,
 .dock-settings select {
@@ -232,6 +247,8 @@
   color: #f5f6f8;
   scrollbar-width: thin;
   scrollbar-color: #393c43 transparent;
+  min-width: 0;
+  overscroll-behavior: contain;
 }
 .dock-settings-heading,
 .dock-router-health,
@@ -283,15 +300,18 @@
 .dock-router-health {
   font-size: 10px;
   padding: 9px 11px;
-  background: #1d1f23;
+  background: #191919;
   border-radius: 10px;
   gap: 7px;
+  flex-wrap: wrap;
 }
 .dock-router-health strong {
   font-weight: 600;
 }
 .dock-router-health > span:nth-last-child(2) {
   color: #a8adb7;
+  flex: 1;
+  min-width: 100px;
 }
 .dock-router-health button {
   margin-left: auto;
@@ -1252,6 +1272,37 @@ body,
   background:
     radial-gradient(ellipse at 10% 0%, rgba(255, 255, 255, 0.025), transparent 65%), #141518;
 }
+.dock-conversation-actions,
+.dock-project-request {
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.055);
+  color: #b6bac3;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.dock-conversation-actions,
+.dock-project-request > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.dock-project-request > div {
+  margin-top: 8px;
+}
+.dock-conversation-actions button,
+.dock-project-request button {
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 7px 10px;
+}
+.dock-conversation-actions button:hover,
+.dock-project-request button:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
 .dock-context-chip {
   align-self: flex-start;
   max-width: 100%;
@@ -1508,7 +1559,7 @@ body,
   background: #141414;
 }
 .dock-help-overlay p {
-  margin: 12px 0;
+  margin: 10px 0;
   color: #b6b6b6;
   font-size: 12px;
   line-height: 1.6;
@@ -1523,8 +1574,8 @@ body,
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
-  min-height: 66px;
-  padding: 12px;
+  min-height: 62px;
+  padding: 10px;
   border-radius: 10px;
   background: #202020;
   color: #eee;
@@ -1882,6 +1933,95 @@ body,
   overflow: hidden;
   min-height: 0;
 }
+.dock-composer,
+.mesp-composer {
+  position: relative;
+}
+.dock-composer:has(.dock-command-popover),
+.mesp-composer:has(.dock-command-popover) {
+  z-index: 40;
+  overflow: visible;
+}
+.dock-command-popover {
+  position: absolute;
+  z-index: 8;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid #333;
+  border-radius: 14px;
+  background: #181818;
+  box-shadow: 0 12px 32px #0008;
+  animation: dock-router-enter 140ms ease-out;
+}
+.dock-command-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 6px 8px 8px;
+  color: #bdbdbd;
+  font-size: 11px;
+}
+.dock-command-heading small {
+  font-size: 10px;
+  color: #888;
+}
+.dock-command-list {
+  max-height: min(250px, 35vh, max(46px, calc(100vh - 220px)));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.top-dock .dock-command-list button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: transparent;
+  color: #ddd;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.top-dock .dock-command-list button:hover,
+.top-dock .dock-command-list button.selected {
+  background: #2a2a2a;
+}
+.dock-command-name {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.dock-command-name strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+.dock-command-name small {
+  font-size: 10px;
+  color: #999;
+  overflow-wrap: anywhere;
+}
+.dock-command-list code {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: #999;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dock-command-popover,
+  .top-dock .dock-command-list button {
+    animation: none;
+    transition: none;
+  }
+}
 .dock-router-panel {
   display: flex;
   flex-direction: column;
@@ -1895,6 +2035,7 @@ body,
   align-items: center;
   gap: 7px;
   flex-shrink: 0;
+  min-width: 0;
 }
 .dock-router-toolbar button,
 .dock-router-toolbar select,
@@ -2015,11 +2156,9 @@ body,
 @keyframes dock-router-enter {
   from {
     opacity: 0;
-    transform: translateY(5px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 @keyframes dock-router-pulse {
@@ -2087,10 +2226,33 @@ body,
   font-size: 11px;
 }
 .top-dock .mesp-composer-stop {
-  background: #333;
-  color: #eee;
+  background: #e7e7e7;
+  color: #151515;
   border: 0;
   font-size: 11px;
+}
+.mesp-composer .mesp-composer-action {
+  display: grid;
+  place-items: center;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  padding: 0;
+  margin-left: 0;
+}
+.top-dock .mesp-composer-action:hover:not(:disabled) {
+  background: #fff;
+  box-shadow: none;
+}
+.mesp-composer-action:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.top-dock .mesp-composer-actions {
+  width: auto;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 .dock-appearance {
   display: flex;
@@ -2343,5 +2505,219 @@ body,
   .dock-router-toolbar button,
   .dock-router-toolbar select {
     transition: none;
+  }
+}
+
+/* Project identity stays visible while task names evolve with the conversation. */
+.dock-current-project {
+  background: transparent;
+  padding: 0;
+  font-size: 10px !important;
+  color: #aeb2ba !important;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.dock-auto-title {
+  background: transparent;
+  color: #aeb2ba !important;
+  padding: 0;
+  font-size: 9px !important;
+}
+.dock-header:has(.dock-auto-title) {
+  min-height: 102px;
+}
+.dock-project-switcher {
+  display: flex;
+  gap: 5px;
+  margin: 0 10px 8px;
+  padding: 3px 2px 5px;
+  overflow-x: auto;
+  flex-shrink: 0;
+  scrollbar-width: thin;
+  scrollbar-color: #34363c transparent;
+  overscroll-behavior: contain;
+}
+.dock-project-switcher > button {
+  display: flex;
+  flex: 1 0 85px;
+  min-width: 0;
+  max-width: 130px;
+  align-items: center;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 6px;
+  background: #101114;
+  border-radius: 10px;
+  transition: background 160ms ease;
+}
+.dock-project-switcher > button:hover,
+.dock-project-switcher > button[aria-current='true'] {
+  background: #25262b;
+}
+.dock-project-switcher strong,
+.dock-project-switcher small {
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 500;
+}
+.dock-project-switcher.is-compact > button {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  grid-template-rows: repeat(2, 13px);
+  column-gap: 5px;
+  flex-basis: 125px;
+  padding: 5px 7px;
+}
+.dock-project-switcher.is-compact .dock-project-mascot {
+  grid-row: 1 / 3;
+}
+.dock-project-switcher.is-compact strong,
+.dock-project-switcher.is-compact small {
+  text-align: left;
+}
+.dock-project-switcher.is-compact .dock-switcher-system {
+  display: none;
+}
+@media (max-width: 600px) and (max-height: 720px) {
+  .dock-project-switcher.is-compact {
+    display: none;
+  }
+}
+.dock-project-switcher small {
+  color: #b2b6bf;
+  font-size: 9px;
+  font-weight: 400;
+}
+.dock-project-mascot {
+  position: relative;
+  display: block;
+  width: 30px;
+  height: 24px;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+.dock-project-mascot .dock-mascot {
+  width: 37px;
+  height: 32px;
+  left: -4px;
+  top: -4px;
+}
+.dock-project-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0 0 10px;
+}
+.dock-project-filters button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  border-radius: 8px;
+  padding: 5px 8px;
+  background: #202126;
+  color: #b7bbc3;
+  font-size: 10px;
+}
+.dock-project-filters button[aria-pressed='true'] {
+  background: #393b42;
+  color: #fff;
+}
+.dock-project-filters span {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+.dock-project-search {
+  width: 100%;
+  padding: 9px 10px;
+  background: #0f1012;
+  border: 0;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 11px;
+  color: #eee;
+  margin: 0 0 10px;
+}
+.dock-project-toolbar {
+  position: sticky;
+  top: -14px;
+  margin-top: -14px;
+  padding-top: 14px;
+  background: #141518;
+  z-index: 3;
+}
+.dock-projects-overview .dock-project {
+  min-height: 92px;
+}
+.dock-project-copy .dock-project-name {
+  font-size: 11px;
+  color: #e2e4e8;
+}
+.dock-project-copy small {
+  overflow-wrap: anywhere;
+}
+.dock-project-copy .dock-project-result {
+  color: #e2e4e8;
+  font-size: 10px;
+}
+.dock-project-empty {
+  text-align: center;
+  padding: 15px 8px;
+  font-size: 11px;
+  color: #b2b6bf;
+}
+.dock-project-empty button {
+  border-radius: 8px;
+  background: #292b31;
+  padding: 8px 12px;
+}
+.dock-unread-results {
+  white-space: nowrap;
+  color: #e5e7eb !important;
+}
+.dock-completed-banner {
+  flex-shrink: 0;
+}
+.dock-completed-banner span:last-child {
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .dock-header {
+    min-height: 142px;
+    height: 142px;
+  }
+  .dock-header:has(.dock-auto-title) {
+    min-height: 160px;
+    height: 160px;
+  }
+  .dock-actions {
+    top: 111px;
+  }
+  .dock-project-switcher > button {
+    flex: 0 0 91px;
+  }
+}
+@media (max-width: 420px) {
+  .dock-completed-banner {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .dock-project-filters button {
+    font-size: 10px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dock-project-switcher > button {
+    transition: none;
+  }
+  .dock-projects-overview .dock-working {
+    animation: none;
   }
 }

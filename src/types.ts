@@ -67,4 +67,7 @@ export interface PetEntity {
   routerModel?: string;
   hasActiveTask?: boolean;
   completedAt?: number;
+  resultSeenAt?: number;
+  taskInterrupted?: boolean;
+  taskError?: boolean;
 }
