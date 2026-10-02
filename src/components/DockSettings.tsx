@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { MespCodeStatus } from './MespCodeChat';
 import { AUTO_ROUTER_MODEL } from '../../electron/dockRouter.mjs';
-import type { RouterOverview, RouterCounters, RouterQuota } from '../../electron/dockRouter.mjs';
+import type {
+  RouterOverview,
+  RouterCounters,
+  RouterQuota,
+  RouterAccount,
+} from '../../electron/dockRouter.mjs';
 import { DockRouterPanel } from './DockRouterPanel';
+import { DockConnectionIcon as ConnectionIcon } from './DockConnectionIcon';
+import { DockModelPicker, dockModelLabel } from './DockModelPicker';
 
 const format = new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 });
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'USD' });
@@ -26,39 +32,6 @@ function resetLabel(resetAt: number | null) {
   return hours < 24
     ? `Reset em ${hours}h ${minutes % 60}min`
     : `Reset em ${Math.floor(hours / 24)}d ${hours % 24}h`;
-}
-function ConnectionIcon({ provider }: { provider: string }) {
-  return (
-    <svg
-      width="26"
-      height="26"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {provider === 'codex' ? (
-        <>
-          <rect x="3" y="4" width="18" height="16" rx="4" />
-          <path d="m7 9 3 3-3 3m6 0h4" />
-        </>
-      ) : provider === 'claude' ? (
-        <path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M5.6 18.4 18.4 5.6" />
-      ) : provider === 'gemini-cli' ? (
-        <path d="M12 2c0 6-4 10-10 10 6 0 10 4 10 10 0-6 4-10 10-10-6 0-10-4-10-10Z" />
-      ) : (
-        <>
-          <rect x="3" y="3" width="7" height="7" rx="2" />
-          <rect x="14" y="3" width="7" height="7" rx="2" />
-          <rect x="3" y="14" width="7" height="7" rx="2" />
-          <rect x="14" y="14" width="7" height="7" rx="2" />
-        </>
-      )}
-    </svg>
-  );
 }
 function quotaName(key: string) {
   return key
@@ -121,6 +94,17 @@ function Consumption({ value }: { value: RouterCounters | null }) {
   );
 }
 
+type SettingsTab = 'models' | 'accounts' | 'usage';
+const cachedOverviews = new Map<string, RouterOverview>();
+function accountState(account: RouterAccount, nextId?: string) {
+  if (account.health === 'disabled') return 'Desativada';
+  if (account.health === 'unknown') return 'Não verificada';
+  if (account.health === 'auth' || account.health === 'error') return 'Reconectar';
+  if (account.lastFailure === 'permission') return 'Verificar acesso';
+  if (account.limitReached) return 'Sem cota';
+  return account.id === nextId ? 'Prioridade Auto' : 'Ativa';
+}
+
 export function DockSettings({
   project,
   currentModel,
@@ -138,50 +122,56 @@ export function DockSettings({
   requestedPage?: { page: string; nonce: number };
   onPanelOpenChange: (open: boolean) => void;
 }) {
-  const [status, setStatus] = useState<MespCodeStatus | null>(null);
-  const [overview, setOverview] = useState<RouterOverview | null>(null);
+  const [overview, setOverview] = useState<RouterOverview | null>(
+    () => cachedOverviews.get('today') || null,
+  );
   const [refreshing, setRefreshing] = useState(false);
+  const [tab, setTab] = useState<SettingsTab>(
+    requestedPage?.page === 'overview' ? 'models' : 'accounts',
+  );
   const [panelPage, setPanelPage] = useState('');
   const [panelRequest, setPanelRequest] = useState(0);
-  const [model, setModel] = useState(currentModel || '');
-  const [query, setQuery] = useState('');
   const [period, setPeriod] = useState('today');
   const [accountId, setAccountId] = useState('all');
   const [error, setError] = useState('');
+  const body = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    body.current?.scrollTo({ top: 0 });
+  }, [tab]);
   const mounted = useRef(true),
-    refreshingRef = useRef(false);
-  const periodRef = useRef(period);
+    refreshingRef = useRef(false),
+    periodRef = useRef(period),
+    activeRef = useRef(active);
   periodRef.current = period;
+  activeRef.current = active;
   const refresh = useCallback(async function update(force = false) {
     if (refreshingRef.current || !window.mesp) return;
     refreshingRef.current = true;
     setRefreshing(true);
     const requestedPeriod = periodRef.current;
     try {
-      const [next, data] = await Promise.all([
-        window.mesp.getOpenCodeStatus(force),
+      // Keep the project's private OpenCode catalogue synchronized as well as the UI summary.
+      // The initial refresh bypasses an empty startup cache; later refreshes use its cache.
+      const [data] = await Promise.all([
         window.mesp.get9RouterOverview(requestedPeriod, force),
+        window.mesp.getOpenCodeStatus(force || !cachedOverviews.has(requestedPeriod)),
       ]);
+      cachedOverviews.set(requestedPeriod, data);
       if (!mounted.current || requestedPeriod !== periodRef.current) return;
-      setStatus(next);
       setOverview(data);
-      setError('');
-      const choices = data.models.map((item) => item.id);
-      if (data.auto.supported && choices.length) choices.unshift(AUTO_ROUTER_MODEL);
-      setModel((previous) =>
-        choices.includes(previous)
+      setAccountId((previous) =>
+        previous === 'all' || data.accounts.some((account) => account.id === previous)
           ? previous
-          : choices.includes(next.model || '')
-            ? next.model!
-            : choices[0] || '',
+          : 'all',
       );
+      setError('');
     } catch {
-      if (mounted.current)
-        setError('Não foi possível atualizar contas e consumo. Tente novamente.');
+      if (mounted.current) setError('Não foi possível atualizar as contas. Tente novamente.');
     } finally {
       refreshingRef.current = false;
       if (mounted.current) setRefreshing(false);
-      if (mounted.current && requestedPeriod !== periodRef.current) void update();
+      if (mounted.current && activeRef.current && requestedPeriod !== periodRef.current)
+        void update();
     }
   }, []);
   useEffect(() => {
@@ -194,18 +184,19 @@ export function DockSettings({
   }, [refresh]);
   useEffect(() => {
     if (!active) return;
-    void refresh(true);
+    const cached = cachedOverviews.get(period);
+    if (cached) setOverview(cached);
+    void refresh();
     const timer = window.setInterval(() => void refresh(), 30000);
     return () => window.clearInterval(timer);
-  }, [active, refresh]);
+  }, [active, period, refresh]);
   useEffect(() => {
-    void refresh();
-  }, [period, refresh]);
-  useEffect(() => {
-    if (requestedPage) {
-      setPanelPage(requestedPage.page === 'overview' ? '' : requestedPage.page);
-      setPanelRequest((value) => value + 1);
-    }
+    if (!requestedPage) return;
+    if (requestedPage.page === 'overview' || requestedPage.page === 'connections') {
+      setPanelPage('');
+      setTab(requestedPage.page === 'overview' ? 'models' : 'accounts');
+    } else setPanelPage(requestedPage.page);
+    setPanelRequest((value) => value + 1);
   }, [requestedPage]);
   useEffect(() => {
     onPanelOpenChange(!!panelPage);
@@ -216,28 +207,29 @@ export function DockSettings({
     setPanelPage(page);
     setPanelRequest((value) => value + 1);
   };
-  const ready = status?.routerState === 'ready';
-  const verified = overview?.accounts.filter((item) => item.health === 'active').length || 0;
+  const accounts = overview?.accounts || [];
   const models = overview?.models || [];
-  const filtered = models.filter((item) =>
-    `${item.name} ${item.id} ${item.providerName}`.toLowerCase().includes(query.toLowerCase()),
-  );
-  const groups = Array.from(new Set(filtered.map((item) => item.providerName)));
-  const visibleAccounts = (overview?.accounts || []).filter(
-    (item) => accountId === 'all' || item.id === accountId,
+  const selectedInfo = models.find((model) => model.id === currentModel);
+  const modelName =
+    currentModel === AUTO_ROUTER_MODEL
+      ? 'Auto'
+      : dockModelLabel(selectedInfo?.name || currentModel || 'Escolher modelo');
+  const visibleAccounts = accounts.filter(
+    (account) => accountId === 'all' || account.id === accountId,
   );
   const consumption =
-    accountId === 'all'
-      ? overview?.totals || null
-      : overview?.accounts.find((item) => item.id === accountId)?.consumption || null;
-  const selectedInfo = models.find((item) => item.id === model);
+    overview?.period !== period
+      ? null
+      : accountId === 'all'
+        ? overview?.totals || null
+        : accounts.find((account) => account.id === accountId)?.consumption || null;
+  const changeTab = (next: SettingsTab) => setTab(next);
   return (
     <div
       className={`dock-settings${panelPage ? ' is-router' : ''}`}
       role="tabpanel"
       id="dock-settings-panel"
       aria-labelledby="dock-settings-tab"
-      aria-busy={refreshing}
     >
       {panelPage ? (
         <DockRouterPanel
@@ -252,16 +244,29 @@ export function DockSettings({
         />
       ) : (
         <>
-          <div className="dock-settings-heading">
+          <div className={`dock-settings-heading${tab === 'models' ? ' is-model-heading' : ''}`}>
             <div>
-              <h2>Conexões</h2>
-              <p>Conecte suas contas e escolha a IA deste MESP.</p>
+              <h2>
+                {tab === 'models'
+                  ? 'Escolha seu modelo'
+                  : tab === 'accounts'
+                    ? 'Suas conexões'
+                    : 'Consumo e limites'}
+              </h2>
+              <p title={project}>
+                {tab === 'models'
+                  ? `Um clique para usar em ${project}.`
+                  : tab === 'accounts'
+                    ? 'Suas contas, juntas no MESP.'
+                    : 'Acompanhe o uso geral ou de uma conta.'}
+              </p>
             </div>
             <button
               className="dock-settings-refresh"
               onClick={() => void refresh(true)}
               disabled={refreshing}
               aria-label="Atualizar conexões"
+              title="Atualizar contas e modelos"
             >
               <svg
                 className={refreshing ? 'spinning' : ''}
@@ -277,250 +282,310 @@ export function DockSettings({
               </svg>
             </button>
           </div>
-          <nav className="dock-connect-buttons" aria-label="Conectar provedores">
-            {PROVIDERS.map((provider) => {
-              const connected = overview?.accounts.some((item) => item.provider === provider.id);
-              const action = `${connected ? 'Gerenciar' : 'Conectar'} ${provider.name}`;
-              return (
-                <button
-                  key={provider.id}
-                  onClick={() => open(provider.id)}
-                  aria-label={action}
-                  title={action}
-                >
-                  <ConnectionIcon provider={provider.id} />
-                  <span>{provider.name}</span>
-                </button>
-              );
-            })}
-            <button
-              onClick={() => open('providers')}
-              aria-label="Outros provedores"
-              title="Todas as conexões disponíveis"
-            >
-              <ConnectionIcon provider="other" />
-              <span>Todos</span>
-            </button>
-          </nav>
-          <div className="dock-router-health" role="status">
-            <span className={`dock-status ${ready ? 'state-success' : 'state-waiting'}`} />
-            <strong>9Router</strong>
-            <span>
-              {refreshing && !overview
-                ? 'Consultando contas…'
-                : overview
-                  ? `${models.length} modelos · ${verified} conta${verified === 1 ? '' : 's'} com dados`
-                  : 'Não verificado'}
-            </span>
-            <button onClick={() => open('providers')}>Gerenciar contas</button>
-          </div>
-          {overview?.accountSource === '9router' && (
-            <p className="dock-usage-note">
-              Contas e histórico sincronizados com seu 9Router existente.
-            </p>
-          )}
-          <section className="dock-settings-model">
-            <h3>Modelo deste MESP</h3>
-            <p>{project}</p>
-            <input
-              className="dock-model-search"
-              type="search"
-              aria-label="Buscar modelos"
-              placeholder="Buscar entre todos os provedores"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-            <div className="dock-settings-model-controls">
-              <select
-                aria-label="Modelo deste MESP"
-                value={model}
-                disabled={!ready || !canChange || refreshing}
-                onChange={(event) => setModel(event.target.value)}
-              >
-                {!models.length && <option value="">Conecte uma conta para escolher</option>}
-                {overview?.auto.supported && models.length > 0 && (
-                  <option value={AUTO_ROUTER_MODEL}>Auto · priorizar o próximo reset</option>
-                )}
-                {selectedInfo && !filtered.includes(selectedInfo) && (
-                  <option value={selectedInfo.id}>{selectedInfo.name}</option>
-                )}
-                {groups.map((group) => (
-                  <optgroup key={group} label={group}>
-                    {filtered
-                      .filter((item) => item.providerName === group)
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name} · {item.accountIds.length} conta
-                          {item.accountIds.length === 1 ? '' : 's'}
-                        </option>
-                      ))}
-                  </optgroup>
-                ))}
-              </select>
+          <div
+            className="dock-settings-tabs"
+            role="tablist"
+            aria-label="Ajustes do MESP"
+            onKeyDown={(event) => {
+              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+              event.preventDefault();
+              const tabs = [
+                ...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+              ];
+              const index = tabs.indexOf(document.activeElement as HTMLButtonElement);
+              const next =
+                event.key === 'Home'
+                  ? 0
+                  : event.key === 'End'
+                    ? tabs.length - 1
+                    : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+              tabs[next].click();
+              tabs[next].focus();
+            }}
+          >
+            {(
+              [
+                ['models', 'Modelos'],
+                ['accounts', 'Contas'],
+                ['usage', 'Consumo'],
+              ] as const
+            ).map(([id, label]) => (
               <button
-                className="dock-settings-apply"
-                onClick={() => onApply(model)}
-                disabled={!ready || !model || !canChange || refreshing}
+                key={id}
+                id={`dock-settings-${id}`}
+                role="tab"
+                aria-selected={tab === id}
+                aria-controls={`dock-settings-content-${id}`}
+                onClick={() => changeTab(id)}
               >
-                Usar neste MESP
+                {label}
               </button>
-            </div>
-            {model === AUTO_ROUTER_MODEL ? (
-              <div className="dock-auto-explanation">
-                <strong>Use a cota antes que ela renove</strong>
-                <p>
-                  Escolhe modelo e conta a cada pedido. Prioriza o reset mais próximo e pula contas
-                  sem cota.
-                </p>
-                <small>
-                  {overview?.auto.next
-                    ? `${overview.auto.next.accountLabel} · ${overview.auto.next.model.replace(/^9router\//, '')} · ${resetLabel(overview.auto.next.resetAt)}`
-                    : 'Aguardando uma conta disponível.'}
-                </small>
-              </div>
-            ) : (
-              selectedInfo && (
-                <small className="dock-settings-hint">
-                  {selectedInfo.providerName} ·{' '}
-                  {selectedInfo.source === 'live'
-                    ? 'Modelos consultados na conta'
-                    : 'Catálogo do 9Router; disponibilidade confirmada ao usar'}
-                </small>
-              )
-            )}
-            {!canChange && (
-              <small className="dock-settings-hint">
-                Você poderá trocar o modelo quando a tarefa atual terminar.
-              </small>
-            )}
-            {overview && !overview.auto.supported && models.length > 0 && (
-              <small className="dock-settings-hint">Auto requer o 9Router integrado do MESP.</small>
-            )}
-          </section>
-          <section className="dock-usage-section">
-            <div className="dock-usage-heading">
-              <h3>Consumo</h3>
-              <select
-                aria-label="Período do consumo"
-                value={period}
-                onChange={(event) => setPeriod(event.target.value)}
-              >
-                <option value="today">Hoje</option>
-                <option value="7d">7 dias</option>
-                <option value="30d">30 dias</option>
-                <option value="all">Todo o histórico</option>
-              </select>
-            </div>
-            <select
-              className="dock-account-filter"
-              aria-label="Conta do consumo"
-              value={accountId}
-              onChange={(event) => setAccountId(event.target.value)}
-            >
-              <option value="all">Geral · todas as contas</option>
-              {overview?.accounts.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label} · {item.providerName}
-                </option>
-              ))}
-            </select>
-            <Consumption value={consumption} />
-            <p className="dock-usage-note">
-              Pedidos registrados pelo 9Router. As cotas abaixo vêm dos provedores.
-            </p>
-            {overview && !overview.usageAvailable && (
-              <p className="dock-settings-hint">
-                Histórico de consumo temporariamente indisponível.
-              </p>
-            )}
-            <div className="dock-account-list">
-              {visibleAccounts.map((account) => (
-                <article
-                  className="dock-account-card"
-                  key={account.id}
-                  data-account-id={account.id}
-                >
-                  <div className="dock-account-heading">
-                    <div>
-                      <strong>{account.label}</strong>
-                      <small>
-                        {account.providerName}
-                        {account.plan ? ` · ${account.plan}` : ''}
-                      </small>
-                    </div>
-                    <span>
-                      {account.health === 'disabled'
-                        ? 'Desativada'
-                        : account.health === 'unknown'
-                          ? 'Não verificada'
-                          : account.health === 'auth' || account.health === 'error'
-                            ? 'Reconectar'
-                            : account.lastFailure === 'permission'
-                              ? 'Verificar acesso'
-                              : account.limitReached
-                                ? 'Sem cota'
-                                : overview?.auto.next?.accountId === account.id
-                                  ? 'Prioridade Auto'
-                                  : 'Ativa'}
-                    </span>
-                  </div>
-                  {account.quotas.length > 0 ? (
-                    <div className="dock-account-quotas">
-                      {account.quotas.map((quota) => (
-                        <Quota key={quota.key} quota={quota} account={account.label} />
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="dock-settings-hint">
-                      {account.health === 'auth' || account.health === 'error'
-                        ? 'Reconecte esta conta no painel para atualizar modelos e cotas.'
-                        : account.quotaState === 'unsupported'
-                          ? 'Este provedor não informa cota ou reset.'
-                          : account.active
-                            ? 'Não foi possível consultar a cota agora.'
-                            : 'Conecte esta conta para consultar a cota.'}
-                    </p>
-                  )}
-                  <div className="dock-account-spend">
-                    {account.consumption
-                      ? `${format.format(account.consumption.tokens)} tokens · ${format.format(account.consumption.requests)} pedidos · ${account.consumption.cost == null ? 'Custo indisponível' : currency.format(account.consumption.cost)}`
-                      : 'Consumo indisponível'}
-                    <button
-                      onClick={() => void open('providers')}
-                      aria-label={`Gerenciar ${account.label}`}
-                    >
-                      Gerenciar
-                    </button>
-                  </div>
-                  {account.lastFailure === 'permission' && (
-                    <p className="dock-settings-hint">
-                      O provedor recusou o último pedido com HTTP 403. Revise o acesso desta conta
-                      ou escolha outro modelo.
-                    </p>
-                  )}
-                </article>
-              ))}
-              {overview && !overview.accounts.length && (
-                <div className="dock-accounts-empty">
-                  <strong>Conecte sua primeira conta</strong>
-                  <p>Seus modelos, cotas e resets aparecerão aqui.</p>
-                </div>
-              )}
-            </div>
-          </section>
-          <div className="dock-settings-bottom">
-            <span>
-              {overview
-                ? `Atualizado às ${new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }).format(overview.updatedAt)}`
-                : 'O login é feito no painel do 9Router.'}
-            </span>
-            <button onClick={() => open('cli-tools')}>Configurar ferramentas</button>
+            ))}
           </div>
           {error && (
             <div className="dock-settings-error" role="alert">
               {error}
             </div>
           )}
+          <div
+            className="dock-settings-body"
+            ref={body}
+            id={`dock-settings-content-${tab}`}
+            role="tabpanel"
+            aria-labelledby={`dock-settings-${tab}`}
+          >
+            {tab === 'models' && (
+              <>
+                <div className="dock-current-model">
+                  <span>Em uso neste MESP</span>
+                  <strong title={currentModel}>{modelName}</strong>
+                  <button
+                    className="dock-settings-inline-refresh"
+                    aria-label="Atualizar conexões"
+                    disabled={refreshing}
+                    onClick={() => void refresh(true)}
+                    title="Atualizar contas e modelos"
+                  >
+                    ↻
+                  </button>
+                </div>
+                <DockModelPicker
+                  overview={overview}
+                  currentModel={currentModel}
+                  canChange={canChange}
+                  loading={refreshing}
+                  active={active}
+                  onChoose={onApply}
+                  onConnect={() => changeTab('accounts')}
+                />
+              </>
+            )}
+            {tab === 'accounts' && (
+              <>
+                <button className="dock-model-shortcut" onClick={() => changeTab('models')}>
+                  <span className="dock-choice-icon">
+                    <ConnectionIcon
+                      provider={
+                        currentModel === AUTO_ROUTER_MODEL
+                          ? 'auto'
+                          : selectedInfo?.provider || 'other'
+                      }
+                    />
+                  </span>
+                  <span className="dock-choice-copy">
+                    <small>Modelo deste MESP</small>
+                    <strong>{modelName}</strong>
+                  </span>
+                  <span>Trocar ›</span>
+                </button>
+                <div className="dock-settings-section-heading">
+                  <h3>Conectar uma conta</h3>
+                  <small>Escolha o provedor</small>
+                </div>
+                <nav className="dock-connect-buttons" aria-label="Conectar provedores">
+                  {PROVIDERS.map((provider) => {
+                    const action = `${accounts.some((account) => account.provider === provider.id) ? 'Gerenciar' : 'Conectar'} ${provider.name}`;
+                    return (
+                      <button
+                        key={provider.id}
+                        onClick={() => open(provider.id)}
+                        aria-label={action}
+                        title={action}
+                      >
+                        <ConnectionIcon provider={provider.id} />
+                        <span>{provider.name}</span>
+                      </button>
+                    );
+                  })}
+                  <button
+                    onClick={() => open('providers')}
+                    aria-label="Outros provedores"
+                    title="Todas as conexões disponíveis"
+                  >
+                    <ConnectionIcon provider="other" />
+                    <span>Outros</span>
+                  </button>
+                </nav>
+                <div className="dock-settings-section-heading">
+                  <h3>
+                    Suas contas <span>{accounts.length}</span>
+                  </h3>
+                  <button onClick={() => open('providers')}>Gerenciar contas</button>
+                </div>
+                {refreshing && !overview && (
+                  <p className="dock-settings-hint" role="status">
+                    Consultando suas contas…
+                  </p>
+                )}
+                <div className="dock-connections-list">
+                  {accounts.map((account) => {
+                    const resets = account.quotas
+                      .map((quota) => quota.resetAt)
+                      .filter((reset): reset is number => reset !== null)
+                      .sort((a, b) => a - b);
+                    const state = accountState(account, overview?.auto.next?.accountId);
+                    return (
+                      <article
+                        className="dock-connection-card"
+                        key={account.id}
+                        data-account-id={account.id}
+                      >
+                        <div className="dock-connection-identity">
+                          <span className="dock-choice-icon">
+                            <ConnectionIcon provider={account.provider} />
+                          </span>
+                          <div>
+                            <strong title={account.label}>{account.label}</strong>
+                            <small>
+                              {account.providerName}
+                              {account.plan ? ` · ${account.plan}` : ''}
+                            </small>
+                          </div>
+                          <span className="dock-account-state">{state}</span>
+                        </div>
+                        <div className="dock-connection-detail">
+                          <span>
+                            {account.quotas.length
+                              ? resetLabel(resets[0] || null)
+                              : account.quotaState === 'unsupported'
+                                ? 'Reset não informado pelo provedor'
+                                : 'Cota ainda não consultada'}
+                          </span>
+                          <button
+                            aria-label={`Gerenciar ${account.label}`}
+                            onClick={() =>
+                              open(
+                                PROVIDERS.some((provider) => provider.id === account.provider)
+                                  ? account.provider
+                                  : 'providers',
+                              )
+                            }
+                          >
+                            Gerenciar ›
+                          </button>
+                        </div>
+                        <button
+                          className="dock-account-usage-link"
+                          onClick={() => {
+                            setAccountId(account.id);
+                            changeTab('usage');
+                          }}
+                        >
+                          {account.consumption
+                            ? `${format.format(account.consumption.tokens)} tokens · ${format.format(account.consumption.requests)} pedidos`
+                            : 'Ver consumo e limites'}{' '}
+                          <span aria-hidden="true">↗</span>
+                        </button>
+                      </article>
+                    );
+                  })}
+                </div>
+                {overview && !accounts.length && (
+                  <div className="dock-settings-empty">
+                    <strong>Seu primeiro modelo começa aqui</strong>
+                    <p>
+                      Conecte uma conta acima. Depois, escolha qualquer modelo dela na aba Modelos.
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+            {tab === 'usage' && (
+              <section className="dock-usage-section">
+                <div className="dock-usage-filters">
+                  <label>
+                    Conta
+                    <select
+                      aria-label="Conta do consumo"
+                      value={accountId}
+                      onChange={(event) => setAccountId(event.target.value)}
+                    >
+                      <option value="all">Todas as contas</option>
+                      {accounts.map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.label} · {account.providerName}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Período
+                    <select
+                      aria-label="Período do consumo"
+                      value={period}
+                      onChange={(event) => setPeriod(event.target.value)}
+                    >
+                      <option value="today">Hoje</option>
+                      <option value="7d">7 dias</option>
+                      <option value="30d">30 dias</option>
+                      <option value="all">Todo o histórico</option>
+                    </select>
+                  </label>
+                </div>
+                <Consumption value={consumption} />
+                <p className="dock-usage-note">
+                  Consumo registrado pelo 9Router. Custos são estimativas.
+                </p>
+                {overview && !overview.usageAvailable && (
+                  <p className="dock-settings-hint">
+                    Histórico de consumo temporariamente indisponível.
+                  </p>
+                )}
+                <div className="dock-settings-section-heading">
+                  <h3>Cotas e resets</h3>
+                  <button onClick={() => open('usage')}>Histórico completo ↗</button>
+                </div>
+                <div className="dock-account-list">
+                  {visibleAccounts.map((account) => (
+                    <article
+                      className="dock-account-card"
+                      key={account.id}
+                      data-account-id={account.id}
+                    >
+                      <div className="dock-account-heading">
+                        <div>
+                          <strong>{account.label}</strong>
+                          <small>{account.providerName}</small>
+                        </div>
+                        <span>{accountState(account, overview?.auto.next?.accountId)}</span>
+                      </div>
+                      {account.quotas.length ? (
+                        <div className="dock-account-quotas">
+                          {account.quotas.map((quota) => (
+                            <Quota key={quota.key} quota={quota} account={account.label} />
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="dock-settings-hint">
+                          {account.health === 'auth' || account.health === 'error'
+                            ? 'Reconecte esta conta para atualizar os dados.'
+                            : account.quotaState === 'unsupported'
+                              ? 'Este provedor não informa cota ou reset.'
+                              : 'Cota indisponível no momento.'}
+                        </p>
+                      )}
+                      {account.lastFailure === 'permission' && (
+                        <p className="dock-settings-hint">
+                          O provedor recusou o último pedido. Revise o acesso ou escolha outro
+                          modelo.
+                        </p>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+          <div className="dock-settings-bottom">
+            <span role="status">
+              {refreshing
+                ? 'Atualizando…'
+                : overview
+                  ? `${models.length} modelos · ${accounts.length} conta${accounts.length === 1 ? '' : 's'}`
+                  : '9Router · aguardando conexão'}
+            </span>
+            <button onClick={() => open('cli-tools')}>Configurar ferramentas</button>
+          </div>
         </>
       )}
     </div>

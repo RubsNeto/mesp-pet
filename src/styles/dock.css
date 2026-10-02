@@ -11,98 +11,465 @@
   --border-subtle: rgba(255, 255, 255, 0.035);
 }
 
-/* Connection settings live in the same quiet island as the conversation. */
-.dock-settings-model {
-  margin-top: 18px;
+.dock-settings {
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 14px;
+  color: #ededed;
 }
-.dock-model-search,
-.dock-account-filter,
-.dock-usage-heading select {
-  background: #1b1c20;
-  color: #e8eaee;
-  border: 1px solid #34353a;
-  border-radius: 8px;
-  font: inherit;
-  font-size: 11px;
-  padding: 8px 10px;
+.dock-settings-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+.dock-settings-heading > div {
   min-width: 0;
 }
-.dock-model-search {
-  width: 100%;
-  box-sizing: border-box;
-  margin-top: 10px;
+.dock-settings h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
 }
-.dock-model-search:focus-visible,
-.dock-account-filter:focus-visible,
-.dock-usage-heading select:focus-visible {
-  outline: 1px solid #a8adb7;
+.dock-settings h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 550;
+}
+.dock-settings p {
+  margin: 5px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #aaa;
+}
+.dock-settings-heading p {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.top-dock .dock-settings button {
+  background: transparent;
+  border-radius: 9px;
+  font-size: 11px;
+  transition:
+    background 0.15s,
+    color 0.15s;
+  cursor: pointer;
+}
+.top-dock .dock-settings button:hover:not(:disabled) {
+  background: #252525;
+}
+.dock-settings button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.dock-settings button:focus-visible,
+.dock-settings input:focus-visible,
+.dock-settings select:focus-visible {
+  outline: 1px solid #bdbdbd;
   outline-offset: 2px;
 }
-.dock-auto-explanation {
-  margin-top: 12px;
-  padding: 12px;
-  background: #18191c;
-  border-radius: 10px;
+.dock-settings-refresh {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  color: #bbb;
 }
-.dock-auto-explanation strong {
-  font-size: 11px;
-  font-weight: 600;
+.dock-settings-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  background: #121212;
+  padding: 4px;
+  border-radius: 11px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
 }
-.dock-auto-explanation small {
-  display: block;
-  margin-top: 8px;
+.top-dock .dock-settings-tabs button {
+  height: 32px;
+  color: #999;
+}
+.top-dock .dock-settings-tabs button[aria-selected='true'] {
+  background: #303030;
+  color: #fff;
+}
+.dock-settings-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #3b3b3b transparent;
+  overscroll-behavior: contain;
+}
+.dock-settings-body:has(.dock-model-picker) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.dock-current-model {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
   font-size: 10px;
-  color: #c5c8ce;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
+  color: #999;
+  margin-bottom: 12px;
+  flex-shrink: 0;
 }
-.dock-usage-section {
-  margin-top: 22px;
-  padding-top: 18px;
-  border-top: 1px solid #27282c;
+.dock-current-model strong {
+  color: #ddd;
+  font-size: 11px;
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.dock-usage-heading,
-.dock-account-heading,
-.dock-account-spend,
-.dock-quota > div {
+.top-dock .dock-settings-inline-refresh {
+  display: none;
+}
+.dock-model-picker {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.dock-model-searchbar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: #1a1a1a;
+  border: 1px solid #303030;
+  border-radius: 10px;
+  padding: 0 11px;
+  flex-shrink: 0;
+  color: #aaa;
+}
+.dock-model-searchbar input {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  font: inherit;
+  font-size: 12px;
+  color: #eee;
+  border: 0;
+  background: transparent;
+}
+.dock-model-filters {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding: 8px 2px 6px;
+  flex-shrink: 0;
+}
+.top-dock .dock-model-filters button {
+  white-space: nowrap;
+  padding: 7px 10px;
+  background: #161616;
+  color: #aaa;
+  flex-shrink: 0;
+}
+.top-dock .dock-model-filters button[aria-pressed='true'] {
+  background: #343434;
+  color: #fff;
+}
+.dock-model-result-caption {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  font-size: 10px;
+  color: #999;
+  padding: 9px 1px;
+  flex-shrink: 0;
 }
-.dock-usage-heading {
-  margin-bottom: 10px;
+.dock-model-result-caption small {
+  font-size: 10px;
 }
-.dock-account-filter {
+.dock-model-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #3b3b3b transparent;
+  overscroll-behavior: contain;
+  padding: 2px 3px 6px;
+}
+.dock-model-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  column-gap: 6px;
+}
+.dock-model-group h3 {
+  grid-column: 1 / -1;
+  color: #999;
+  padding: 14px 7px 7px;
+  font-size: 10px;
+}
+.top-dock .dock-model-option {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 9px;
   width: 100%;
-  box-sizing: border-box;
+  text-align: left;
+  margin: 2px 0;
+  min-height: 54px;
+  color: #ddd;
+  border: 1px solid transparent;
+}
+.top-dock .dock-model-option[aria-selected='true'] {
+  background: #222;
+  border-color: #505050;
+}
+.top-dock .dock-model-auto {
+  background: #151515;
+  margin-bottom: 5px;
+}
+.dock-choice-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: #242424;
+  color: #ccc;
+  flex-shrink: 0;
+}
+.dock-choice-icon svg {
+  width: 20px;
+  height: 20px;
+}
+.dock-choice-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dock-choice-copy strong {
+  font-size: 12px;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dock-choice-copy small {
+  font-size: 10px;
+  color: #999;
+  line-height: 1.4;
+}
+.dock-choice-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: #333;
+  color: #bbb;
+  font-size: 9px;
+  font-weight: 400;
+  vertical-align: middle;
+}
+.dock-choice-mark {
+  font-size: 14px;
+  color: #bbb;
+  text-align: center;
+}
+.top-dock .dock-model-shortcut {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px;
+  background: #171717;
+  text-align: left;
+}
+.dock-model-shortcut .dock-choice-copy {
+  flex: 1;
+}
+.dock-model-shortcut > span:last-child {
+  font-size: 10px;
+  color: #aaa;
+  white-space: nowrap;
+}
+.dock-settings-section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin: 17px 0 10px;
+}
+.dock-settings-section-heading small,
+.dock-settings-section-heading h3 > span {
+  font-size: 10px;
+  color: #999;
+  font-weight: 400;
+}
+.dock-settings-section-heading h3 > span {
+  padding-left: 5px;
+}
+.top-dock .dock-settings-section-heading button {
+  padding: 6px;
+  color: #bbb;
+  font-size: 10px;
+}
+.dock-connect-buttons {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+}
+.top-dock .dock-connect-buttons button {
+  min-width: 0;
+  min-height: 68px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 7px;
+  background: #191919;
+  padding: 9px 3px;
+}
+.dock-connect-buttons span {
+  font-size: 10px;
+  text-align: center;
+}
+.dock-connections-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  gap: 8px;
+}
+.dock-connection-card {
+  min-width: 0;
+  padding: 12px;
+  background: #161616;
+  border-radius: 12px;
+}
+.dock-connection-identity {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+.dock-connection-identity > div {
+  min-width: 0;
+}
+.dock-connection-identity strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+}
+.dock-connection-identity small {
+  display: block;
+  font-size: 10px;
+  color: #999;
+  margin-top: 4px;
+}
+.dock-account-state {
+  grid-column: 2;
+  justify-self: start;
+  background: #282828;
+  color: #bbb;
+  border-radius: 5px;
+  padding: 3px 6px;
+  font-size: 9px;
+}
+.dock-connection-detail {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  color: #999;
+  font-size: 10px;
+}
+.dock-connection-detail > span {
+  min-width: 0;
+}
+.top-dock .dock-connection-detail button {
+  font-size: 10px;
+  padding: 6px 0 6px 4px;
+  flex-shrink: 0;
+}
+.top-dock .dock-account-usage-link {
+  margin-top: 9px;
+  padding: 9px 0 0;
+  border-radius: 0;
+  border-top: 1px solid #292929;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #bbb;
+  font-size: 10px;
+  text-align: left;
+}
+.dock-usage-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(85px, 0.45fr);
+  gap: 8px;
+}
+.dock-usage-filters label {
+  min-width: 0;
+  color: #aaa;
+  font-size: 10px;
+}
+.dock-usage-filters select {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin-top: 6px;
+  background: #1a1a1a;
+  color: #eee;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 8px 6px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
 }
 .dock-consumption {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 10px;
+  gap: 6px;
+  margin-top: 12px;
 }
 .dock-consumption > div {
-  background: #191a1e;
+  min-width: 0;
+  padding: 11px 9px;
+  background: #191919;
   border-radius: 10px;
-  padding: 12px;
 }
 .dock-consumption small {
   display: block;
-  font-size: 10px;
-  color: #a8adb7;
+  font-size: 9px;
+  color: #aaa;
 }
 .dock-consumption strong {
   display: block;
-  font-size: 19px;
-  font-weight: 550;
-  margin-top: 5px;
+  font-size: 18px;
+  font-weight: 500;
+  margin-top: 6px;
   font-variant-numeric: tabular-nums;
 }
 .dock-settings .dock-usage-note {
   font-size: 10px;
-  margin: 9px 0 12px;
+  margin-top: 9px;
 }
 .dock-account-list {
   display: flex;
@@ -111,8 +478,14 @@
 }
 .dock-account-card {
   padding: 12px;
-  background: #151619;
+  background: #161616;
   border-radius: 12px;
+}
+.dock-account-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 .dock-account-heading > div {
   min-width: 0;
@@ -120,20 +493,22 @@
 .dock-account-heading strong {
   display: block;
   font-size: 12px;
+  font-weight: 500;
   overflow-wrap: anywhere;
 }
 .dock-account-heading small {
   display: block;
   font-size: 10px;
-  color: #a8adb7;
-  margin-top: 3px;
+  color: #999;
+  margin-top: 4px;
 }
 .dock-account-heading > span {
   font-size: 9px;
-  background: #2b2c31;
-  border-radius: 5px;
+  background: #282828;
+  color: #bbb;
   padding: 4px 6px;
-  white-space: nowrap;
+  border-radius: 5px;
+  flex-shrink: 0;
 }
 .dock-account-quotas {
   display: grid;
@@ -142,19 +517,22 @@
   margin-top: 12px;
 }
 .dock-quota > div {
-  font-size: 10px;
+  display: flex;
   align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10px;
 }
 .dock-quota strong {
-  font-size: 10px;
   font-weight: 500;
+  font-size: 10px;
   white-space: nowrap;
 }
 .dock-quota small {
-  font-size: 9px;
-  color: #a8adb7;
   display: block;
-  margin-top: 3px;
+  color: #999;
+  font-size: 9px;
+  margin-top: 4px;
 }
 .dock-quota progress {
   display: block;
@@ -164,274 +542,56 @@
   border-radius: 3px;
   overflow: hidden;
   margin-top: 6px;
-  background: #34353a;
+  background: #333;
 }
 .dock-quota progress::-webkit-progress-bar {
-  background: #34353a;
+  background: #333;
 }
 .dock-quota progress::-webkit-progress-value {
-  background: #c0c3ca;
+  background: #bdbdbd;
   border-radius: 3px;
 }
-.dock-account-spend {
-  margin-top: 12px;
-  font-size: 10px;
-  color: #a8adb7;
-  border-top: 1px solid #292a2e;
-  padding-top: 8px;
-}
-.dock-account-spend button {
-  padding: 5px 7px;
-  flex-shrink: 0;
-}
-.dock-accounts-empty {
-  padding: 18px;
-  text-align: center;
-  background: #151619;
-  border-radius: 12px;
-}
-.dock-accounts-empty strong {
-  font-size: 12px;
-  font-weight: 550;
-}
-.dock-connect-buttons {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin: 0 0 14px;
-}
-.top-dock .dock-connect-buttons button {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-width: 0;
-  min-height: 70px;
-  padding: 10px 4px;
-  color: #d7d7d7;
-  background: #191919;
-  border-radius: 12px;
-}
-.dock-connect-buttons span {
-  font-size: 11px;
-  line-height: 1.3;
-  text-align: center;
-  overflow-wrap: anywhere;
-}
-.dock-settings button,
-.dock-settings select {
-  cursor: pointer;
-}
-.dock-settings button:disabled {
-  cursor: default;
-}
-@media (max-width: 500px) {
-  .dock-account-quotas {
-    grid-template-columns: 1fr;
-  }
-  .dock-consumption > div {
-    padding: 9px;
-  }
-  .dock-consumption strong {
-    font-size: 16px;
-  }
-  .dock-account-spend {
-    flex-wrap: wrap;
-  }
-}
-.dock-settings {
-  height: 100%;
-  overflow-y: auto;
-  padding: 18px 20px;
-  color: #f5f6f8;
-  scrollbar-width: thin;
-  scrollbar-color: #393c43 transparent;
-  min-width: 0;
-  overscroll-behavior: contain;
-}
-.dock-settings-heading,
-.dock-router-health,
-.dock-provider,
-.dock-settings-model-controls,
-.dock-settings-bottom {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.dock-settings-heading {
-  justify-content: space-between;
-  margin-bottom: 14px;
-}
-.dock-settings h2 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 650;
-}
-.dock-settings h3 {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-}
-.dock-settings p {
-  margin: 4px 0 0;
-  font-size: 11px;
-  color: #a8adb7;
-  line-height: 1.5;
-}
-.top-dock .dock-settings button {
-  background: transparent;
-  border-radius: 8px;
-  transition:
-    background 0.16s,
-    color 0.16s;
-  font-size: 11px;
-}
-.dock-settings button:hover:not(:disabled) {
-  background: #292c33;
-}
-.dock-settings-refresh {
-  width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  color: #a8adb7 !important;
-}
-.dock-router-health {
-  font-size: 10px;
-  padding: 9px 11px;
-  background: #191919;
-  border-radius: 10px;
-  gap: 7px;
-  flex-wrap: wrap;
-}
-.dock-router-health strong {
-  font-weight: 600;
-}
-.dock-router-health > span:nth-last-child(2) {
-  color: #a8adb7;
-  flex: 1;
-  min-width: 100px;
-}
-.dock-router-health button {
-  margin-left: auto;
-  padding: 4px 6px;
-  white-space: nowrap;
-}
-.dock-provider-list {
-  margin: 12px 0 17px;
-}
-.dock-provider {
-  padding: 10px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-.dock-provider-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  background: #212329;
-  color: #e3e5e9;
-  flex-shrink: 0;
-}
-.dock-provider-copy {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-}
-.dock-provider-copy strong {
-  font-size: 12px;
-  font-weight: 600;
-}
-.dock-provider-copy small {
-  font-size: 10px;
-  color: #a8adb7;
-}
-.dock-provider-state {
-  font-size: 10px;
-  color: #a8adb7;
-  white-space: nowrap;
-}
-.dock-provider-state.connected {
-  color: #84d9b6;
-}
-.dock-provider button {
-  background: #25282e;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 7px 10px;
-  min-width: 90px;
-}
-.dock-settings-other {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 11px 5px;
-  margin-top: 4px;
-}
-.dock-settings-other > span {
-  font-size: 10px;
-  color: #a8adb7;
-}
-.dock-settings-model-controls {
-  margin-top: 10px;
-}
-.dock-settings-model-controls select {
-  flex: 1;
-  min-width: 0;
-  height: 33px;
-  padding: 0 8px;
-  background: #202228;
-  color: #eef0f4;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 8px;
-  font: inherit;
-  font-size: 11px;
-}
-.dock-settings-model-controls select:focus-visible {
-  outline: 1px solid #a8adb7;
-  outline-offset: 2px;
-}
-.dock-settings-apply {
-  background: #eef0f4 !important;
-  color: #17191e !important;
-  font-weight: 600 !important;
-  height: 33px;
-  padding: 0 12px;
-  white-space: nowrap;
-}
-.dock-settings-apply:hover:not(:disabled) {
-  background: #d5d9e1 !important;
-}
 .dock-settings-hint {
-  display: block;
-  color: #c1c5ce;
-  margin-top: 8px;
+  color: #aaa;
   font-size: 10px;
+  margin: 6px 0 10px !important;
+}
+.dock-settings-empty {
+  padding: 24px 12px;
+  text-align: center;
+}
+.dock-settings-empty strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+.top-dock .dock-settings-empty button {
+  background: #292929;
+  padding: 9px 12px;
+  margin-top: 12px;
 }
 .dock-settings-bottom {
+  display: flex;
   justify-content: space-between;
-  margin-top: 15px;
-  font-size: 10px;
-  color: #a8adb7;
+  align-items: center;
+  gap: 8px;
+  padding-top: 9px;
+  margin-top: 8px;
+  border-top: 1px solid #262626;
+  font-size: 9px;
+  color: #999;
+  flex-shrink: 0;
 }
-.dock-settings-bottom button {
-  font-size: 10px;
-  padding: 5px;
+.top-dock .dock-settings-bottom button {
+  font-size: 9px;
+  padding: 6px 2px;
 }
 .dock-settings-error {
-  font-size: 11px;
-  color: #ffb5b5;
-  background: #2b1e23;
+  padding: 9px;
+  margin-bottom: 8px;
+  background: #222;
   border-radius: 8px;
-  padding: 10px;
-  margin-top: 10px;
+  font-size: 11px;
+  flex-shrink: 0;
 }
 .dock-settings .spinning {
   animation: dock-settings-spin 0.8s linear infinite;
@@ -441,31 +601,103 @@
     transform: rotate(360deg);
   }
 }
-@media (max-width: 540px) {
+@media (max-width: 500px) {
   .dock-settings {
-    padding: 16px 12px;
+    padding: 12px;
   }
-  .dock-provider-state {
-    display: none;
+  .dock-account-quotas {
+    grid-template-columns: 1fr;
   }
-  .dock-settings-model-controls {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .dock-settings-model-controls select {
-    flex: auto;
-  }
-  .dock-settings-bottom {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 5px;
+  .dock-consumption strong {
+    font-size: 16px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .dock-settings .spinning {
     animation: none;
   }
+  .top-dock .dock-settings button {
+    transition: none;
+  }
 }
+@media (max-height: 600px) {
+  .dock-settings {
+    padding: 8px;
+  }
+  .dock-settings-heading {
+    margin-bottom: 8px;
+  }
+  .dock-settings-heading p {
+    display: none;
+  }
+  .dock-settings-heading.is-model-heading {
+    display: none;
+  }
+  .top-dock .dock-settings-inline-refresh {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    font-size: 17px;
+  }
+  .dock-current-model {
+    align-items: center;
+    gap: 7px;
+  }
+  .dock-current-model strong {
+    margin-left: auto;
+  }
+  .dock-model-filters {
+    scrollbar-width: none;
+  }
+  .dock-model-filters::-webkit-scrollbar {
+    display: none;
+  }
+  .dock-settings-tabs {
+    margin-bottom: 6px;
+    padding: 3px;
+  }
+  .top-dock .dock-settings-tabs button {
+    height: 27px;
+  }
+  .dock-current-model {
+    margin-bottom: 5px;
+  }
+  .dock-model-searchbar input {
+    height: 30px;
+  }
+  .dock-model-filters {
+    padding: 3px 2px;
+  }
+  .top-dock .dock-model-filters button {
+    padding: 4px 9px;
+  }
+  .dock-model-result-caption {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    padding: 0;
+  }
+  .dock-settings-bottom {
+    margin-top: 5px;
+    padding-top: 5px;
+  }
+  .top-dock .dock-settings-bottom button {
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+  .view-settings .dock-chat-feedback {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+}
+
 html,
 body,
 #root {
@@ -2739,5 +2971,47 @@ body,
   }
   .dock-projects-overview .dock-working {
     animation: none;
+  }
+}
+@media (max-width: 600px) and (max-height: 600px) {
+  .view-settings .dock-header,
+  .view-settings .dock-header:has(.dock-auto-title) {
+    height: 92px;
+    min-height: 92px;
+    padding: 44px 14px 4px;
+  }
+  .view-settings .dock-title {
+    gap: 3px;
+  }
+  .view-settings .dock-title small {
+    font-size: 9px;
+  }
+  .view-settings .dock-actions {
+    top: 66px;
+  }
+  .view-settings.mode-home .dock-character-button {
+    top: 5px;
+    height: 44px;
+  }
+  .view-settings.mode-home .dock-character-button .dock-mascot {
+    width: 52px;
+    height: 46px;
+    left: -1px;
+    top: -5px;
+  }
+  .view-settings .dock-auto-title {
+    display: none;
+  }
+  .view-settings .dock-chat-footer {
+    flex-wrap: nowrap;
+    min-height: 36px;
+    padding: 5px 10px 8px;
+    gap: 4px;
+  }
+  .view-settings .dock-chat-tabs {
+    flex: 1;
+  }
+  .view-settings .dock-more-projects {
+    display: none;
   }
 }

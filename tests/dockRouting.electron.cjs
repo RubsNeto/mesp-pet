@@ -233,10 +233,27 @@ const root = path.resolve(__dirname, '..');
       await field().fill(text);
       await field().press('Enter');
     };
-    const idle = () =>
-      page.waitForFunction(() =>
-        JSON.parse(localStorage.getItem('mesp-top-projects-v1')).every((p) => !p.hasActiveTask),
-      );
+    const idle = async () => {
+      try {
+        await page.waitForFunction(() =>
+          JSON.parse(localStorage.getItem('mesp-top-projects-v1')).every((p) => !p.hasActiveTask),
+        );
+      } catch (error) {
+        fs.writeFileSync(
+          path.join(profile, 'timeout.json'),
+          JSON.stringify(
+            {
+              pets: await page.evaluate(() => localStorage.getItem('mesp-top-projects-v1')),
+              calls: await app.evaluate(() => globalThis.__routingQA),
+              errors,
+            },
+            null,
+            2,
+          ),
+        );
+        throw error;
+      }
+    };
     await page.waitForFunction(() =>
       JSON.parse(localStorage.getItem('mesp-top-projects-v1')).every(
         (p) => p.agent === 'mesp-code',
@@ -312,22 +329,22 @@ const root = path.resolve(__dirname, '..');
     }
     check('Slash menu supports click, search, arrow keys, Tab and Escape, and fits narrow screens');
     await ask('/model');
-    const selector = page.getByRole('combobox', { name: 'Modelo deste MESP', exact: true });
+    const selector = page.getByRole('listbox', { name: 'Modelos disponíveis', exact: true });
     await selector.waitFor();
-    await page.waitForFunction(
-      () => document.querySelector('[aria-label="Modelo deste MESP"]')?.options.length === 3,
+    await page.waitForFunction(() => document.querySelectorAll('.dock-model-option').length === 3);
+    assert.equal(
+      await selector.locator('[aria-selected="true"]').getAttribute('data-model'),
+      '9router/mesp-auto',
     );
-    assert.equal(await selector.inputValue(), '9router/mesp-auto');
     const options = await selector
-      .locator('option')
-      .evaluateAll((items) => items.map((item) => item.value));
+      .locator('[data-model]')
+      .evaluateAll((items) => items.map((item) => item.dataset.model));
     assert.deepEqual(
       new Set(options),
       new Set(['9router/mesp-auto', '9router/cx/model-a', '9router/cc/model-b']),
     );
     check('/model lists Auto and models from every configured account');
-    await selector.selectOption('9router/cc/model-b');
-    await page.getByRole('button', { name: 'Usar neste MESP', exact: true }).click();
+    await selector.locator('[data-model="9router/cc/model-b"]').click();
     await ask('Qual é o nome do projeto?');
     await idle();
     assert.equal(requests.at(-1).model, 'cc/model-b');
@@ -337,8 +354,7 @@ const root = path.resolve(__dirname, '..');
     );
     await ask('/model');
     await selector.waitFor();
-    await selector.selectOption('9router/mesp-auto');
-    await page.getByRole('button', { name: 'Usar neste MESP', exact: true }).click();
+    await selector.locator('[data-model="9router/mesp-auto"]').click();
     await ask('Continue com o mesmo contexto');
     await idle();
     assert.equal(requests.at(-1).model, 'mesp-auto');
@@ -410,8 +426,7 @@ const root = path.resolve(__dirname, '..');
     check('The same slash menu works in the project composer without losing context');
     await ask('/model');
     await selector.waitFor();
-    await selector.selectOption('9router/cx/model-a');
-    await page.getByRole('button', { name: 'Usar neste MESP', exact: true }).click();
+    await selector.locator('[data-model="9router/cx/model-a"]').click();
     await ask('Continue a implementação');
     await idle();
     const next = (await app.evaluate(() => globalThis.__routingQA.calls)).at(-1);

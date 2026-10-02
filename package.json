@@ -24,6 +24,7 @@
     "test:dock": "node tests/dockRouting.electron.cjs && node tests/dockAudit.electron.cjs",
     "test:usability": "node tests/dockUsability.electron.cjs",
     "test:history": "node tests/dockHistory.electron.cjs",
+    "test:settings": "node tests/dockSettings.electron.cjs",
     "test:router": "node tests/dockRouter.electron.cjs",
     "test:router:auto": "node tests/dockRouter.runtime.cjs",
     "test:audit": "node tests/dockAudit.electron.cjs",

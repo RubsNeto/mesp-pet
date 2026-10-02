@@ -1627,6 +1627,7 @@ export function TopDock() {
                       );
                       setNotice('Modelo salvo neste MESP.');
                       setView('chat');
+                      setFocusRequest((value) => value + 1);
                     }}
                   />
                 )}
@@ -1915,6 +1916,7 @@ export function TopDock() {
                   onClick={() => {
                     setShowHelp(false);
                     setShowProjects(false);
+                    setRouterRequest({ page: 'connections', nonce: Date.now() });
                     setView('settings');
                   }}
                 >

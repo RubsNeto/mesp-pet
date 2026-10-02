@@ -9,7 +9,11 @@ efetuar essa migração; uma sessão salva como ativa é identificada como inter
 somente depois que o aplicativo tiver sido encerrado.
 
 Digite **/model** na conversa livre ou no projeto para escolher um modelo de
-qualquer conta habilitada. A seleção permanece individual por MESP. Novos
+qualquer conta habilitada. A lista tem busca por nome ou provedor e filtros de
+provedores; clique no modelo para aplicar e voltar à conversa. Também é possível
+usar **↓**, **↑** e **Enter**. Com apenas um resultado, **Enter** na busca seleciona
+esse modelo. O modelo atual fica marcado, e **Auto** aparece em destaque.
+A seleção permanece individual por MESP. Novos
 personagens herdam o modelo selecionado. **Auto** escolhe conta e modelo a cada
 pedido, priorizando o reset mais próximo e pulando contas esgotadas ou inválidas.
 O 9Router mantém o histórico da requisição ao tentar outra conta. Nenhuma cota
@@ -32,7 +36,11 @@ tarefa ou verificação em andamento. Ele continua ativo com o campo vazio;
 interromper conserva o rascunho. Em projetos, **Enter** ainda adiciona outra tarefa
 à fila, e o atalho **Adicionar à fila** aparece quando há texto digitado.
 
-As conexões ficam no início das Configurações, com ícones e nomes. A página,
+As Configurações têm as abas **Modelos**, **Contas** e **Consumo**. Em Contas,
+os provedores aparecem com ícones e nomes, e cada conta mostra seu estado e reset
+quando informado. Clique no consumo da conta para ver seus dados; escolha
+**Todas as contas** para o total geral. A busca de modelos e as abas permanecem
+acessíveis durante a rolagem. A página,
 a busca e os campos do 9Router são preservados ao recolher e reabrir a ilha,
 inclusive com Ctrl+K. Com o painel expandido, Ctrl+K continua voltando ao chat.
 Formulários têm rolagem própria e se ajustam à largura e altura disponíveis.
@@ -43,6 +51,7 @@ O teste de área clicável e o painel de conexões medem o layout apenas quando 
 O salvamento de rascunhos agrupa digitação e grava imediatamente ao fechar.
 
 Verificações: `npm run test:routing`, `npm run test:router`,
+`npm run test:settings`,
 `npm run test:router:auto`, `npm run test:performance`, `npm run test:audit`,
 `npm run test:projects`, `npm run test:history` e `npm run test:usability`.
 Os testes usam perfis isolados; contas simuladas não comprovam login nas contas reais.
