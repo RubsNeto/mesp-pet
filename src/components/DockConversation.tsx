@@ -174,7 +174,11 @@ export function DockConversation({
           .map((m) => (
             <Fragment key={m.id}>
               <div className={`dock-chat-row ${m.role}`}>
-                <div className={m.role === 'user' ? 'dock-chat-bubble' : 'dock-chat-reply'}>
+                <div
+                  className={
+                    m.role === 'user' ? 'dock-chat-bubble' : 'dock-chat-reply dock-response-row'
+                  }
+                >
                   <div className="dock-message-text">
                     <DockReplyText content={m.content} />
                   </div>

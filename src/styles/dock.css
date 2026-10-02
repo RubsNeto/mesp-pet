@@ -1392,6 +1392,26 @@ body,
 .dock-message-text {
   min-width: 0;
 }
+.dock-response-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
+}
+.dock-chat-reply.dock-response-row {
+  width: 100%;
+}
+.dock-response-row > .mesp-message-content {
+  min-width: 0;
+}
+.dock-response-row > .dock-copy-button {
+  width: 28px;
+  padding: 4px;
+}
+.dock-response-row > .dock-copy-button .dock-copy-error {
+  display: none;
+}
 .dock-copy-button {
   display: inline-flex;
   align-items: center;

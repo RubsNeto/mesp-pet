@@ -2291,24 +2291,28 @@ export function MespCodeChat({
                     ))}
                   </div>
                 )}
-                <div className="mesp-message-content">
-                  {message.text ? (
-                    <DockReplyText content={message.text} />
-                  ) : message.status === 'streaming' ? (
-                    <span className="mesp-typing" aria-label="MESP esta pensando">
-                      <i />
-                      <i />
-                      <i />
-                    </span>
-                  ) : (
-                    <span>
-                      {message.status === 'cancelled' ? 'Resposta interrompida.' : 'Sem resposta.'}
-                    </span>
+                <div className={message.role === 'assistant' ? 'dock-response-row' : undefined}>
+                  <div className="mesp-message-content">
+                    {message.text ? (
+                      <DockReplyText content={message.text} />
+                    ) : message.status === 'streaming' ? (
+                      <span className="mesp-typing" aria-label="MESP esta pensando">
+                        <i />
+                        <i />
+                        <i />
+                      </span>
+                    ) : (
+                      <span>
+                        {message.status === 'cancelled'
+                          ? 'Resposta interrompida.'
+                          : 'Sem resposta.'}
+                      </span>
+                    )}
+                  </div>
+                  {message.role === 'assistant' && message.text && (
+                    <DockCopyButton text={message.text} label="resposta" />
                   )}
                 </div>
-                {message.role === 'assistant' && message.text && (
-                  <DockCopyButton text={message.text} label="resposta" />
-                )}
                 {message.role === 'assistant' &&
                   message.timeline &&
                   message.timeline.length > 0 && (
