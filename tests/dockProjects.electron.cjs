@@ -212,6 +212,9 @@ const root = path.resolve(__dirname, '..');
         document.querySelector('.dock-task-title strong')?.textContent === 'Criar painel comercial',
     );
     await finish(ids[1]);
+    await page.waitForFunction(() =>
+      JSON.parse(localStorage.getItem('mesp-top-projects-v1')).every((p) => !p.hasActiveTask),
+    );
     check('Manual titles persist across tasks and can return to automatic naming explicitly');
 
     await app.evaluate(({ ipcMain }) => {
@@ -231,7 +234,23 @@ const root = path.resolve(__dirname, '..');
       document.querySelector('.dock-title small')?.textContent.includes('Em andamento'),
     );
     await finish(ids[7]);
+    await page.waitForFunction(() =>
+      JSON.parse(localStorage.getItem('mesp-top-projects-v1')).every((p) => !p.hasActiveTask),
+    );
+    assert.equal(await app.evaluate(() => globalThis.__projectsQA.deferredTitles.length), 1);
     await ask('Criar cobrança automática');
+    await page.waitForFunction(() =>
+      document.querySelector('.dock-title small')?.textContent.includes('Em andamento'),
+    );
+    assert.equal(
+      await app.evaluate(() => globalThis.__projectsQA.deferredTitles.length),
+      1,
+      'A title request must not compete with the main answer',
+    );
+    await finish(ids[7]);
+    await page.waitForFunction(() =>
+      JSON.parse(localStorage.getItem('mesp-top-projects-v1')).every((p) => !p.hasActiveTask),
+    );
     await app.evaluate(() =>
       globalThis.__projectsQA.deferredTitles[1].resolve('Cobrança automática'),
     );
@@ -242,7 +261,6 @@ const root = path.resolve(__dirname, '..');
     await app.evaluate(() =>
       globalThis.__projectsQA.deferredTitles[0].resolve('Catálogo de produtos'),
     );
-    await finish(ids[7]);
     const captured = await app.evaluate(() => globalThis.__projectsQA.deferredTitles[1].payload);
     assert.ok(
       JSON.parse(captured.prompt).pedidosAnteriores.includes('Implementar catálogo de produtos'),
@@ -255,19 +273,22 @@ const root = path.resolve(__dirname, '..');
       'Delayed AI title for an older task cannot replace the newer objective; naming receives conversation context',
     );
     await ask('Revisar layout do app');
+    await finish(ids[7]);
+    await page.waitForFunction(() =>
+      JSON.parse(localStorage.getItem('mesp-top-projects-v1')).every((p) => !p.hasActiveTask),
+    );
     await page.locator('.dock-task-title').click();
     await page.getByRole('textbox', { name: 'Título da tarefa' }).fill('App revisado');
     await page.getByRole('textbox', { name: 'Título da tarefa' }).press('Enter');
     await app.evaluate(() =>
       globalThis.__projectsQA.deferredTitles[2].resolve('Título automático atrasado'),
     );
-    await finish(ids[7]);
     assert.equal(await page.locator('.dock-task-title strong').textContent(), 'App revisado');
     await app.evaluate(({ ipcMain }) => {
       ipcMain.removeHandler('dock:generate-title');
       ipcMain.handle('dock:generate-title', () => null);
     });
-    check('A delayed title query respects a manual rename made during execution');
+    check('A delayed title query respects a manual rename made while the title is pending');
 
     await choose(ids[3]);
     await hook({ petId: ids[4], state: 'thinking', prompt: 'Corrigir endpoints de pagamento' });

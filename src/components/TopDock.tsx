@@ -271,7 +271,7 @@ export function TopDock() {
   const expanded = mode === 'home';
   const selected = projects.find((p) => p.id === selectedId) ?? projects[0];
   const primary = projects.find((p) => p.id === primaryId) ?? selected;
-  const minisColumns = Math.ceil((projects.length - 1) / 2);
+  const minisColumns = Math.min(projects.length - 1, 5);
   const selectedTitle = selected.taskTitle || selected.projectName || 'O que vamos criar?';
   const activeCount = projects.filter((p) => !agentCanChange(p.state)).length;
   const unreadResults = projects
@@ -462,7 +462,10 @@ export function TopDock() {
         h = window.innerHeight;
       const desiredWidth =
         mode === 'home'
-          ? Math.min(view === 'terminal' && selected.workDir ? 1040 : 680, w - 24)
+          ? Math.min(
+              view === 'terminal' && selected.workDir ? 1040 : view === 'chat' ? 760 : 680,
+              w - 24,
+            )
           : mode === 'coucou'
             ? Math.min(640, w - 24)
             : mode === 'hidden'
@@ -493,16 +496,16 @@ export function TopDock() {
                             selected.agentPresetId === 'mesp-code')
                         ? w <= 600 && view === 'chat' && selected.agentPresetId === 'mesp-code'
                           ? 720
-                          : 580
+                          : 640
                         : selected.workDir || showProjects || projects.length > 1
                           ? projects.length > 1 || showProjects
                             ? w <= 600
-                              ? 620
-                              : 580
-                            : 460
+                              ? 680
+                              : 640
+                            : 560
                           : w <= 600
-                            ? 400
-                            : 340,
+                            ? 560
+                            : 520,
                 h - 24,
               ),
             )
@@ -1453,7 +1456,12 @@ export function TopDock() {
                 >
                   <Icon name="pin" />
                 </button>
-                <button title="Recolher · Esc" aria-label="Recolher painel" onClick={collapse}>
+                <button
+                  className="dock-collapse"
+                  title="Recolher · Esc"
+                  aria-label="Recolher painel"
+                  onClick={collapse}
+                >
                   <Icon name="chevron" />
                 </button>
               </div>
@@ -1467,9 +1475,7 @@ export function TopDock() {
                   projects={projects}
                   selectedId={selected.id}
                   active={expanded}
-                  compact={
-                    selected.agentPresetId === 'mesp-code' && !!selected.workDir && !showProjects
-                  }
+                  compact={!showProjects}
                   onSelect={selectProject}
                 />
               )}

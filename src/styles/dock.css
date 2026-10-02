@@ -1254,7 +1254,7 @@ body,
   }
 }
 
-/* Coucou's lead on the left, a two-row cluster of live mini MESP on the right. */
+/* Coucou's lead on the left, with live mini MESP on the right. */
 .top-dock {
   height: 44px;
 }
@@ -3022,4 +3022,147 @@ body,
   .view-settings .dock-more-projects {
     display: none;
   }
+}
+
+/* Compact header, one horizontal MESP row, and more room for the conversation. */
+.dock-mini-strip {
+  position: absolute;
+  top: 3px;
+  right: 42px;
+  width: calc(var(--mini-columns, 0) * 24px);
+  max-width: calc(100% - 112px);
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  pointer-events: auto;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+.dock-mini-strip::-webkit-scrollbar {
+  display: none;
+}
+.dock-mini-strip > button:first-child {
+  margin-left: auto;
+}
+.dock-mini-strip .dock-mini-button {
+  position: relative;
+  right: auto;
+  top: auto;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 28px;
+  padding: 0;
+}
+.top-dock.mode-home .dock-mini-strip {
+  left: 72px;
+  right: 138px;
+  top: 2px;
+  width: auto;
+  max-width: none;
+  height: 42px;
+  gap: 8px;
+}
+.top-dock.mode-home .dock-mini-button {
+  flex-basis: 30px;
+  width: 30px;
+  height: 30px;
+}
+.top-dock.mode-home .dock-mini-button .dock-mascot {
+  width: 38px;
+  height: 34px;
+}
+.top-dock.mode-home .dock-character-button {
+  left: 12px;
+  top: 2px;
+  width: 50px;
+  height: 42px;
+}
+.top-dock.mode-home .dock-character-button .dock-mascot {
+  width: 58px;
+  height: 52px;
+  left: -4px;
+  top: -8px;
+}
+.top-dock.mode-home .dock-add-mesp {
+  top: 7px;
+  right: 106px;
+  width: 26px;
+  height: 26px;
+}
+.top-dock .dock-header {
+  height: 80px;
+  min-height: 80px;
+  padding: 46px 12px 5px;
+}
+.top-dock .dock-title {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 3px;
+}
+.top-dock .dock-current-project {
+  grid-row: 1;
+  grid-column: 1;
+  line-height: 12px;
+}
+.top-dock .dock-title > small {
+  grid-row: 1;
+  grid-column: 2;
+  display: flex;
+  max-width: none;
+  font-size: 9px;
+  line-height: 12px;
+}
+.top-dock .dock-task-title,
+.top-dock .dock-task-title-input {
+  grid-row: 2;
+  grid-column: 1 / -1;
+  line-height: 14px;
+}
+.top-dock .dock-task-title strong {
+  font-size: 12px;
+  line-height: 14px;
+}
+.top-dock .dock-auto-title {
+  grid-row: 3;
+  grid-column: 1 / -1;
+  text-align: left;
+}
+.top-dock .dock-header:has(.dock-task-title-input) {
+  height: 86px;
+  min-height: 86px;
+}
+.top-dock .dock-header:has(.dock-auto-title) {
+  height: 96px;
+  min-height: 96px;
+}
+.top-dock .dock-actions {
+  top: 6px;
+  right: 10px;
+  gap: 3px;
+}
+.top-dock .dock-actions button {
+  width: 28px;
+  height: 28px;
+}
+.top-dock .dock-collapse svg {
+  transform: rotate(180deg);
+}
+.top-dock .dock-project-switcher.is-compact {
+  display: flex;
+}
+.top-dock .dock-project-switcher.is-compact > button {
+  grid-template-columns: minmax(0, 1fr);
+}
+.top-dock .dock-project-switcher.is-compact .dock-project-mascot {
+  display: none;
+}
+.top-dock .dock-project-switcher.is-compact strong,
+.top-dock .dock-project-switcher.is-compact small {
+  text-align: center;
 }

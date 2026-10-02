@@ -1,5 +1,16 @@
 # MESP Top Dock
 
+## Mais espaço para conversar
+
+Ao abrir o chat, a ilha tem até 760 px de largura. A conversa livre abre com
+520 px de altura no desktop; projetos e vários MESP têm mais espaço, sempre
+limitado ao tamanho da tela. O cabeçalho ocupa 80 px, com título e estado visíveis.
+Os MESP menores ficam em uma única fila horizontal. Em telas estreitas, use a
+roda do mouse, o trackpad ou Tab para alcançar os demais personagens. Ao selecionar
+um MESP, ele entra na área visível da fila. Os atalhos de projetos usam cartões
+compactos com nomes e estados. A seta de recolher fica no canto superior direito
+e aponta para cima. Conversas, aparências, rascunhos e sessões são preservados.
+
 ## Conexões e desempenho — 2 de outubro de 2026
 
 Todos os MESP usam o **9Router**. Personagens antigos vinculados a Codex ou
