@@ -1,4 +1,6 @@
 // Pure helpers shared by the Electron bridge and its Node test suite.
+import { normalizeDeveloperReport } from './developerDelivery.mjs';
+import { parseTaskIntent } from './dockIntent.mjs';
 
 export const MESP_CODE_MODES = Object.freeze(['fast', 'plan', 'assisted', 'autonomous']);
 export const PROJECT_CHECK_NAMES = Object.freeze(['typecheck', 'lint', 'test', 'build', 'check']);
@@ -316,7 +318,15 @@ export function normalizeStoredMespMessages(value, limit = 80) {
           : [],
         status: rawStatus === 'streaming' ? 'cancelled' : rawStatus,
       };
-      for (const key of ['error', 'mode', 'model', 'engine', 'sessionId', 'messageId']) {
+      for (const key of [
+        'error',
+        'mode',
+        'model',
+        'engine',
+        'sessionId',
+        'messageId',
+        'requestId',
+      ]) {
         if (typeof message[key] === 'string') normalized[key] = message[key].slice(0, 4_096);
       }
       if (typeof message.cwd === 'string' || message.cwd === null) normalized.cwd = message.cwd;
@@ -335,6 +345,8 @@ export function normalizeStoredMespMessages(value, limit = 80) {
       if (timeline) normalized.timeline = timeline;
       const verification = normalizeStoredVerification(message.verification);
       if (verification) normalized.verification = verification;
+      const delivery = normalizeDeveloperReport(message.delivery);
+      if (delivery) normalized.delivery = delivery;
       return normalized;
     });
 }
@@ -374,6 +386,7 @@ export function normalizeStoredMespQueue(value, limit = 10) {
       },
       cwd: typeof task.cwd === 'string' ? task.cwd.slice(0, 4_096) : null,
       createdAt: optionalFiniteNumber(task.createdAt) ?? Date.now(),
+      ...(parseTaskIntent(task.intent) ? { intent: parseTaskIntent(task.intent) } : {}),
     });
     if (queue.length >= safeLimit) break;
   }

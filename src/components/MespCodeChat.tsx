@@ -7,6 +7,9 @@ import { DockCommands, useDockCommands } from './DockCommands';
 import { dockModelLabel } from './DockModelPicker';
 import { fallbackTaskIntent, type TaskIntent } from '../services/dockIntent.mjs';
 import { DockProjectPreview } from './DockProjectPreview';
+import { DockDelivery } from './DockDelivery';
+import { normalizeDeveloperReport } from '../services/developerDelivery.mjs';
+import type { DeveloperReport } from '../../electron/dockDeveloper.mjs';
 import {
   addTokenUsage,
   enqueueUniqueTask,
@@ -129,6 +132,9 @@ interface ChatMessage {
   reverted?: boolean;
   timeline?: TimelineEntry[];
   verification?: VerificationState;
+  delivery?: DeveloperReport;
+  requestId?: string;
+  developerPhase?: string;
 }
 
 interface StoredChat {
@@ -707,6 +713,34 @@ export function MespCodeChat({
       if (data.requestId !== activeRequestRef.current) return;
       const wasCancelled =
         data.cancelled === true || cancellingRequestRef.current === data.requestId;
+      if (data.kind === 'event' && data.event?.type === 'developer_phase') {
+        const phase = typeof data.event.phase === 'string' ? data.event.phase.slice(0, 256) : '';
+        setMessages((previous) =>
+          previous.map((message) =>
+            message.id === activeAssistantRef.current
+              ? {
+                  ...message,
+                  developerPhase: phase,
+                  text: phase.startsWith('Corrigindo falhas') ? '' : message.text,
+                }
+              : message,
+          ),
+        );
+        stateChangeRef.current?.(/Implementando|Corrigindo/.test(phase) ? 'working' : 'thinking');
+        return;
+      }
+      if (data.kind === 'event' && data.event?.type === 'developer_report') {
+        const delivery = normalizeDeveloperReport(data.event.report);
+        if (delivery)
+          setMessages((previous) =>
+            previous.map((message) =>
+              message.id === activeAssistantRef.current
+                ? { ...message, delivery, requestId: data.requestId, developerPhase: undefined }
+                : message,
+            ),
+          );
+        return;
+      }
       if (data.kind === 'started') {
         const assistantId = activeAssistantRef.current;
         if (assistantId && data.engine) {
@@ -1063,7 +1097,7 @@ export function MespCodeChat({
         if (
           assistantId &&
           autoVerifyRef.current &&
-          (completedMode === 'assisted' || completedMode === 'autonomous') &&
+          completedMode === 'assisted' &&
           selectedChecksRef.current.some((check) => availableChecksRef.current.includes(check))
         ) {
           setPendingAutoVerify(assistantId);
@@ -1696,6 +1730,7 @@ export function MespCodeChat({
           model: task.model,
           mode: executionMode,
           intent,
+          waitForProject: true,
           sessionId: canResumeSession ? sessionId : null,
           cwd: task.cwd || undefined,
           history:
@@ -2096,8 +2131,8 @@ export function MespCodeChat({
                         onChange={(event) => setAutoVerify(event.target.checked)}
                       />
                       <span>
-                        <strong>Verificar automaticamente</strong>
-                        <small>Apos tarefas Assistidas e Autonomas.</small>
+                        <strong>Verificar no modo Assistido</strong>
+                        <small>O modo Autônomo já verifica e corrige a entrega.</small>
                       </span>
                     </label>
                     <p>Os scripts selecionados executam codigo deste projeto.</p>
@@ -2357,7 +2392,7 @@ export function MespCodeChat({
                     <span className="mesp-message-live">
                       {permission && message.id === activeAssistantRef.current
                         ? 'aguardando aprovacao'
-                        : 'respondendo'}
+                        : message.developerPhase || 'respondendo'}
                     </span>
                   )}
                 </header>
@@ -2399,6 +2434,9 @@ export function MespCodeChat({
                 </div>
                 {message.id === previewMessage?.id && workDir && (
                   <DockProjectPreview cwd={workDir} />
+                )}
+                {message.delivery && (
+                  <DockDelivery report={message.delivery} requestId={message.requestId} />
                 )}
                 {message.role === 'assistant' &&
                   message.timeline &&

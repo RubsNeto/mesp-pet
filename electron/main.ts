@@ -37,12 +37,36 @@ import { createDockHooks, encodedAgentCommand, type DockHookBridge } from './doc
 import { titlePrompt, parseTitle } from './dockTitles.mjs';
 import { conversationInstructions } from './dockChat.mjs';
 import { createDockProjectService } from './dockProjects.mjs';
+import { auditDeveloperPreview } from './dockWebAudit.mjs';
+import { normalizeDeveloperReport } from '../src/services/developerDelivery.mjs';
+import {
+  inspectDeveloperProject,
+  projectSnapshot,
+  changedProjectFiles,
+  developerBrief,
+  repairDeveloperPrompt,
+  runDeveloperChecks,
+  createDeveloperMemory,
+  deliveryMarkdown,
+  type DeveloperProfile,
+  type DeveloperReport,
+  type DeveloperCheck,
+} from './dockDeveloper.mjs';
 import { stopWindowsProcessTree, stopWindowsProcessTreeSync } from './dockProcessTree.mjs';
 import { spawnOwnedTask, isOwnedTask } from './dockOwnedTask.mjs';
-import { isWebProjectRequest, shouldExecuteProjectRequest, taskExecutionInstructions, webProjectInstructions } from '../src/services/dockAgent.mjs';
+import {
+  isWebProjectRequest,
+  shouldExecuteProjectRequest,
+  taskExecutionInstructions,
+  webProjectInstructions,
+} from '../src/services/dockAgent.mjs';
 import { parseRouterConversation } from './dockChatResponse.mjs';
 import { routerResponseText } from './dockChatResponse.mjs';
-import { createIntentResolver, fallbackTaskIntent, parseTaskIntent } from '../src/services/dockIntent.mjs';
+import {
+  createIntentResolver,
+  fallbackTaskIntent,
+  parseTaskIntent,
+} from '../src/services/dockIntent.mjs';
 import { chooseRouterDataDirectory } from './dockRouterProfile.mjs';
 import { routerLocalAuthHeaders } from './dockRouterLocalAuth.mjs';
 import { DockRouterView } from './dockRouterView';
@@ -212,9 +236,12 @@ function computerMcpConfig() {
   return {
     mesp_computer: {
       type: 'local',
-      command: [resolveNodeRuntime().binary, app.isPackaged
-        ? path.join(process.resourcesPath, 'runtime', 'mesp-computer', 'dockComputerTools.cjs')
-        : path.join(__dirname, 'dockComputerTools.cjs')],
+      command: [
+        resolveNodeRuntime().binary,
+        app.isPackaged
+          ? path.join(process.resourcesPath, 'runtime', 'mesp-computer', 'dockComputerTools.cjs')
+          : path.join(__dirname, 'dockComputerTools.cjs'),
+      ],
       enabled: true,
       timeout: 10_000,
     },
@@ -326,6 +353,26 @@ const mespCodeFetches = new Map<string, MespCodeFetchRun>();
 const mespCodeServerRuns = new Map<string, MespCodeServerRun>();
 const sessionRouteModels = new Map<string, unknown>();
 const projectCheckRuns = new Map<string, ProjectCheckRun>();
+interface DeveloperRun {
+  petId: string;
+  requestId: string;
+  cwd: string;
+  originalPrompt: string;
+  controller: AbortController;
+  profile: DeveloperProfile;
+  startedAt: number;
+  deadline: number;
+  repairs: number;
+  totalTokens: number;
+  totalTools: number;
+  child?: ChildProcessWithoutNullStreams;
+}
+const developerRuns = new Map<string, DeveloperRun>();
+const developerReports = new Map<string, DeveloperReport>();
+const pendingMespSubmissions = new Map<
+  string,
+  { requestId: string; controller: AbortController }
+>();
 
 let mespCodeServer: MespCodeServerState | null = null;
 let mespCodeServerPromise: Promise<MespCodeServerState> | null = null;
@@ -340,9 +387,12 @@ const dockIntentRequests = new Map<string, { requestId: string; controller: Abor
 function hasActiveDockWork(): boolean {
   return (
     dockActiveTasks > 0 ||
-    dockChatRequests.size > 0 || dockIntentRequests.size > 0 ||
+    dockChatRequests.size > 0 ||
+    dockIntentRequests.size > 0 ||
     runningProcesses.size > 0 ||
     mespCodeProcesses.size > 0 ||
+    developerRuns.size > 0 ||
+    pendingMespSubmissions.size > 0 ||
     mespCodeFetches.size > 0 ||
     mespCodeServerRuns.size > 0 ||
     projectCheckRuns.size > 0
@@ -1045,11 +1095,16 @@ async function sync9RouterModels(
         const autoId = AUTO_ROUTER_MODEL.replace(/^9router\//, '');
         if (modelIds.length && !modelIds.includes(autoId)) {
           try {
-            const capabilityResponse = await fetch(`${routerOriginForApiBase(baseURL)}/api/mesp/capabilities`, {
-              headers,
-              signal: AbortSignal.timeout(3_000),
-            });
-            const capabilities = (capabilityResponse.ok ? await capabilityResponse.json() : null) as { auto?: unknown } | null;
+            const capabilityResponse = await fetch(
+              `${routerOriginForApiBase(baseURL)}/api/mesp/capabilities`,
+              {
+                headers,
+                signal: AbortSignal.timeout(3_000),
+              },
+            );
+            const capabilities = (
+              capabilityResponse.ok ? await capabilityResponse.json() : null
+            ) as { auto?: unknown } | null;
             if (capabilities?.auto === true) modelIds.unshift(autoId);
           } catch {
             /* A server without MESP Auto continues to use its advertised models. */
@@ -1114,7 +1169,7 @@ async function sync9RouterModels(
         ignore: Array.from(new Set([...existingIgnore, ...MESP_AGENT_CONFIG.watcher.ignore])),
       };
       config.agent = { ...existingAgent, ...MESP_AGENT_CONFIG.agent };
-      config.mcp = { ...(config.mcp as Record<string, unknown> || {}), ...computerMcpConfig() };
+      config.mcp = { ...((config.mcp as Record<string, unknown>) || {}), ...computerMcpConfig() };
       const currentModel = typeof config.model === 'string' ? config.model : '';
       if (
         !currentModel ||
@@ -2183,7 +2238,147 @@ async function runAssistedMespCode(options: {
   }
 }
 
-ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
+function developerPhase(run: DeveloperRun, phase: string) {
+  safeSend('mesp-code:event', {
+    petId: run.petId,
+    requestId: run.requestId,
+    kind: 'event',
+    event: { type: 'developer_phase', phase },
+  });
+}
+
+function developerScriptRunner(manager: string): { command: string; args: string[] } | null {
+  if (manager === 'npm') return resolveNpmRunner();
+  const node = resolveBundledNodeBinary() || commandOnPath('node');
+  const executable = commandOnPath(manager);
+  if (executable && !/\.(cmd|bat)$/i.test(executable)) return { command: executable, args: [] };
+  if (!node) return null;
+  const names: Record<string, string[]> = {
+    pnpm: ['pnpm/bin/pnpm.cjs', 'corepack/dist/pnpm.js'],
+    yarn: ['yarn/bin/yarn.js', 'corepack/dist/yarn.js'],
+  };
+  for (const base of [
+    path.join(process.env.APPDATA || '', 'npm', 'node_modules'),
+    path.join(process.env.ProgramFiles || '', 'nodejs', 'node_modules'),
+  ]) {
+    for (const entry of names[manager] || []) {
+      const cli = path.join(base, entry);
+      if (isExistingFile(cli)) return { command: node, args: [cli] };
+    }
+  }
+  return null;
+}
+
+async function executeDeveloperCheck(
+  run: DeveloperRun,
+  check: DeveloperCheck,
+  manager: string,
+  timeout: number,
+) {
+  const node = resolveBundledNodeBinary() || commandOnPath('node');
+  const runner =
+    check.kind === 'json'
+      ? node
+        ? {
+            command: node,
+            args: [
+              '-e',
+              'const fs=require("node:fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8").replace(/^\\uFEFF/,""));if(!p||typeof p!=="object"||Array.isArray(p))throw new Error("package.json precisa ser um objeto")',
+              check.file!,
+            ],
+          }
+        : null
+      : check.kind === 'node'
+        ? node
+          ? { command: node, args: ['--check', check.file!] }
+          : null
+        : check.kind === 'python'
+          ? (() => {
+              const python = commandOnPath('python') || commandOnPath('python3');
+              return python
+                ? {
+                    command: python,
+                    args: [
+                      '-c',
+                      'import ast,sys;ast.parse(open(sys.argv[1],encoding="utf-8-sig").read(),filename=sys.argv[1])',
+                      check.file!,
+                    ],
+                  }
+                : null;
+            })()
+          : (() => {
+              const cli = developerScriptRunner(manager);
+              return cli
+                ? {
+                    command: cli.command,
+                    args: [
+                      ...cli.args,
+                      ...(manager === 'npm' ? ['--ignore-scripts'] : []),
+                      'run',
+                      check.script!,
+                    ],
+                  }
+                : null;
+            })();
+  if (!runner)
+    return {
+      code: null,
+      skipped: true,
+      output: `${check.kind === 'python' ? 'Python' : manager} não disponível neste computador.`,
+    };
+  return new Promise<{ code: number | null; output: string }>((resolve) => {
+    const output = createBoundedProjectCheckOutput(80_000);
+    const child = spawnOwnedTask(runner.command, runner.args, {
+      directory: path.join(app.getPath('userData'), 'owned-tasks'),
+      cwd: run.cwd,
+      shell: false,
+      windowsHide: true,
+      env: {
+        ...projectCheckEnvironment(resolveNpmRunner()),
+        CI: '1',
+        npm_config_update_notifier: 'false',
+        YARN_ENABLE_SCRIPTS: 'false',
+      },
+    });
+    run.child = child;
+    let settled = false;
+    const finish = (code: number | null, message = '') => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      run.controller.signal.removeEventListener('abort', abort);
+      if (run.child === child) run.child = undefined;
+      const buffer = output.snapshot();
+      resolve({
+        code,
+        output: sanitizeMespError(
+          `${buffer.stdout}\n${buffer.stderr}\n${message}${buffer.truncated ? '\nSaída limitada a 80 KB.' : ''}`,
+        ),
+      });
+    };
+    const stop = (message: string) => {
+      void terminateProjectCheckProcess(child).then(
+        () => finish(null, message),
+        () => finish(null, message),
+      );
+    };
+    const abort = () => stop('Verificação cancelada.');
+    const timer = setTimeout(() => stop('A verificação excedeu o limite de tempo.'), timeout);
+    run.controller.signal.addEventListener('abort', abort, { once: true });
+    if (run.controller.signal.aborted) abort();
+    child.stdout.on('data', (chunk) => output.append('stdout', chunk));
+    child.stderr.on('data', (chunk) => output.append('stderr', chunk));
+    child.once('error', (error) => finish(null, error.message));
+    child.once('close', (code) => finish(code));
+    child.stdin.on('error', () => {});
+    child.stdin.end();
+  });
+}
+
+async function sendMespCode(
+  payloadRaw: unknown,
+  developer?: DeveloperRun,
+): Promise<{ ok: boolean; error?: string }> {
   if (!payloadRaw || typeof payloadRaw !== 'object') {
     return { ok: false, error: 'payload invalido' };
   }
@@ -2196,7 +2391,8 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
     mespCodeProcesses.has(petId) ||
     mespCodeFetches.has(petId) ||
     mespCodeServerRuns.has(petId) ||
-    projectCheckRuns.has(petId)
+    projectCheckRuns.has(petId) ||
+    (!developer && developerRuns.has(petId))
   ) {
     return { ok: false, error: 'o MESP ainda esta respondendo' };
   }
@@ -2223,6 +2419,15 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
     return { ok: false, error: 'o 9Router nao esta disponivel' };
   }
 
+  if (
+    pendingMespSubmissions.get(petId)?.controller.signal.aborted ||
+    developer?.controller.signal.aborted
+  ) {
+    safeSend('mesp-code:event', { petId, requestId, kind: 'exit', code: null, cancelled: true });
+    if (developer) developerRuns.delete(petId);
+    return { ok: true };
+  }
+
   if (mode === 'fast') {
     void runFastMespCode({ petId, requestId, prompt, model, history, limits });
     return { ok: true };
@@ -2235,7 +2440,91 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
       error:
         'Este pedido usa ferramentas e precisa de uma pasta. Escolha o projeto antes de continuar; para conversar, use o modo Rápido.',
     };
-  const cwd = requestedCwd;
+  const cwd = fs.realpathSync(requestedCwd);
+  if (mode === 'autonomous' && !developer) {
+    const samePath = (value: string) =>
+      process.platform === 'win32' ? value.toLowerCase() : value;
+    const blocked = () =>
+      [...developerRuns.values()].some((run) => samePath(run.cwd) === samePath(cwd)) ||
+      [...mespCodeServerRuns.values()].some((run) => samePath(run.cwd) === samePath(cwd));
+    if (blocked() && payload.waitForProject !== true)
+      return {
+        ok: false,
+        error: 'Outro MESP está alterando este projeto. Aguarde a entrega para evitar conflitos.',
+      };
+    const pending = pendingMespSubmissions.get(petId);
+    const waitingDeadline = Date.now() + 30 * 60_000;
+    let waiting = false;
+    while (blocked() || developerRuns.size >= 3) {
+      if (!waiting) {
+        safeSend('mesp-code:event', {
+          petId,
+          requestId,
+          kind: 'event',
+          event: {
+            type: 'developer_phase',
+            phase: blocked() ? 'Aguardando a outra tarefa deste projeto' : 'Na fila de execução',
+          },
+        });
+        waiting = true;
+      }
+      if (pending?.controller.signal.aborted || applicationQuitting) {
+        safeSend('mesp-code:event', {
+          petId,
+          requestId,
+          kind: 'exit',
+          code: null,
+          cancelled: true,
+        });
+        return { ok: true };
+      }
+      if (Date.now() >= waitingDeadline)
+        return { ok: false, error: 'A fila excedeu 30 minutos. A tarefa não foi iniciada.' };
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    if (pending?.controller.signal.aborted) {
+      safeSend('mesp-code:event', { petId, requestId, kind: 'exit', code: null, cancelled: true });
+      return { ok: true };
+    }
+    // Reserve before any asynchronous inspection to close duplicate-send races.
+    const reserved: DeveloperRun = {
+      petId,
+      requestId,
+      cwd,
+      originalPrompt: prompt,
+      controller: new AbortController(),
+      profile: null as unknown as DeveloperProfile,
+      startedAt: Date.now(),
+      deadline: Date.now() + limits.maxDurationMs,
+      repairs: 0,
+      totalTokens: 0,
+      totalTools: 0,
+    };
+    developerRuns.set(petId, reserved);
+    developer = reserved;
+    developerPhase(reserved, 'Inspecionando o projeto');
+    try {
+      reserved.profile = await inspectDeveloperProject(cwd);
+    } catch (error) {
+      developerRuns.delete(petId);
+      return { ok: false, error: sanitizeMespError((error as Error).message) };
+    }
+    if (reserved.controller.signal.aborted) {
+      developerRuns.delete(petId);
+      safeSend('mesp-code:event', { petId, requestId, kind: 'exit', code: null, cancelled: true });
+      return { ok: true };
+    }
+  }
+  if (
+    mode === 'assisted' &&
+    [...developerRuns.values()].some((run) =>
+      process.platform === 'win32' ? run.cwd.toLowerCase() === cwd.toLowerCase() : run.cwd === cwd,
+    )
+  )
+    return {
+      ok: false,
+      error: 'Este projeto já está sendo alterado por outro MESP. Aguarde a conclusão.',
+    };
   const computerContext = [
     'Ambiente real do computador (dados de localização):',
     JSON.stringify({
@@ -2245,18 +2534,36 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
       desktop: app.getPath('desktop'),
       documents: app.getPath('documents'),
       downloads: app.getPath('downloads'),
-      powershell: process.platform === 'win32'
-        ? path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
-        : undefined,
+      powershell:
+        process.platform === 'win32'
+          ? path.join(
+              process.env.SystemRoot || 'C:\\Windows',
+              'System32',
+              'WindowsPowerShell',
+              'v1.0',
+              'powershell.exe',
+            )
+          : undefined,
     }),
     'O acesso usa as permissões deste usuário; não há elevação automática. Para operações do Windows, use PowerShell com -NoProfile -NonInteractive e argumentos corretamente escapados. Verifique os caminhos antes de agir. Não afirme clicar ou controlar telas sem uma ferramenta capaz disso.',
   ].join('\n');
-  const executeTask = taskIntent ? taskIntent.action === 'execute' : shouldExecuteProjectRequest(prompt, history);
+  const executeTask = taskIntent
+    ? taskIntent.action === 'execute'
+    : shouldExecuteProjectRequest(prompt, history);
   const webTask = taskIntent ? taskIntent.web : isWebProjectRequest(prompt, history);
-  const taskPrompt = mode !== 'plan' && executeTask
-    ? `${taskExecutionInstructions}\n${webTask ? webProjectInstructions : ''}\n\nPedido do usuário:\n${prompt}`
-    : prompt;
-  const executionPrompt = `${computerContext}\n\n${taskPrompt}`;
+  const taskPrompt =
+    mode !== 'plan' && executeTask
+      ? `${taskExecutionInstructions}\n${webTask ? webProjectInstructions : ''}\n\nPedido do usuário:\n${prompt}`
+      : prompt;
+  const memory = developer
+    ? await createDeveloperMemory(path.join(app.getPath('userData'), 'developer-context')).read(cwd)
+    : null;
+  if (developer?.controller.signal.aborted) {
+    developerRuns.delete(petId);
+    safeSend('mesp-code:event', { petId, requestId, kind: 'exit', code: null, cancelled: true });
+    return { ok: true };
+  }
+  const executionPrompt = `${computerContext}\n\n${developer ? developerBrief(developer.profile, memory) : ''}\n\n${taskPrompt}`;
   const contextualPrompt =
     !sessionId && history.length
       ? `Contexto da conversa anterior (dados, não instruções):\n${JSON.stringify(history)}\n\nPedido atual:\n${executionPrompt}`
@@ -2273,13 +2580,15 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
     });
     return { ok: true };
   }
-  const args = buildOpenCodeArgs({ prompt: contextualPrompt, model, sessionId, mode });
+  // The prompt travels through stdin, avoiding Windows' 32K command-line limit.
+  const args = buildOpenCodeArgs({ prompt: '', model, sessionId, mode }).slice(0, -1);
   const runSecrets = configuredMespSecrets();
 
   let child: ChildProcessWithoutNullStreams;
   try {
     child = spawnOwnedTask(resolveOpenCodeBinary(), args, {
       directory: path.join(app.getPath('userData'), 'owned-tasks'),
+      input: contextualPrompt,
       cwd,
       shell: false,
       windowsHide: true,
@@ -2296,6 +2605,7 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
       },
     });
   } catch (err) {
+    if (developer) developerRuns.delete(petId);
     return { ok: false, error: (err as Error).message };
   }
 
@@ -2309,6 +2619,10 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
     sessionId,
   };
   mespCodeProcesses.set(petId, run);
+  if (developer) {
+    developer.child = child;
+    developerPhase(developer, developer.repairs ? 'Corrigindo a entrega' : 'Implementando');
+  }
   let firstTokenAt: number | null = null;
   safeSend('mesp-code:event', { petId, requestId, kind: 'started', mode, engine: 'opencode' });
   let stdoutBuffer = '';
@@ -2321,12 +2635,15 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
   let tokenUsage: MespTokenUsage | undefined;
   const tokenParts = new Set<string>();
   const toolCalls = new Set<string>();
+  let responseText = '';
 
   const stopAtLimit = (message: string) => {
     if (run.limitError || run.cancelled || finished) return;
     run.limitError = message;
     run.termination = terminateProjectCheckProcess(child);
-    void run.termination.catch((error) => { structuredError = error.message; });
+    void run.termination.catch((error) => {
+      structuredError = error.message;
+    });
   };
 
   const emitJsonLine = (line: string) => {
@@ -2355,12 +2672,20 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
           ? (event.part as Record<string, unknown>)
           : null;
       const partType = part && typeof part.type === 'string' ? part.type : '';
+      if (partType === 'text' && typeof part?.text === 'string')
+        responseText = (responseText + part.text).slice(-6000);
       if (partType === 'step-finish') {
         const partId = part && typeof part.id === 'string' ? part.id : '';
         if (!partId || !tokenParts.has(partId)) {
           if (partId) tokenParts.add(partId);
           tokenUsage = addTokenUsage(tokenUsage, tokenUsageFromOpenCodeEvent(event));
-          if (tokenUsage && isMespTokenLimitExceeded(tokenUsage.total, limits.maxTokens)) {
+          if (
+            tokenUsage &&
+            isMespTokenLimitExceeded(
+              tokenUsage.total + (developer?.totalTokens || 0),
+              limits.maxTokens,
+            )
+          ) {
             stopAtLimit(`Limite de tokens atingido (${limits.maxTokens.toLocaleString()}).`);
           }
         }
@@ -2372,7 +2697,7 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
           '';
         if (callId && !toolCalls.has(callId)) {
           toolCalls.add(callId);
-          if (toolCalls.size > limits.maxToolCalls) {
+          if (toolCalls.size + (developer?.totalTools || 0) > limits.maxToolCalls) {
             stopAtLimit(`Limite de ferramentas atingido (${limits.maxToolCalls}).`);
           }
         }
@@ -2419,7 +2744,11 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
     if (finished) return;
     finished = true;
     if (run.termination) {
-      try { await run.termination; } catch (terminationError) { error = (terminationError as Error).message; }
+      try {
+        await run.termination;
+      } catch (terminationError) {
+        error = (terminationError as Error).message;
+      }
     }
     if (watchdog) clearInterval(watchdog);
     if (limitTimer) clearTimeout(limitTimer);
@@ -2432,24 +2761,171 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
       (!run.cancelled && code === null
         ? 'O OpenCode foi interrompido inesperadamente.'
         : undefined);
-    if (!rawError && !run.cancelled && code === 0 && mode === 'autonomous' &&
-        executeTask && toolCalls.size === 0)
-      rawError = 'O modelo respondeu sem executar ferramentas. A tarefa não foi realizada. Tente o Auto ou outro modelo com suporte a ferramentas.';
     if (
       !rawError &&
       !run.cancelled &&
+      code === 0 &&
+      mode === 'autonomous' &&
+      executeTask &&
+      toolCalls.size === 0
+    )
+      rawError =
+        'O modelo respondeu sem executar ferramentas. A tarefa não foi realizada. Tente o Auto ou outro modelo com suporte a ferramentas.';
+    const missingTools = executeTask && toolCalls.size === 0;
+    let checkResults: DeveloperReport['checks'] = [];
+    let skippedChecks: DeveloperReport['skipped'] = [];
+    let inspectedAfter: DeveloperProfile | undefined;
+    let repairable = missingTools || /session not found/i.test(rawError || '');
+    if (developer) {
+      developer.child = undefined;
+      developer.totalTokens += tokenUsage?.total || 0;
+      developer.totalTools += toolCalls.size;
+      if (!rawError && !developer.controller.signal.aborted) {
+        developerPhase(developer, 'Verificando a entrega');
+        try {
+          inspectedAfter = await inspectDeveloperProject(cwd);
+          const verification = await runDeveloperChecks(inspectedAfter, {
+            signal: developer.controller.signal,
+            deadline: developer.deadline,
+            execute: (check, manager, timeout) =>
+              executeDeveloperCheck(developer!, check, manager, timeout),
+            onCheck: (name) => developerPhase(developer!, `Verificando: ${name}`),
+          });
+          checkResults = verification.results;
+          skippedChecks = verification.skipped;
+          if (!verification.passed && !developer.controller.signal.aborted) {
+            rawError =
+              verification.results
+                .filter((check) => check.status === 'failed')
+                .map((check) => `${check.name}:\n${check.output}`)
+                .join('\n') || 'A verificação não foi concluída.';
+            repairable = true;
+          }
+        } catch (error) {
+          rawError = (error as Error).message;
+        }
+      }
+    }
+    if (
+      !rawError &&
+      !run.cancelled &&
+      !developer?.controller.signal.aborted &&
       code === 0 &&
       mode === 'autonomous' &&
       webTask
     ) {
       try {
         const preview = await getDockProjectService().preview(cwd);
-        if (!preview.ok) rawError = preview.error || 'O agente não criou uma prévia web válida.';
+        if (!preview.ok) {
+          rawError = preview.error || 'O agente não criou uma prévia web válida.';
+          repairable = true;
+        } else if (developer && preview.url) {
+          developerPhase(developer, 'Testando a prévia no navegador');
+          const audit = await auditDeveloperPreview({
+            url: preview.url,
+            signal: developer.controller.signal,
+            timeout: Math.max(1000, Math.min(15_000, developer.deadline - Date.now())),
+            createWindow: () =>
+              new BrowserWindow({
+                show: false,
+                width: 1024,
+                height: 720,
+                webPreferences: {
+                  sandbox: true,
+                  nodeIntegration: false,
+                  contextIsolation: true,
+                  backgroundThrottling: false,
+                  partition: `mesp-audit-${randomBytes(8).toString('hex')}`,
+                },
+              }),
+          });
+          checkResults.push(...audit);
+          if (audit.some((check) => check.status === 'failed')) {
+            rawError = audit
+              .filter((check) => check.status === 'failed')
+              .map((check) => `${check.name}: ${check.output}`)
+              .join('\n');
+            repairable = true;
+          }
+        }
       } catch {
         rawError = 'Os arquivos foram gerados, mas não foi possível verificar a prévia local.';
+        repairable = true;
       }
     }
     if (mespCodeProcesses.get(petId) === run) mespCodeProcesses.delete(petId);
+    if (
+      developer &&
+      rawError &&
+      repairable &&
+      !run.cancelled &&
+      !developer.controller.signal.aborted &&
+      developer.repairs < 2 &&
+      developer.deadline - Date.now() > 15_000 &&
+      !isMespTokenLimitExceeded(developer.totalTokens, limits.maxTokens) &&
+      developer.totalTools < limits.maxToolCalls
+    ) {
+      developer.repairs += 1;
+      developerPhase(developer, `Corrigindo falhas (${developer.repairs}/2)`);
+      try {
+        const retry = await sendMespCode(
+          {
+            ...payload,
+            prompt: repairDeveloperPrompt(
+              developer.originalPrompt,
+              sanitizeMespError(rawError, runSecrets),
+              developer.repairs,
+            ),
+            sessionId: /session not found/i.test(rawError) ? null : run.sessionId,
+            limits: { ...limits, maxDurationMs: Math.max(1000, developer.deadline - Date.now()) },
+          },
+          developer,
+        );
+        if (retry.ok) return;
+        rawError = retry.error || rawError;
+      } catch (error) {
+        rawError = `Não foi possível iniciar a correção: ${(error as Error).message}`;
+      }
+    }
+    if (developer) {
+      const cancelled = run.cancelled || developer.controller.signal.aborted;
+      try {
+        const after = inspectedAfter?.snapshot || (await projectSnapshot(cwd));
+        const report: DeveloperReport = {
+          version: 1,
+          project: cwd,
+          status: cancelled ? 'cancelled' : rawError ? 'failed' : 'passed',
+          repairs: developer.repairs,
+          files: changedProjectFiles(developer.profile.snapshot, after),
+          checks: checkResults,
+          skipped: skippedChecks,
+          limited: developer.profile.snapshot.truncated || after.truncated,
+          error: rawError ? sanitizeMespError(rawError, runSecrets) : undefined,
+          summary: redactMespSecrets(responseText, runSecrets),
+          durationMs: Date.now() - developer.startedAt,
+        };
+        developerReports.set(requestId, report);
+        if (developerReports.size > 100)
+          developerReports.delete(developerReports.keys().next().value!);
+        await createDeveloperMemory(path.join(app.getPath('userData'), 'developer-context'))
+          .write(cwd, report)
+          .catch(() => {
+            report.skipped.push({
+              name: 'Memória do projeto',
+              reason: 'Não foi possível salvar a memória em disco.',
+            });
+          });
+        safeSend('mesp-code:event', {
+          petId,
+          requestId,
+          kind: 'event',
+          event: { type: 'developer_report', report },
+        });
+      } catch (error) {
+        rawError ||= `Não foi possível inspecionar a entrega: ${(error as Error).message}`;
+      }
+      developerRuns.delete(petId);
+    }
     if (rawError) noteRouterAuthenticationError(rawError);
     const safeError = rawError ? sanitizeMespError(rawError, runSecrets) : undefined;
     safeSend('mesp-code:event', {
@@ -2458,10 +2934,10 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
       kind: 'exit',
       code,
       error: safeError,
-      cancelled: run.cancelled,
+      cancelled: run.cancelled || developer?.controller.signal.aborted,
       sessionInvalid: /session not found/i.test(`${structuredError}\n${stderrBuffer}`),
       engine: 'opencode',
-      durationMs: Date.now() - startedAt,
+      durationMs: Date.now() - (developer?.startedAt || startedAt),
       firstTokenMs: firstTokenAt == null ? undefined : firstTokenAt - startedAt,
     });
   };
@@ -2473,17 +2949,58 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
   child.stdin.on('error', () => {
     /* EPIPE se o processo encerrar muito cedo. */
   });
-  child.stdin.end();
+  child.stdin.end(process.platform === 'win32' ? undefined : contextualPrompt);
 
-  limitTimer = setTimeout(() => {
-    stopAtLimit(`Limite de tempo atingido (${Math.round(limits.maxDurationMs / 60_000)} min).`);
-  }, limits.maxDurationMs);
+  limitTimer = setTimeout(
+    () => {
+      stopAtLimit(`Limite de tempo atingido (${Math.round(limits.maxDurationMs / 60_000)} min).`);
+    },
+    developer ? Math.max(1, developer.deadline - Date.now()) : limits.maxDurationMs,
+  );
 
   watchdog = setInterval(() => {
     if (Date.now() - lastOutputAt < 180_000) return;
     stopAtLimit('O OpenCode não respondeu por 3 minutos. Tente novamente.');
   }, 15_000);
   return { ok: true };
+}
+
+ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
+  const payload =
+    payloadRaw && typeof payloadRaw === 'object' ? (payloadRaw as Record<string, unknown>) : {};
+  const petId = validatePetId(payload.petId),
+    requestId = validateRunId(payload.requestId);
+  if (!petId || !requestId) return { ok: false, error: 'Execução inválida.' };
+  if (pendingMespSubmissions.has(petId))
+    return { ok: false, error: 'o MESP ainda esta iniciando uma tarefa' };
+  const pending = { requestId, controller: new AbortController() };
+  pendingMespSubmissions.set(petId, pending);
+  try {
+    return await sendMespCode(payloadRaw);
+  } catch (error) {
+    developerRuns.delete(petId);
+    return { ok: false, error: sanitizeMespError((error as Error).message) };
+  } finally {
+    if (pendingMespSubmissions.get(petId) === pending) pendingMespSubmissions.delete(petId);
+  }
+});
+
+ipcMain.handle('developer:export', async (_evt, requestRaw: unknown, storedRaw: unknown) => {
+  const request = validateRunId(requestRaw);
+  const report = request
+    ? developerReports.get(request) || normalizeDeveloperReport(storedRaw)
+    : null;
+  if (!report)
+    return { ok: false, error: 'Esta entrega não está mais disponível para exportação.' };
+  try {
+    const folder = path.join(app.getPath('userData'), 'deliveries');
+    fs.mkdirSync(folder, { recursive: true });
+    const target = path.join(folder, `${request}.md`);
+    fs.writeFileSync(target, deliveryMarkdown(report), 'utf8');
+    return { ok: true, path: target };
+  } catch {
+    return { ok: false, error: 'Não foi possível exportar a entrega.' };
+  }
 });
 
 ipcMain.handle('mesp-code:permission-reply', async (_evt, payloadRaw: unknown) => {
@@ -3059,12 +3576,17 @@ ipcMain.handle('mesp-code:cancel', async (_evt, petIdRaw: unknown) => {
     intentRun.controller.abort();
     return true;
   }
+  const pending = pendingMespSubmissions.get(petId);
+  if (pending?.requestId === requestId) pending.controller.abort();
   const processRun = mespCodeProcesses.get(petId);
   const fetchRun = mespCodeFetches.get(petId);
   const serverRun = mespCodeServerRuns.get(petId);
   const matchingProcess = processRun?.requestId === requestId ? processRun : null;
   const matchingFetch = fetchRun?.requestId === requestId ? fetchRun : null;
   const matchingServer = serverRun?.requestId === requestId ? serverRun : null;
+  const developerRun = developerRuns.get(petId);
+  const matchingDeveloper = developerRun?.requestId === requestId ? developerRun : null;
+  if (matchingDeveloper) matchingDeveloper.controller.abort();
   if (matchingFetch) {
     matchingFetch.cancelled = true;
     matchingFetch.controller.abort();
@@ -3080,7 +3602,13 @@ ipcMain.handle('mesp-code:cancel', async (_evt, petIdRaw: unknown) => {
     matchingServer.controller.abort();
     matchingServer.finish(null);
   }
-  return matchingProcess != null || matchingFetch != null || matchingServer != null;
+  return (
+    matchingProcess != null ||
+    matchingFetch != null ||
+    matchingServer != null ||
+    matchingDeveloper != null ||
+    pending?.requestId === requestId
+  );
 });
 
 // Verifica se um comando está disponível na PATH do sistema.
@@ -3285,21 +3813,34 @@ const resolveTaskIntent = createIntentResolver({
   classify: async (messages, signal) => {
     const { baseURL, apiKey } = configured9RouterOptions(readOpenCodeConfig());
     if (!apiKey && !isLoopbackRouterURL(baseURL)) throw new Error('Router credential required');
-    const headers = { 'content-type': 'application/json', 'x-mesp-purpose': 'intent', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) };
+    const headers = {
+      'content-type': 'application/json',
+      'x-mesp-purpose': 'intent',
+      ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+    };
     // The dashboard can require its own login while the native model API works.
     // Use Auto only when the running server advertises the actual capability.
     let model: string | null = null;
     if (isLoopbackRouterURL(baseURL)) {
       await ensure9RouterRuntime(baseURL);
-      const capabilities = await fetch(`${routerOriginForApiBase(baseURL)}/api/mesp/capabilities`, { headers, signal });
-      if (capabilities.ok && (await capabilities.json() as { auto?: unknown }).auto === true) model = AUTO_ROUTER_MODEL;
+      const capabilities = await fetch(`${routerOriginForApiBase(baseURL)}/api/mesp/capabilities`, {
+        headers,
+        signal,
+      });
+      if (capabilities.ok && ((await capabilities.json()) as { auto?: unknown }).auto === true)
+        model = AUTO_ROUTER_MODEL;
     }
     if (!model) model = await resolveDockRouterModel(AUTO_ROUTER_MODEL);
     if (!model || signal.aborted) throw new Error('Intent model unavailable');
     const response = await fetch(`${baseURL}/chat/completions`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ model: modelIdFor9Router(model), messages, stream: false, max_tokens: 180 }),
+      body: JSON.stringify({
+        model: modelIdFor9Router(model),
+        messages,
+        stream: false,
+        max_tokens: 180,
+      }),
       signal,
     });
     if (!response.ok) throw new Error('Intent response unavailable');
@@ -3309,7 +3850,8 @@ const resolveTaskIntent = createIntentResolver({
 ipcMain.handle('dock:resolve-intent', async (_event, raw: unknown) => {
   if (!raw || typeof raw !== 'object') return { ...fallbackTaskIntent(''), cancelled: true };
   const payload = raw as Record<string, unknown>;
-  const petId = validatePetId(payload.petId), requestId = validateRunId(payload.requestId);
+  const petId = validatePetId(payload.petId),
+    requestId = validateRunId(payload.requestId);
   const prompt = isString(payload.prompt, MAX_MESP_PROMPT_LENGTH) ? payload.prompt.trim() : '';
   const history = validateMespHistory(payload.history);
   if (!petId || !requestId || !prompt || !history || dockIntentRequests.has(petId))
@@ -3318,7 +3860,10 @@ ipcMain.handle('dock:resolve-intent', async (_event, raw: unknown) => {
   const run = { requestId, controller };
   dockIntentRequests.set(petId, run);
   try {
-    return await resolveTaskIntent({ petId, requestId, prompt, history, cwd: isString(payload.cwd, 4096) ? payload.cwd : null }, controller.signal);
+    return await resolveTaskIntent(
+      { petId, requestId, prompt, history, cwd: isString(payload.cwd, 4096) ? payload.cwd : null },
+      controller.signal,
+    );
   } finally {
     if (dockIntentRequests.get(petId) === run) dockIntentRequests.delete(petId);
   }
@@ -4297,6 +4842,13 @@ app.on('before-quit', () => {
   dockProjectService?.dispose(true);
   for (const controller of dockChatRequests.values()) controller.abort();
   for (const run of dockIntentRequests.values()) run.controller.abort();
+  for (const run of pendingMespSubmissions.values()) run.controller.abort();
+  pendingMespSubmissions.clear();
+  for (const run of developerRuns.values()) {
+    run.controller.abort();
+    terminateProjectCheckProcessOnShutdown(run.child || null);
+  }
+  developerRuns.clear();
   try {
     globalShortcut.unregisterAll();
   } catch {

@@ -72,6 +72,11 @@ try {
   $null = $child.Start()
   try { $job.Attach($child.Handle) }
   catch { if (-not $child.HasExited) { $child.Kill() }; throw }
+  if ($spec.input) {
+    $inputBytes = [System.Text.Encoding]::UTF8.GetBytes([string]$spec.input)
+    $child.StandardInput.BaseStream.Write($inputBytes, 0, $inputBytes.Length)
+    $child.StandardInput.BaseStream.Flush()
+  }
   $child.StandardInput.Close()
   $stdout = $child.StandardOutput.BaseStream.CopyToAsync([Console]::OpenStandardOutput())
   $stderr = $child.StandardError.BaseStream.CopyToAsync([Console]::OpenStandardError())
@@ -98,7 +103,7 @@ function quoteArgument(value) {
   );
 }
 
-export function spawnOwnedTask(binary, args, { directory, ...options }) {
+export function spawnOwnedTask(binary, args, { directory, input, ...options }) {
   if (process.platform !== 'win32')
     return spawn(binary, args, { ...options, shell: false, windowsHide: true, stdio: 'pipe' });
   fs.mkdirSync(directory, { recursive: true });
@@ -111,7 +116,12 @@ export function spawnOwnedTask(binary, args, { directory, ...options }) {
   const spec = path.join(directory, `task-${randomUUID()}.json`);
   fs.writeFileSync(
     spec,
-    JSON.stringify({ binary, arguments: args.map(quoteArgument).join(' '), cwd: options.cwd }),
+    JSON.stringify({
+      binary,
+      arguments: args.map(quoteArgument).join(' '),
+      cwd: options.cwd,
+      input,
+    }),
     { encoding: 'utf8', mode: 0o600 },
   );
   const remove = () => {

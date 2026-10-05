@@ -63,6 +63,14 @@ if (url) console.log('MESP_QA_HOOK=' + url);
       ipcMain.handle('dialog:select-folder', () => folder);
       ipcMain.removeHandler('dock:generate-title');
       ipcMain.handle('dock:generate-title', () => null);
+      // History/copy coverage uses a deterministic conversational intent; routing is tested separately.
+      ipcMain.removeHandler('dock:resolve-intent');
+      ipcMain.handle('dock:resolve-intent', () => ({
+        action: 'conversation',
+        workspace: 'none',
+        web: false,
+        source: 'model',
+      }));
       globalThis.__historyQA = [];
       ipcMain.removeHandler('dock:chat');
       ipcMain.handle(
@@ -93,8 +101,16 @@ if (url) console.log('MESP_QA_HOOK=' + url);
   };
   const complete = async (id, content) => {
     await app.evaluate(
-      (_electron, { id, content }) => {
-        const call = globalThis.__historyQA.find((call) => call.payload.petId === id && !call.done);
+      async (_electron, { id, content }) => {
+        const deadline = Date.now() + 20000;
+        let call;
+        while (
+          !(call = globalThis.__historyQA.find(
+            (call) => call.payload.petId === id && !call.done,
+          )) &&
+          Date.now() < deadline
+        )
+          await new Promise((resolve) => setTimeout(resolve, 50));
         if (!call) throw new Error('Missing router conversation request');
         call.done = true;
         call.resolve({ ok: true, answer: content, needsProject: false });

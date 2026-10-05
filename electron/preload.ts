@@ -262,6 +262,7 @@ const api = {
     history?: Array<{ role: 'user' | 'assistant'; content: string }>;
     limits?: { maxDurationMs: number; maxTokens: number; maxToolCalls: number };
     intent?: import('../src/services/dockIntent.mjs').TaskIntent;
+    waitForProject?: boolean;
   }): Promise<{ ok: boolean; error?: string }> {
     return ipcRenderer.invoke('mesp-code:send', opts);
   },
@@ -299,6 +300,12 @@ const api = {
     const handler = (_e: unknown, data: MespCodeEvent) => cb(data);
     ipcRenderer.on('mesp-code:event', handler);
     return () => ipcRenderer.removeListener('mesp-code:event', handler);
+  },
+  exportDeveloperReport(
+    requestId: string,
+    storedReport?: unknown,
+  ): Promise<{ ok: boolean; path?: string; error?: string }> {
+    return ipcRenderer.invoke('developer:export', requestId, storedReport);
   },
   /** Descobre scripts de verificacao conhecidos no package.json do projeto. */
   getProjectChecks(cwd: string): Promise<{

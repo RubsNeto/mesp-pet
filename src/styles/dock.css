@@ -3242,3 +3242,123 @@ body,
     height: 32px;
   }
 }
+.dock-delivery {
+  margin: 12px 0;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035);
+  color: #c6c8cd;
+  overflow: hidden;
+}
+.dock-delivery summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  cursor: pointer;
+  list-style: none;
+  min-width: 0;
+}
+.dock-delivery summary::-webkit-details-marker {
+  display: none;
+}
+.dock-delivery summary > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.dock-delivery summary small {
+  display: block;
+  color: #8d919a;
+  font-size: 11px;
+  margin-top: 3px;
+}
+.dock-delivery time {
+  font-size: 11px;
+  color: #8d919a;
+  flex-shrink: 0;
+}
+.dock-delivery-dot,
+.dock-delivery-check-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #959aa3;
+  flex-shrink: 0;
+}
+.dock-delivery.status-passed .dock-delivery-dot,
+.dock-delivery-check-dot.status-passed {
+  background: #74b897;
+}
+.dock-delivery.status-failed .dock-delivery-dot,
+.dock-delivery-check-dot.status-failed {
+  background: #d99386;
+}
+.dock-delivery-body {
+  padding: 0 12px 8px;
+  font-size: 12px;
+  min-width: 0;
+}
+.dock-delivery-body p,
+.dock-delivery-body code {
+  overflow-wrap: anywhere;
+}
+.dock-delivery-body ul {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+}
+.dock-delivery-body li {
+  display: flex;
+  gap: 8px;
+  margin: 6px 0;
+}
+.dock-delivery-body li > span {
+  min-width: 52px;
+  color: #8d919a;
+}
+.dock-delivery-body pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 180px;
+  overflow: auto;
+  padding: 10px;
+  background: #111214;
+  border-radius: 8px;
+  font-size: 11px;
+}
+.dock-delivery-check {
+  background: rgba(255, 255, 255, 0.025);
+  margin: 6px 0;
+  border-radius: 8px;
+}
+.dock-delivery-check summary {
+  padding: 9px;
+}
+.dock-delivery-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.dock-delivery-actions button {
+  background: #25272b;
+  color: #dadce0;
+  border: 0;
+  border-radius: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  transition: background 180ms ease;
+}
+.dock-delivery-actions button:hover {
+  background: #34373c;
+}
+.dock-delivery-actions button:focus-visible,
+.dock-delivery summary:focus-visible {
+  outline: 2px solid #b7b9bd;
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dock-delivery-actions button {
+    transition: none;
+  }
+}

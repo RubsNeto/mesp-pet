@@ -275,6 +275,13 @@ const root = path.resolve(__dirname, '..');
     await app.evaluate(({ ipcMain }) => {
       ipcMain.removeHandler('dock:generate-title');
       ipcMain.handle('dock:generate-title', () => null);
+      ipcMain.removeHandler('dock:resolve-intent');
+      ipcMain.handle('dock:resolve-intent', () => ({
+        action: 'conversation',
+        workspace: 'none',
+        web: false,
+        source: 'model',
+      }));
       ipcMain.removeHandler('dock:chat');
       ipcMain.handle(
         'dock:chat',
@@ -284,7 +291,7 @@ const root = path.resolve(__dirname, '..');
           }),
       );
     });
-    await composer.fill('Analise o projeto durante o teste de modelos');
+    await composer.fill('Converse sobre projetos durante o teste de modelos');
     await composer.press('Enter');
     await page.getByRole('button', { name: 'Parar', exact: true }).waitFor();
     await page.getByRole('tab', { name: 'Configurações', exact: true }).click();

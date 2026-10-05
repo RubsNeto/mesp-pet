@@ -2,7 +2,7 @@ import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from 'n
 export function spawnOwnedTask(
   binary: string,
   args: string[],
-  options: SpawnOptionsWithoutStdio & { directory: string; cwd: string },
+  options: SpawnOptionsWithoutStdio & { directory: string; cwd: string; input?: string },
 ): ChildProcessWithoutNullStreams;
 
 export function isOwnedTask(child: object): boolean;

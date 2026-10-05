@@ -54,6 +54,13 @@ const check = (name, passed, details) => {
     await app.evaluate(({ ipcMain }) => {
       ipcMain.removeHandler('dock:generate-title');
       ipcMain.handle('dock:generate-title', () => null);
+      ipcMain.removeHandler('dock:resolve-intent');
+      ipcMain.handle('dock:resolve-intent', () => ({
+        action: 'conversation',
+        workspace: 'none',
+        web: false,
+        source: 'model',
+      }));
       ipcMain.removeHandler('opencode:get-status');
       ipcMain.handle('opencode:get-status', () => ({
         model: '9router/mesp-auto',

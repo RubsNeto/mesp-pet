@@ -8,6 +8,7 @@ const checks = [
   'test',
   'lint',
   'build',
+  'test:developer',
   'test:agent',
   'test:computer',
   'test:routing',

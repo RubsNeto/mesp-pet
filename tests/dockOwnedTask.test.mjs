@@ -7,6 +7,43 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnOwnedTask } from '../electron/dockOwnedTask.mjs';
 
+test(
+  'owned task passes long Unicode context through stdin without Windows command-line limits',
+  { timeout: 30000 },
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mesp-task-job-'));
+    const input = 'Contexto ação programação 🚀\n'.repeat(4000);
+    const child = spawnOwnedTask(
+      process.execPath,
+      [
+        '-e',
+        'let text="";process.stdin.setEncoding("utf8");process.stdin.on("data",chunk=>text+=chunk);process.stdin.on("end",()=>console.log(JSON.stringify(text)));',
+      ],
+      { directory, cwd: directory, env: process.env, input },
+    );
+    let output = '',
+      error = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      output += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      error += chunk;
+    });
+    child.stdin.end(process.platform === 'win32' ? undefined : input);
+    try {
+      const [code] = await once(child, 'close');
+      assert.equal(code, 0, error);
+      assert.equal(JSON.parse(output.trim()), input);
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill();
+      assert.ok(directory.startsWith(join(tmpdir(), 'mesp-task-job-')));
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
+
 for (const cancel of [false, true]) {
   test(
     `owned Windows job ${cancel ? 'cancellation' : 'completion'} removes detached descendants with an exited parent`,

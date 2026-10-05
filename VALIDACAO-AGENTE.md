@@ -1,5 +1,55 @@
 # MESP como desenvolvedor de vários projetos — 5 de outubro de 2026
 
+## Atualização: 50 melhorias e entrega independente
+
+As [50 melhorias](MELHORIAS-50-DESENVOLVEDOR.md) foram implementadas. O agente
+agora recebe inspeção e memória do projeto, entrega arquivos, passa por verificações
+independentes e pode corrigir até duas vezes antes do resultado final.
+As correções compartilham tempo, tokens e ferramentas. O chat aguarda outras tarefas
+da mesma pasta e limita a três execuções autônomas simultâneas.
+
+Passaram **15/15 etapas** de `test:complete`: unidades, lint, build, entrega no
+Electron, agente nativo, acesso ao computador, roteamento, usabilidade, histórico,
+configurações, 9Router instalado, Auto, desempenho, auditoria e projetos.
+Após os ajustes finais de recuperação e detecção de lockfiles grandes, passaram
+novamente **291 testes unitários**, lint, build e `test:developer` com todos os
+diretórios XDG do runtime isolados.
+
+O teste de entrega provocou uma falha real no teste Node, observou a correção do
+arquivo pelo OpenCode nativo e aprovou a nova execução. Confirmou espera/cancelamento
+de tarefa concorrente na mesma pasta, um único evento final, cancelamento do
+processo de verificação, rascunho e relatório após reiniciar, copiar sem alterar
+o clipboard do usuário e exportação do relatório. O cartão foi capturado e conferido
+em 320 px, sem transbordamento horizontal.
+
+A auditoria de prévia usou Chromium real em janela oculta: página correta e quebrada,
+erro de console, imagem ausente, transbordamento em 320/390/1024 px, bloqueio de
+pop-ups, cancelamento de carregamento lento e ausência de janelas órfãs.
+O transporte de contexto foi verificado com mais de 100 mil caracteres UTF-8,
+incluindo acentos e emoji, sem exceder a linha de comando do Windows.
+
+Os testes de UI com agentes simulados agora isolam também a classificação de
+intenção; a classificação e a execução reais são verificadas nas suítes próprias.
+As simulações não comprovam autenticação. Os relatórios identificam explicitamente
+verificações não executadas e inspeções limitadas.
+
+Evidências locais ignoradas pelo Git: `qa/validation-1791210450573/results.json`
+e `qa/final-developer-1791211078110/results.json`.
+
+A aplicação real foi fechada normalmente, com árvore de processos identificada e
+sem agentes em execução, e reaberta na versão compilada. O perfil recebeu cópia de
+segurança antes da reabertura; projetos, histórico e configurações foram preservados.
+
+**Verificação com conta real nesta versão:** o 9Router Auto e o OpenCode criaram
+`index.html`, `script.js` e `style.css` a partir de um pedido pela interface, sem
+seletor de repositório. A entrega independente aprovou a sintaxe, o carregamento
+e 320/390/1024 px. No navegador, passaram adicionar, concluir, recarregar com
+persistência, desmarcar e excluir. O botão de exclusão é um ícone com tooltip;
+o teste aceita o título do controle além do texto visível. Não houve necessidade
+de correção automática nessa tarefa. A captura opcional da janela oculta excedeu
+cinco segundos; as verificações funcionais passaram. Evidência ignorada pelo Git:
+`qa/todo-live-1791211277070/evidence.json`.
+
 ## Atualização: interpretação de intenção por modelo
 
 A decisão principal agora usa uma consulta isolada ao 9Router Auto com pedido,
@@ -70,33 +120,33 @@ de Configurações ultrapassou o prazo de 30 segundos do teste durante a partida
 do servidor local; a repetição isolada passou. O teste agora reserva 60 segundos
 para combinar a inicialização do 9Router com o carregamento da página.
 
-| Verificação | Resultado |
-| --- | --- |
-| Unitários, lint e build | Aprovados; 252 testes unitários |
-| Acesso ao computador | Leitura, gravação e PowerShell em arquivos fora do projeto; Plano e Assistido aprovados |
-| Agente nativo | Arquivos, comandos, prévia, fila, falha e cancelamento aprovados |
-| Dois agentes nativos simultâneos | Pastas distintas, arquivos reais e rascunho preservado |
-| Roteamento, usabilidade e histórico | Aprovados |
-| Configurações, 9Router e Auto | Aprovados |
-| Desempenho | Sem animação enquanto totalmente oculto; aprovado |
-| Auditoria de interface e vários projetos | Aprovados |
-| Conta real, navegador e POST persistido | Aprovados |
+| Verificação                              | Resultado                                                                               |
+| ---------------------------------------- | --------------------------------------------------------------------------------------- |
+| Unitários, lint e build                  | Aprovados; 252 testes unitários                                                         |
+| Acesso ao computador                     | Leitura, gravação e PowerShell em arquivos fora do projeto; Plano e Assistido aprovados |
+| Agente nativo                            | Arquivos, comandos, prévia, fila, falha e cancelamento aprovados                        |
+| Dois agentes nativos simultâneos         | Pastas distintas, arquivos reais e rascunho preservado                                  |
+| Roteamento, usabilidade e histórico      | Aprovados                                                                               |
+| Configurações, 9Router e Auto            | Aprovados                                                                               |
+| Desempenho                               | Sem animação enquanto totalmente oculto; aprovado                                       |
+| Auditoria de interface e vários projetos | Aprovados                                                                               |
+| Conta real, navegador e POST persistido  | Aprovados                                                                               |
 
 ## Análise do fluxo
 
-| Necessidade | Comportamento e evidência |
-| --- | --- |
-| Conversar sem repositório | Cumprimentos e perguntas seguem pelo modo Rápido, sem abrir seletor de pasta. |
-| Trabalhar fora do projeto | Caminhos absolutos, pastas pessoais, discos e comandos usam as permissões do usuário do Windows. Pedidos com localização externa usam ferramentas sem exigir repositório. |
-| Pedir uma implementação | Novos entregáveis recebem uma pasta própria; o agente cria arquivos e executa comandos. Correções de projetos existentes mantêm a escolha da pasta dentro da ilha. |
-| Trabalhar em vários sistemas | Dois OpenCode nativos executaram simultaneamente em pastas distintas. Dez MESP foram verificados na interface, com títulos, estados, resultados e persistência. |
-| Manter o contexto | Históricos e sessões são separados por MESP. Trocas, recolhimento e promoção do resultado preservam a conversa selecionada e o rascunho. |
-| Identificar o que terminou | Títulos dinâmicos, bolinhas de estado e resultados não lidos permanecem visíveis na fila e em Meus MESP. Renomeações manuais são respeitadas. |
-| Usar modelos e contas | Todos os MESP usam 9Router. `/model`, catálogo e configurações funcionam na ilha; mudanças de modelo ficam bloqueadas durante tarefas ativas. |
-| Recuperar uma falha | Resposta sem ferramentas não é apresentada como implementação concluída. Falhas pausam a fila, preservando tarefas e rascunho após reiniciar. |
-| Interromper com segurança | Cada execução nativa no Windows tem seu próprio Job Object. O teste também criou um filho destacado cujo pai já havia saído e confirmou seu encerramento sem afetar um processo independente. |
-| Abrir o resultado | HTML estático e backend Node com `.mesp-preview.json` recebem prévia verificada. POSTs são encaminhados ao backend real. |
-| Usar uma tela pequena | Cabeçalho compacto, controles acessíveis e fila com rolagem própria. Auditoria cobre larguras de 320 a 1366 px. |
+| Necessidade                  | Comportamento e evidência                                                                                                                                                                     |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Conversar sem repositório    | Cumprimentos e perguntas seguem pelo modo Rápido, sem abrir seletor de pasta.                                                                                                                 |
+| Trabalhar fora do projeto    | Caminhos absolutos, pastas pessoais, discos e comandos usam as permissões do usuário do Windows. Pedidos com localização externa usam ferramentas sem exigir repositório.                     |
+| Pedir uma implementação      | Novos entregáveis recebem uma pasta própria; o agente cria arquivos e executa comandos. Correções de projetos existentes mantêm a escolha da pasta dentro da ilha.                            |
+| Trabalhar em vários sistemas | Dois OpenCode nativos executaram simultaneamente em pastas distintas. Dez MESP foram verificados na interface, com títulos, estados, resultados e persistência.                               |
+| Manter o contexto            | Históricos e sessões são separados por MESP. Trocas, recolhimento e promoção do resultado preservam a conversa selecionada e o rascunho.                                                      |
+| Identificar o que terminou   | Títulos dinâmicos, bolinhas de estado e resultados não lidos permanecem visíveis na fila e em Meus MESP. Renomeações manuais são respeitadas.                                                 |
+| Usar modelos e contas        | Todos os MESP usam 9Router. `/model`, catálogo e configurações funcionam na ilha; mudanças de modelo ficam bloqueadas durante tarefas ativas.                                                 |
+| Recuperar uma falha          | Resposta sem ferramentas não é apresentada como implementação concluída. Falhas pausam a fila, preservando tarefas e rascunho após reiniciar.                                                 |
+| Interromper com segurança    | Cada execução nativa no Windows tem seu próprio Job Object. O teste também criou um filho destacado cujo pai já havia saído e confirmou seu encerramento sem afetar um processo independente. |
+| Abrir o resultado            | HTML estático e backend Node com `.mesp-preview.json` recebem prévia verificada. POSTs são encaminhados ao backend real.                                                                      |
+| Usar uma tela pequena        | Cabeçalho compacto, controles acessíveis e fila com rolagem própria. Auditoria cobre larguras de 320 a 1366 px.                                                                               |
 
 A correção principal desta revisão foi encerrar a tarefa inteira no Windows,
 incluindo processos que deixaram de aparecer na árvore comum após a saída de

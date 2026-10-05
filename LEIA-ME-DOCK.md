@@ -1,5 +1,21 @@
 # MESP Top Dock
 
+## Entrega autônoma de projetos
+
+Pedidos de programação acionam **inspeção → implementação → verificação → correção → entrega**.
+O modo Autônomo verifica os scripts disponíveis e a sintaxe compatível, testa prévias web
+em 320, 390 e 1024 px e tenta corrigir até duas vezes quando encontra falhas.
+O prazo e os limites da tarefa são compartilhados entre as tentativas.
+
+Abaixo da resposta aparece um cartão de entrega com arquivos alterados, testes,
+falhas e verificações não executadas. Você pode expandir, copiar e salvar o relatório.
+O histórico e a memória da última entrega por projeto são preservados ao reiniciar.
+Tarefas da mesma pasta aguardam a anterior; até três execuções autônomas trabalham
+em paralelo para reduzir pressão no computador. O botão Parar também cancela a espera e os testes.
+
+As [50 melhorias implementadas](MELHORIAS-50-DESENVOLVEDOR.md) têm evidências e limites
+documentados. O comando `npm run test:complete` reúne 15 etapas de validação em perfis isolados.
+
 ## Intenção interpretada por IA
 
 O MESP usa um modelo rápido do **9Router Auto** para decidir entre conversar e

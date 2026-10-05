@@ -127,8 +127,13 @@ export function createDockProjectService({
           return { ok: false, error: 'O index.html excede o tamanho permitido para a prévia.' };
         const html = await readFile(entryPath, 'utf8');
         for (const [tag] of html.matchAll(/<(?:script|link)\b[^>]*>/gi)) {
-          if (/^<link/i.test(tag) && !/\brel\s*=\s*["']stylesheet["']/i.test(tag)) continue;
-          const resource = tag.match(/\b(?:src|href)\s*=\s*["']([^"']+)["']/i)?.[1];
+          if (
+            /^<link/i.test(tag) &&
+            !/\brel\s*=\s*(?:["'][^"']*\bstylesheet\b[^"']*["']|stylesheet\b)/i.test(tag)
+          )
+            continue;
+          const attribute = tag.match(/\b(?:src|href)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
+          const resource = attribute && (attribute[1] ?? attribute[2] ?? attribute[3]);
           if (!resource || /^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(resource)) continue;
           try {
             const pathname = decodeURIComponent(
@@ -176,11 +181,24 @@ export function createDockProjectService({
           if (
             hidden(requested) ||
             requested.includes('\0') ||
-            !types[extname(requested).toLowerCase()]
+            (!types[extname(requested).toLowerCase()] &&
+              (extname(requested) || !req.headers.accept?.includes('text/html')))
           )
             return deny(404);
           try {
-            const target = await realpath(resolve(root, requested));
+            let target;
+            try {
+              target = await realpath(resolve(root, requested));
+            } catch (error) {
+              // Browser routes from a compiled SPA return its entry; missing assets remain 404.
+              if (
+                error.code !== 'ENOENT' ||
+                extname(requested) ||
+                !req.headers.accept?.includes('text/html')
+              )
+                throw error;
+              target = await realpath(join(root, 'index.html'));
+            }
             if (!inside(root, target) || hidden(relative(root, target))) return deny(404);
             const info = await stat(target);
             if (!info.isFile()) return deny(404);

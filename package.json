@@ -17,7 +17,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --test tests/summarize.test.mjs tests/kiroBridge.spawn.test.mjs tests/procedural.test.mjs tests/sanitize.test.mjs tests/persistence.test.mjs tests/composer.test.mjs tests/stateDetect.test.mjs tests/costParse.test.mjs tests/runLog.test.mjs tests/contextStore.test.mjs tests/settingsStore.test.mjs tests/commandPalette.test.mjs tests/primer.test.mjs tests/traitsCatalog.test.mjs tests/primaryStore.test.mjs tests/presetsStore.test.mjs tests/mespCodeCore.test.mjs tests/dockCore.test.mjs tests/coucouMotion.test.mjs tests/dockHooks.test.mjs tests/dockTraits.test.mjs tests/dockTitles.test.mjs tests/dockRouter.test.mjs tests/dockChat.test.mjs tests/dockMotion.test.mjs tests/dockAgent.test.mjs tests/dockProcessTree.test.mjs tests/dockOwnedTask.test.mjs tests/dockComputerTools.test.mjs tests/dockIntent.test.mjs",
+    "test": "node --test tests/summarize.test.mjs tests/kiroBridge.spawn.test.mjs tests/procedural.test.mjs tests/sanitize.test.mjs tests/persistence.test.mjs tests/composer.test.mjs tests/stateDetect.test.mjs tests/costParse.test.mjs tests/runLog.test.mjs tests/contextStore.test.mjs tests/settingsStore.test.mjs tests/commandPalette.test.mjs tests/primer.test.mjs tests/traitsCatalog.test.mjs tests/primaryStore.test.mjs tests/presetsStore.test.mjs tests/mespCodeCore.test.mjs tests/dockCore.test.mjs tests/coucouMotion.test.mjs tests/dockHooks.test.mjs tests/dockTraits.test.mjs tests/dockTitles.test.mjs tests/dockRouter.test.mjs tests/dockChat.test.mjs tests/dockMotion.test.mjs tests/dockAgent.test.mjs tests/dockProcessTree.test.mjs tests/dockOwnedTask.test.mjs tests/dockComputerTools.test.mjs tests/dockIntent.test.mjs tests/dockDeveloper.test.mjs",
     "package": "npm run build && electron-builder",
     "package:dir": "npm run build && electron-builder --dir",
     "rebuild-native": "node scripts/patch-gyp.js && electron-builder install-app-deps",
@@ -34,7 +34,8 @@
     "test:computer": "node tests/dockComputer.electron.cjs && node tests/dockComputer.electron.cjs --dashboard-locked",
     "test:complete": "node scripts/validate-dock.cjs",
     "test:performance": "node tests/dockPerformance.electron.cjs",
-    "test:routing": "node tests/dockRouting.electron.cjs"
+    "test:routing": "node tests/dockRouting.electron.cjs",
+    "test:developer": "node tests/dockDeveloper.electron.cjs && node tests/dockWebAudit.electron.cjs"
   },
   "dependencies": {
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",

@@ -31,6 +31,13 @@ const root = path.resolve(__dirname, '..');
     page.on('pageerror', (error) => errors.push(error.message));
     await app.evaluate(({ ipcMain }) => {
       globalThis.__projectsQA = { titles: [], calls: [], folders: 0, notifications: [] };
+      ipcMain.removeHandler('dock:resolve-intent');
+      ipcMain.handle('dock:resolve-intent', () => ({
+        action: 'conversation',
+        workspace: 'none',
+        web: false,
+        source: 'model',
+      }));
       ipcMain.removeHandler('dock:generate-title');
       ipcMain.handle('dock:generate-title', (_event, payload) => {
         globalThis.__projectsQA.titles.push(payload);
@@ -73,10 +80,16 @@ const root = path.resolve(__dirname, '..');
     );
   const finish = (id, answer = 'Resultado pronto') =>
     app.evaluate(
-      (_electron, { id, answer }) => {
-        const call = globalThis.__projectsQA.calls.find(
-          (call) => call.payload.petId === id && !call.done,
-        );
+      async (_electron, { id, answer }) => {
+        const deadline = Date.now() + 10000;
+        let call;
+        while (
+          !(call = globalThis.__projectsQA.calls.find(
+            (call) => call.payload.petId === id && !call.done,
+          )) &&
+          Date.now() < deadline
+        )
+          await new Promise((resolve) => setTimeout(resolve, 50));
         if (!call) throw new Error(`Missing request ${id}`);
         call.done = true;
         call.resolve({ ok: true, answer, needsProject: false });
