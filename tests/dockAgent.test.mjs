@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, symlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
-import { isWebProjectRequest, shouldExecuteProjectRequest } from '../src/services/dockAgent.mjs';
+import {
+  isWebProjectRequest,
+  shouldExecuteProjectRequest,
+  shouldCreateTaskWorkspace,
+} from '../src/services/dockAgent.mjs';
 import { createDockProjectService } from '../electron/dockProjects.mjs';
 import { restoreMespLimits } from '../src/services/mespCodeCore.mjs';
 
@@ -22,6 +26,8 @@ test('implementation intent distinguishes a real project from questions and code
     'Crie um site com HTML, CSS e JS',
     'quero uma landing page',
     'Faça meu portfólio',
+    'Crie um site como referência para minha loja',
+    'Crie um site de exemplo e grave os arquivos',
   ])
     assert.equal(isWebProjectRequest(prompt), true, prompt);
   for (const prompt of [
@@ -44,13 +50,95 @@ test('implementation intent distinguishes a real project from questions and code
   );
   assert.equal(shouldExecuteProjectRequest('Corrija o erro no botão'), true);
   assert.equal(shouldExecuteProjectRequest('Como corrijo o erro?'), false);
+  assert.equal(shouldExecuteProjectRequest('Crie um script Python para organizar os CSV'), true);
+  assert.equal(shouldExecuteProjectRequest('Preciso de um relatório em arquivo'), true);
+  assert.equal(shouldExecuteProjectRequest('Investigue os erros deste projeto'), true);
+  assert.equal(shouldCreateTaskWorkspace('Corrija os arquivos'), false);
+  assert.equal(shouldCreateTaskWorkspace('Analise o projeto'), false);
+  assert.equal(shouldCreateTaskWorkspace('Crie um script Python'), true);
+  assert.equal(
+    shouldExecuteProjectRequest('Continue', [{ role: 'user', content: 'Corrija o botão' }]),
+    true,
+  );
+  assert.equal(
+    shouldExecuteProjectRequest('Continue', [{ role: 'user', content: 'Explique uma API' }]),
+    false,
+  );
+  assert.equal(isWebProjectRequest('Continue', [{ role: 'user', content: 'Crie um site' }]), true);
+});
+
+test('managed backend handles real POST requests, isolates preview cookies, and stops its own process', async (t) => {
+  const base = await mkdtemp(join(tmpdir(), 'mesp-backend-test-'));
+  const service = createDockProjectService({
+    directory: base,
+    nodeBinary: process.execPath,
+    environment: {},
+  });
+  t.after(async () => {
+    await service.dispose();
+    if (dirname(resolve(base)) !== resolve(tmpdir())) throw new Error('Unexpected cleanup target');
+    await rm(base, { recursive: true, force: true });
+  });
+  const { cwd } = await service.create({ petId: 'mesp-backend', title: 'Formulário' });
+  await writeFile(join(cwd, '.mesp-preview.json'), JSON.stringify({ entry: 'server.cjs' }));
+  await writeFile(
+    join(cwd, 'server.cjs'),
+    `const http=require('node:http');
+http.createServer(async(req,res)=>{
+if(req.method==='POST' && req.url==='/api/save') { let body='';for await(const chunk of req)body+=chunk;res.writeHead(201,{'content-type':'application/json'});res.end(JSON.stringify({saved:JSON.parse(body).name})); }
+else {res.end('<title>Formulário real</title>');}
+}).listen(Number(process.env.PORT),process.env.HOST);`,
+  );
+  const preview = await service.preview(cwd);
+  assert.equal(preview.ok, true);
+  const page = await fetch(preview.url);
+  assert.match(await page.text(), /Formulário real/);
+  const cookie = page.headers.get('set-cookie').split(';')[0];
+  const endpoint = new URL('/api/save', preview.url);
+  assert.equal((await fetch(endpoint, { method: 'POST', body: '{}' })).status, 404);
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { cookie, 'content-type': 'application/json', origin: endpoint.origin },
+    body: JSON.stringify({ name: 'MESP' }),
+  });
+  assert.equal(response.status, 201);
+  assert.deepEqual(await response.json(), { saved: 'MESP' });
+  assert.equal(
+    (
+      await fetch(endpoint, {
+        method: 'POST',
+        headers: { cookie, origin: 'https://outside.invalid' },
+        body: '{}',
+      })
+    ).status,
+    403,
+  );
+  assert.equal((await service.preview(cwd)).url, preview.url);
+  await service.dispose();
+  await assert.rejects(fetch(preview.url));
+});
+
+test('invalid backend configuration is reported without running an arbitrary command', async (t) => {
+  const base = await mkdtemp(join(tmpdir(), 'mesp-backend-config-'));
+  const service = createDockProjectService({ directory: base, nodeBinary: process.execPath });
+  t.after(async () => {
+    await service.dispose();
+    if (dirname(resolve(base)) !== resolve(tmpdir())) throw new Error('Unexpected cleanup target');
+    await rm(base, { recursive: true, force: true });
+  });
+  const { cwd } = await service.create({ petId: 'mesp-invalid', title: 'Invalid' });
+  await writeFile(join(cwd, '.mesp-preview.json'), JSON.stringify({ entry: '../outside.js' }));
+  await assert.rejects(service.preview(cwd));
+  await writeFile(join(cwd, '.mesp-preview.json'), JSON.stringify({ entry: 'server.cjs' }));
+  await writeFile(join(cwd, 'server.cjs'), 'throw new Error("Startup failed");');
+  await assert.rejects(service.preview(cwd), /encerrou/);
 });
 
 test('managed projects keep files and serve a verified local preview without exposing other files', async (t) => {
   const base = await mkdtemp(join(tmpdir(), 'mesp-agent-test-'));
   const service = createDockProjectService({ directory: join(base, 'projects') });
   t.after(async () => {
-    service.dispose();
+    await service.dispose();
     if (dirname(resolve(base)) !== resolve(tmpdir())) throw new Error('Unexpected cleanup target');
     await rm(base, { recursive: true, force: true });
   });
@@ -108,9 +196,11 @@ test('managed projects keep files and serve a verified local preview without exp
   const otherCookie = otherResponse.headers.get('set-cookie').split(';')[0];
   assert.notEqual(firstCookie.split('=')[0], otherCookie.split('=')[0]);
   assert.equal(
-    (await fetch(new URL('/app.js', first.url), {
-      headers: { cookie: `${firstCookie}; ${otherCookie}` },
-    })).status,
+    (
+      await fetch(new URL('/app.js', first.url), {
+        headers: { cookie: `${firstCookie}; ${otherCookie}` },
+      })
+    ).status,
     200,
     'Two sites opened on localhost keep independent preview access',
   );
@@ -125,6 +215,6 @@ test('managed projects keep files and serve a verified local preview without exp
   const built = await service.preview(cwd);
   assert.notEqual(built.url, first.url);
   assert.match(await (await fetch(built.url)).text(), /Build pronto/);
-  service.dispose();
+  await service.dispose();
   await assert.rejects(fetch(built.url));
 });

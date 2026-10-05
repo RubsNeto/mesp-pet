@@ -3219,6 +3219,15 @@ body,
   text-align: center;
 }
 @media (max-width: 560px) {
+  .top-dock .dock-header {
+    padding-right: 126px;
+  }
+  .top-dock.mode-home .dock-add-mesp {
+    right: 94px;
+  }
+  .top-dock .dock-actions button {
+    width: 24px;
+  }
   .top-dock:has(.dock-mini-button) .dock-header {
     height: 82px;
     min-height: 82px;

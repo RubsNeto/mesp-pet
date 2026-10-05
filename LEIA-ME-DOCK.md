@@ -1,5 +1,52 @@
 # MESP Top Dock
 
+## Desenvolvedor e agente de tarefas — revisão de 5 de outubro de 2026
+
+Pedidos como **Crie um script Python**, **Crie um relatório em arquivo** e
+**Crie um site** agora usam ferramentas e uma pasta própria do MESP, sem exigir
+um repositório para começar. Cumprimentos, dúvidas e pedidos de explicação
+continuam na conversa. Para corrigir arquivos de um projeto existente, selecione
+essa pasta; o MESP conserva o aviso dentro da ilha antes de abrir o seletor.
+Com uma pasta aberta, **Rápido** reconhece pedidos de execução e aciona o agente.
+**Plano** mantém acesso somente de leitura; **Assistido** mantém suas aprovações.
+
+O agente examina e altera arquivos, executa comandos e informa as verificações.
+Uma promessa em texto sem qualquer ferramenta não é marcada como execução
+concluída. Uma falha pausa as tarefas seguintes; a fila e o rascunho permanecem
+salvos. **Parar** encerra a árvore de processos da própria tarefa, sem encerrar
+outros aplicativos. No Windows, cada execução nativa e cada backend gerenciado
+ficam em um Job Object próprio, que também encerra filhos destacados quando a
+tarefa termina. Os limites continuam ajustáveis por MESP.
+
+Sites estáticos usam a prévia integrada. Sites com um backend Node podem ter
+`.mesp-preview.json` com `{"entry":"server.cjs"}`; o agente prepara esse arquivo
+quando necessário. O servidor deve ler `process.env.PORT` e `process.env.HOST`,
+servir a página inicial e permanecer em primeiro plano. O MESP gerencia o
+processo, verifica a resposta HTTP e entrega **Abrir site**. Formulários e APIs
+podem enviar POSTs reais e gravar dados no projeto. O processo termina ao sair
+do MESP e inicia novamente ao abrir o resultado. Configuração inválida ou
+servidor que falha ao iniciar produz um erro, sem anunciar um link pronto.
+
+O runtime usa somente os modelos do 9Router, sem buscar catálogos externos ou
+carregar os plugins padrão de autenticação de outros provedores. Comandos comuns
+de servidor contínuo, como `node server.cjs` e `npm run dev`, são bloqueados no
+modo Autônomo para evitar prender a tarefa; a prévia deve gerenciar esses serviços.
+
+Execute **npm run test:complete** para rodar todas as 13 verificações da variante,
+incluindo testes unitários, lint, build, agente nativo, roteamento, usabilidade,
+histórico, configurações, 9Router, Auto, desempenho, auditoria e vários projetos.
+Os resultados individuais ficam em `qa/validation-*/results.json`, com logs por
+verificação. As janelas de teste ficam ocultas e usam perfis isolados.
+
+Em 5 de outubro, uma conta real do 9Router com GitHub GPT-4o mini criou um formulário,
+executou a verificação de sintaxe e entregou uma prévia cujo POST gravou dados.
+Testes com contas simuladas continuam identificados como simulados. Passar esses
+fluxos não garante todo projeto, modelo, serviço externo ou tarefa futura.
+Os links continuam locais; publicação externa requer um pedido específico.
+
+Veja [VALIDACAO-AGENTE.md](VALIDACAO-AGENTE.md) para a análise, as evidências e
+as condições de autenticação e disponibilidade verificadas.
+
 ## Criar projetos e abrir o resultado
 
 Peça **Crie um site com HTML, CSS e JavaScript e mande o link**. Sem uma pasta
@@ -14,8 +61,10 @@ o resultado mostra **Abrir site**, **Abrir pasta** e um link copiável. A prévi
 serve `index.html` na raiz ou o build em `dist`/`build`, verifica os scripts e
 estilos referenciados e funciona enquanto o MESP estiver aberto. Ao reiniciar,
 os arquivos e a conversa permanecem, e o MESP gera um novo link local.
-Isso não publica o projeto na internet. Aplicações que exigem um servidor backend
-precisam do serviço correspondente; a prévia integrada serve arquivos web.
+Isso não publica o projeto na internet. Backends Node configurados com
+`.mesp-preview.json` usam a prévia gerenciada. Bancos e serviços externos
+continuam exigindo configuração própria; frameworks precisam de um build ou
+de um servidor Node compatível com esse contrato.
 
 Uma resposta contendo apenas exemplos de código não conta como site pronto.
 Sem `index.html` ou com scripts/estilos ausentes, o MESP informa a falha.
@@ -27,6 +76,8 @@ Somente esse padrão antigo é atualizado; limites personalizados são preservad
 Os testes `npm run test:agent` executam o OpenCode instalado com um provedor
 simulado, criam arquivos reais, rodam `node --check`, abrem a página no Electron
 e verificam a interação JavaScript, contexto, rascunho e retomada após reiniciar.
+A mesma suíte executa dois agentes nativos simultaneamente em pastas distintas
+e verifica arquivos reais, recolhimento do painel e preservação do rascunho.
 Também foi validada a criação de um site com uma conta real do 9Router e o
 modelo GitHub GPT-4o mini, com arquivos, prévia e interação JavaScript funcionais.
 Essa verificação não comprova a disponibilidade de todas as contas e modelos.

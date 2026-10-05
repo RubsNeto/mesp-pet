@@ -3,6 +3,7 @@ import { createReadStream } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve, join, relative, isAbsolute, extname } from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { readPreviewRuntime, startPreviewRuntime } from './dockPreviewRuntime.mjs';
 
 const types = {
   '.html': 'text/html; charset=utf-8',
@@ -34,7 +35,14 @@ const inside = (root, target) => {
 const hidden = (path) =>
   path.split(/[\\/]/).some((part) => part.startsWith('.') || part === 'node_modules');
 
-export function createDockProjectService({ directory }) {
+export function createDockProjectService({
+  directory,
+  nodeBinary,
+  ownedDirectory,
+  environment,
+  stopProcess,
+  stopProcessOnShutdown,
+}) {
   const previews = new Map();
   const starting = new Map();
   let disposed = false;
@@ -64,6 +72,33 @@ export function createDockProjectService({ directory }) {
       if (!(await stat(project)).isDirectory()) throw new Error('Pasta inválida.');
       if (starting.has(project)) return starting.get(project);
       const launch = (async () => {
+        const runtime = await readPreviewRuntime(project);
+        const existing = previews.get(project);
+        if (runtime) {
+          if (
+            existing?.runtime === runtime.fingerprint &&
+            existing.child?.exitCode === null &&
+            existing.child?.signalCode === null
+          )
+            return { ok: true, url: existing.url, cwd: project };
+          await existing?.stop();
+          previews.delete(project);
+          const preview = await startPreviewRuntime({
+            project,
+            config: runtime,
+            nodeBinary,
+            ownedDirectory,
+            environment,
+            stopProcess,
+            stopProcessOnShutdown,
+          });
+          if (disposed) {
+            await preview.stop();
+            throw new Error('O MESP está fechando.');
+          }
+          previews.set(project, preview);
+          return { ok: true, url: preview.url, cwd: project };
+        }
         let root;
         for (const folder of ['dist', 'build', '']) {
           try {
@@ -110,10 +145,10 @@ export function createDockProjectService({ directory }) {
           }
         }
         const previous = previews.get(project);
-        if (previous?.root === root) return { ok: true, url: previous.url, cwd: project };
+        if (previous?.root === root && !previous.runtime)
+          return { ok: true, url: previous.url, cwd: project };
         if (previous) {
-          previous.server.closeAllConnections();
-          previous.server.close();
+          await previous.stop();
           previews.delete(project);
         }
         const token = randomBytes(18).toString('hex');
@@ -174,7 +209,15 @@ export function createDockProjectService({ directory }) {
           throw new Error('O MESP está fechando.');
         }
         const url = `http://127.0.0.1:${server.address().port}/?mesp_preview=${token}`;
-        previews.set(project, { server, root, url });
+        previews.set(project, {
+          server,
+          root,
+          url,
+          stop() {
+            server.closeAllConnections();
+            server.close();
+          },
+        });
         return { ok: true, url, cwd: project };
       })();
       starting.set(project, launch);
@@ -184,13 +227,11 @@ export function createDockProjectService({ directory }) {
         starting.delete(project);
       }
     },
-    dispose() {
+    dispose(shutdown = false) {
       disposed = true;
-      for (const { server } of previews.values()) {
-        server.closeAllConnections();
-        server.close();
-      }
+      const stopping = [...previews.values()].map((preview) => preview.stop(shutdown));
       previews.clear();
+      return Promise.all(stopping).then(() => undefined);
     },
   };
 }

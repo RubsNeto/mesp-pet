@@ -157,13 +157,19 @@ const check = (name, passed, details) => {
       const expanded = await page.evaluate(() => {
         const shell = document.querySelector('.top-dock').getBoundingClientRect();
         const title = document.querySelector('.dock-task-title').getBoundingClientRect();
-        const buttons = [...document.querySelectorAll('.dock-mesp-rail button')].map((el) =>
-          el.getBoundingClientRect(),
-        );
+        const buttons = [
+          ...document.querySelectorAll(
+            '.dock-character-button, .dock-add-mesp, .dock-actions button',
+          ),
+        ].map((el) => el.getBoundingClientRect());
+        const strip = document.querySelector('.dock-mini-strip').getBoundingClientRect();
         return {
           shell: { left: shell.left, right: shell.right, width: shell.width },
           titleWidth: title.width,
-          buttonsInside: buttons.every((r) => r.left >= -1 && r.right <= window.innerWidth + 1),
+          buttonsInside:
+            buttons.every((r) => r.left >= -1 && r.right <= window.innerWidth + 1) &&
+            strip.left >= shell.left &&
+            strip.right <= shell.right,
           noHorizontalScroll: document.documentElement.scrollWidth <= window.innerWidth + 1,
         };
       });

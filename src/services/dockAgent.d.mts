@@ -5,4 +5,6 @@ export interface AgentHistory {
 }
 export function isWebProjectRequest(prompt: string, history?: AgentHistory[]): boolean;
 export function shouldExecuteProjectRequest(prompt: string, history?: AgentHistory[]): boolean;
+export function shouldCreateTaskWorkspace(prompt: string, history?: AgentHistory[]): boolean;
 export const webProjectInstructions: string;
+export const taskExecutionInstructions: string;

@@ -40,7 +40,7 @@ import {
 } from '../services/dockCore.mjs';
 import { getPresetById } from '../services/aiPresets';
 import { AUTO_ROUTER_MODEL } from '../../electron/dockRouter.mjs';
-import { isWebProjectRequest } from '../services/dockAgent.mjs';
+import { isWebProjectRequest, shouldCreateTaskWorkspace } from '../services/dockAgent.mjs';
 import type { PetEntity, PetState } from '../types';
 
 const STORAGE = 'mesp-top-projects-v1';
@@ -1244,7 +1244,7 @@ export function TopDock() {
         return;
       }
       if (!target.workDir) {
-        if (isWebProjectRequest(action.prompt, messages[target.id] || [])) {
+        if (shouldCreateTaskWorkspace(action.prompt, messages[target.id] || [])) {
           if (!agentCanChange(target.state) || target.hasActiveTask) {
             setNotice('Este MESP está trabalhando. Aguarde ou use outro personagem.');
             return;
@@ -1267,7 +1267,9 @@ export function TopDock() {
                   ? {
                       ...p,
                       workDir: cwd,
-                      projectName: 'Projeto web',
+                      projectName: isWebProjectRequest(action.prompt, messages[target.id] || [])
+                        ? 'Projeto web'
+                        : 'Tarefas',
                       agentPresetId: 'mesp-code',
                       taskTitle: p.titlePinned
                         ? p.taskTitle
@@ -1281,9 +1283,7 @@ export function TopDock() {
               ...prev,
               [target.id]: { id: crypto.randomUUID(), text: action.prompt, mode: 'autonomous' },
             }));
-            setNotice(
-              'Criando os arquivos na pasta própria deste MESP. O link aparece ao concluir.',
-            );
+            setNotice('');
           } finally {
             setChoosing(false);
           }

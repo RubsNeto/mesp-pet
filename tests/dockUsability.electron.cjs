@@ -1,4 +1,4 @@
-/* global document */
+/* global document, innerHeight */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -98,7 +98,11 @@ const root = path.resolve(__dirname, '..');
     const help = page.getByRole('dialog', { name: 'Ajuda do MESP', exact: true });
     await help.waitFor();
     await page.waitForFunction(
-      () => Math.abs(document.querySelector('.top-dock').getBoundingClientRect().height - 580) < 1,
+      () =>
+        Math.abs(
+          document.querySelector('.top-dock').getBoundingClientRect().height -
+            Math.min(640, innerHeight - 24),
+        ) < 1,
     );
     assert.equal(
       await page.getByRole('textbox', { name: 'Pedir ao MESP', exact: true }).inputValue(),

@@ -37,7 +37,9 @@ import { createDockHooks, encodedAgentCommand, type DockHookBridge } from './doc
 import { titlePrompt, parseTitle } from './dockTitles.mjs';
 import { conversationInstructions } from './dockChat.mjs';
 import { createDockProjectService } from './dockProjects.mjs';
-import { isWebProjectRequest, webProjectInstructions } from '../src/services/dockAgent.mjs';
+import { stopWindowsProcessTree, stopWindowsProcessTreeSync } from './dockProcessTree.mjs';
+import { spawnOwnedTask, isOwnedTask } from './dockOwnedTask.mjs';
+import { isWebProjectRequest, shouldExecuteProjectRequest, taskExecutionInstructions, webProjectInstructions } from '../src/services/dockAgent.mjs';
 import { parseRouterConversation } from './dockChatResponse.mjs';
 import { chooseRouterDataDirectory } from './dockRouterProfile.mjs';
 import { routerLocalAuthHeaders } from './dockRouterLocalAuth.mjs';
@@ -49,7 +51,7 @@ import {
   AUTO_ROUTER_MODEL,
   routerRunModel,
 } from './dockRouter.mjs';
-import { spawn, spawnSync, ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, ChildProcessWithoutNullStreams } from 'node:child_process';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -136,6 +138,7 @@ const MAX_PROJECT_CHECK_RUNS = 4;
 const MAX_PROJECT_CHECK_SUITE_DURATION_MS = 12 * 60_000;
 const LEGACY_OPENCODE_CONFIG_PATH = path.join(os.homedir(), '.config', 'opencode', 'opencode.json');
 const MESP_AGENT_CONFIG = {
+  enabled_providers: ['9router'],
   compaction: { auto: true, prune: true },
   watcher: {
     ignore: [
@@ -185,7 +188,18 @@ const MESP_AGENT_CONFIG = {
       mode: 'primary',
       prompt:
         'Implemente a tarefa ate concluir, usando ferramentas para ler, editar e executar os comandos necessarios na pasta do projeto. Preserve alteracoes existentes e verifique o resultado. Nao devolva apenas codigo quando o usuario pediu uma implementacao. Nao altere outros projetos nem publique externamente sem um pedido explicito. Nao pare para pedir confirmacao de acoes rotineiras dentro da tarefa.',
-      permission: { '*': 'allow' },
+      permission: {
+        '*': 'allow',
+        bash: {
+          '*': 'allow',
+          'node server*': 'deny',
+          'node ./server*': 'deny',
+          'node .\\server*': 'deny',
+          'npm run dev*': 'deny',
+          'npm start*': 'deny',
+          'npx vite*': 'deny',
+        },
+      },
     },
   },
 } as const;
@@ -233,6 +247,7 @@ interface MespCodeProcessRun {
   child: ChildProcessWithoutNullStreams;
   cancelled: boolean;
   limitError?: string;
+  termination?: Promise<void>;
 }
 
 interface MespCodeFetchRun {
@@ -1143,10 +1158,11 @@ async function ensureMespCodeServer(): Promise<MespCodeServerState> {
     const password = randomBytes(24).toString('base64url');
     const authorization = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`;
     const baseURL = `http://127.0.0.1:${port}`;
-    const child = spawn(
+    const child = spawnOwnedTask(
       resolveOpenCodeBinary(),
       ['serve', '--hostname', '127.0.0.1', '--port', String(port)],
       {
+        directory: path.join(app.getPath('userData'), 'owned-tasks'),
         cwd: process.cwd(),
         shell: false,
         windowsHide: true,
@@ -1155,6 +1171,10 @@ async function ensureMespCodeServer(): Promise<MespCodeServerState> {
           NO_COLOR: '1',
           OPENCODE_CONFIG: mespOpenCodeConfigPath(),
           OPENCODE_DISABLE_AUTOUPDATE: '1',
+          OPENCODE_DISABLE_MODELS_FETCH: '1',
+          OPENCODE_DISABLE_DEFAULT_PLUGINS: '1',
+          OPENCODE_DISABLE_CLAUDE_CODE: '1',
+          OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: '1',
           OPENCODE_SERVER_PASSWORD: password,
           OPENCODE_CONFIG_CONTENT: JSON.stringify(MESP_AGENT_CONFIG),
         },
@@ -2177,8 +2197,8 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
         'Este pedido usa ferramentas e precisa de uma pasta. Escolha o projeto antes de continuar; para conversar, use o modo Rápido.',
     };
   const cwd = requestedCwd;
-  const executionPrompt = isWebProjectRequest(prompt, history)
-    ? `${webProjectInstructions}\n\nPedido do usuário:\n${prompt}`
+  const executionPrompt = shouldExecuteProjectRequest(prompt, history)
+    ? `${taskExecutionInstructions}\n${isWebProjectRequest(prompt, history) ? webProjectInstructions : ''}\n\nPedido do usuário:\n${prompt}`
     : prompt;
   const contextualPrompt =
     !sessionId && history.length
@@ -2201,7 +2221,8 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
 
   let child: ChildProcessWithoutNullStreams;
   try {
-    child = spawn(resolveOpenCodeBinary(), args, {
+    child = spawnOwnedTask(resolveOpenCodeBinary(), args, {
+      directory: path.join(app.getPath('userData'), 'owned-tasks'),
       cwd,
       shell: false,
       windowsHide: true,
@@ -2210,6 +2231,10 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
         NO_COLOR: '1',
         OPENCODE_CONFIG: mespOpenCodeConfigPath(),
         OPENCODE_DISABLE_AUTOUPDATE: '1',
+        OPENCODE_DISABLE_MODELS_FETCH: '1',
+        OPENCODE_DISABLE_DEFAULT_PLUGINS: '1',
+        OPENCODE_DISABLE_CLAUDE_CODE: '1',
+        OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: '1',
         OPENCODE_CONFIG_CONTENT: JSON.stringify(MESP_AGENT_CONFIG),
       },
     });
@@ -2243,11 +2268,8 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
   const stopAtLimit = (message: string) => {
     if (run.limitError || run.cancelled || finished) return;
     run.limitError = message;
-    try {
-      child.kill();
-    } catch {
-      /* noop */
-    }
+    run.termination = terminateProjectCheckProcess(child);
+    void run.termination.catch((error) => { structuredError = error.message; });
   };
 
   const emitJsonLine = (line: string) => {
@@ -2339,6 +2361,9 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
   const finish = async (code: number | null, error?: string) => {
     if (finished) return;
     finished = true;
+    if (run.termination) {
+      try { await run.termination; } catch (terminationError) { error = (terminationError as Error).message; }
+    }
     if (watchdog) clearInterval(watchdog);
     if (limitTimer) clearTimeout(limitTimer);
     if (stdoutBuffer.trim()) emitJsonLine(stdoutBuffer);
@@ -2350,6 +2375,9 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
       (!run.cancelled && code === null
         ? 'O OpenCode foi interrompido inesperadamente.'
         : undefined);
+    if (!rawError && !run.cancelled && code === 0 && mode === 'autonomous' &&
+        shouldExecuteProjectRequest(prompt, history) && toolCalls.size === 0)
+      rawError = 'O modelo respondeu sem executar ferramentas. A tarefa não foi realizada. Tente o Auto ou outro modelo com suporte a ferramentas.';
     if (
       !rawError &&
       !run.cancelled &&
@@ -2396,12 +2424,7 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
 
   watchdog = setInterval(() => {
     if (Date.now() - lastOutputAt < 180_000) return;
-    try {
-      child.kill();
-    } catch {
-      /* noop */
-    }
-    finish(null, 'O OpenCode nao respondeu por 3 minutos. Tente novamente.');
+    stopAtLimit('O OpenCode não respondeu por 3 minutos. Tente novamente.');
   }, 15_000);
   return { ok: true };
 });
@@ -2591,29 +2614,13 @@ async function terminateProjectCheckProcess(
 ): Promise<void> {
   if (!child || child.exitCode !== null || child.signalCode !== null || child.pid == null) return;
   const closed = waitForProjectCheckClose(child);
+  if (isOwnedTask(child)) {
+    child.kill();
+    await closed;
+    return;
+  }
   if (process.platform === 'win32') {
-    await new Promise<void>((resolve) => {
-      let settled = false;
-      let timer: ReturnType<typeof setTimeout> | null = null;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        if (timer) clearTimeout(timer);
-        resolve();
-      };
-      try {
-        const killer = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
-          shell: false,
-          windowsHide: true,
-          stdio: 'ignore',
-        });
-        timer = setTimeout(finish, 5_000);
-        killer.once('error', finish);
-        killer.once('close', finish);
-      } catch {
-        finish();
-      }
-    });
+    await stopWindowsProcessTree(child.pid);
   } else {
     try {
       child.kill('SIGTERM');
@@ -2647,14 +2654,13 @@ function terminateProjectCheckProcessOnShutdown(
   child: ChildProcessWithoutNullStreams | null,
 ): void {
   if (!child || child.exitCode !== null || child.signalCode !== null || child.pid == null) return;
+  if (isOwnedTask(child)) {
+    child.kill();
+    return;
+  }
   if (process.platform === 'win32') {
     try {
-      spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
-        shell: false,
-        windowsHide: true,
-        stdio: 'ignore',
-        timeout: 5_000,
-      });
+      stopWindowsProcessTreeSync(child.pid);
       return;
     } catch {
       /* fallback below */
@@ -2984,7 +2990,7 @@ ipcMain.handle('mesp-code:revert', async (_evt, payloadRaw: unknown) => {
   }
 });
 
-ipcMain.handle('mesp-code:cancel', (_evt, petIdRaw: unknown) => {
+ipcMain.handle('mesp-code:cancel', async (_evt, petIdRaw: unknown) => {
   if (!petIdRaw || typeof petIdRaw !== 'object') return false;
   const payload = petIdRaw as Record<string, unknown>;
   const petId = validatePetId(payload.petId);
@@ -3003,11 +3009,8 @@ ipcMain.handle('mesp-code:cancel', (_evt, petIdRaw: unknown) => {
   }
   if (matchingProcess) {
     matchingProcess.cancelled = true;
-    try {
-      matchingProcess.child.kill();
-    } catch {
-      return matchingFetch != null;
-    }
+    matchingProcess.termination ??= terminateProjectCheckProcess(matchingProcess.child);
+    await matchingProcess.termination;
   }
   if (matchingServer) {
     matchingServer.cancelled = true;
@@ -3222,6 +3225,11 @@ function getDockProjectService() {
       directory: process.env.MESP_DOCK_DATA_DIR
         ? path.join(app.getPath('userData'), 'projects')
         : path.join(app.getPath('documents'), 'MESP Projetos'),
+      nodeBinary: resolveNodeRuntime().binary,
+      ownedDirectory: path.join(app.getPath('userData'), 'owned-tasks'),
+      environment: projectCheckEnvironment(null),
+      stopProcess: terminateProjectCheckProcess,
+      stopProcessOnShutdown: terminateProjectCheckProcessOnShutdown,
     });
   return dockProjectService;
 }
@@ -4180,7 +4188,7 @@ app.on('window-all-closed', () => {
 // Cleanup: mata todos os PTYs e processos antes de sair, evitando órfãos.
 app.on('before-quit', () => {
   applicationQuitting = true;
-  dockProjectService?.dispose();
+  dockProjectService?.dispose(true);
   for (const controller of dockChatRequests.values()) controller.abort();
   try {
     globalShortcut.unregisterAll();
@@ -4210,11 +4218,7 @@ app.on('before-quit', () => {
   }
   runningProcesses.clear();
   for (const run of mespCodeProcesses.values()) {
-    try {
-      run.child.kill();
-    } catch {
-      /* noop */
-    }
+    terminateProjectCheckProcessOnShutdown(run.child);
   }
   mespCodeProcesses.clear();
   for (const run of mespCodeFetches.values()) run.controller.abort();

@@ -662,6 +662,7 @@ export function MespCodeChat({
     setCancelling(false);
     setPermission(null);
     setAnnouncement(error);
+    setQueuePaused(queueRef.current.length > 0);
     stateChangeRef.current?.('error');
     window.setTimeout(() => {
       if (mountedRef.current) stateChangeRef.current?.('idle');
