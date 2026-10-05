@@ -40,7 +40,7 @@ import {
 } from '../services/dockCore.mjs';
 import { getPresetById } from '../services/aiPresets';
 import { AUTO_ROUTER_MODEL } from '../../electron/dockRouter.mjs';
-import { isWebProjectRequest, shouldCreateTaskWorkspace } from '../services/dockAgent.mjs';
+import { fallbackTaskIntent, type TaskIntent } from '../services/dockIntent.mjs';
 import type { PetEntity, PetState } from '../types';
 
 const STORAGE = 'mesp-top-projects-v1';
@@ -251,7 +251,7 @@ export function TopDock() {
   const [showHelp, setShowHelp] = useState(false);
   const helpPanel = useRef<HTMLDivElement>(null);
   const [externalPrompts, setExternalPrompts] = useState<
-    Record<string, { id: string; text: string; mode?: 'autonomous' }>
+    Record<string, { id: string; text: string; mode?: 'autonomous'; intent?: TaskIntent }>
   >({});
   const connected = useRef(new Set<string>());
   const pending = useRef(new Map<string, string>());
@@ -1244,8 +1244,63 @@ export function TopDock() {
         return;
       }
       if (!target.workDir) {
-        if (shouldCreateTaskWorkspace(action.prompt, messages[target.id] || [])) {
+        if (generalRuns.current.has(target.id) || target.hasActiveTask) {
+          setNotice('Este MESP está trabalhando. Aguarde ou use outro personagem.');
+          if (!preserveDraft) setInput(action.prompt);
+          return;
+        }
+        let intent = fallbackTaskIntent(action.prompt, messagesRef.current[target.id] || []);
+        const clearIntentBusy = () =>
+          commitProjects((prev) =>
+            prev.map((p) =>
+              p.id === target.id ? { ...p, hasActiveTask: false, state: 'idle' } : p,
+            ),
+          );
+        if (window.mesp?.resolveTaskIntent) {
+          generalRuns.current.add(target.id);
+          commitProjects((prev) =>
+            prev.map((p) =>
+              p.id === target.id ? { ...p, hasActiveTask: true, state: 'thinking' } : p,
+            ),
+          );
+          try {
+            intent = await window.mesp.resolveTaskIntent({
+              petId: target.id,
+              requestId: `intent-${crypto.randomUUID()}`,
+              prompt: action.prompt,
+              history: dockModelHistory(messagesRef.current[target.id] || []),
+            });
+          } catch {
+            // A broken IPC connection should preserve the local routing fallback.
+          } finally {
+            generalRuns.current.delete(target.id);
+          }
+          if (intent.cancelled) {
+            clearIntentBusy();
+            return;
+          }
+        }
+        if (intent.action === 'execute' && intent.workspace === 'existing') {
+          clearIntentBusy();
+          setProjectRequests((prev) => ({ ...prev, [target.id]: action.prompt }));
+          setMessages((prev) => ({
+            ...prev,
+            [target.id]: [
+              ...(prev[target.id] || []),
+              { id: crypto.randomUUID(), role: 'user', content: action.prompt },
+              {
+                id: crypto.randomUUID(),
+                role: 'assistant',
+                content:
+                  'Para executar esse pedido, preciso localizar os arquivos do projeto. Informe o caminho ou escolha a pasta abaixo.',
+              },
+            ].slice(-100) as DockMessage[],
+          }));
+          return;
+        }
+        if (intent.action === 'execute') {
           if (!agentCanChange(target.state) || target.hasActiveTask) {
+            clearIntentBusy();
             setNotice('Este MESP está trabalhando. Aguarde ou use outro personagem.');
             return;
           }
@@ -1256,6 +1311,7 @@ export function TopDock() {
               title: nextDockTaskTitle(action.prompt, target.taskTitle),
             });
             if (!prepared?.ok || !prepared.cwd) {
+              clearIntentBusy();
               setNotice(prepared?.error || 'Não foi possível preparar o projeto.');
               if (!preserveDraft && !inputRef.current) setInput(action.prompt);
               return;
@@ -1267,9 +1323,7 @@ export function TopDock() {
                   ? {
                       ...p,
                       workDir: cwd,
-                      projectName: isWebProjectRequest(action.prompt, messages[target.id] || [])
-                        ? 'Projeto web'
-                        : 'Tarefas',
+                      projectName: intent.web ? 'Projeto web' : 'Tarefas',
                       agentPresetId: 'mesp-code',
                       taskTitle: p.titlePinned
                         ? p.taskTitle
@@ -1281,13 +1335,25 @@ export function TopDock() {
             setOpened((prev) => new Set(prev).add(target.id));
             setExternalPrompts((prev) => ({
               ...prev,
-              [target.id]: { id: crypto.randomUUID(), text: action.prompt, mode: 'autonomous' },
+              [target.id]: {
+                id: crypto.randomUUID(),
+                text: action.prompt,
+                mode: 'autonomous',
+                intent,
+              },
             }));
             setNotice('');
+          } catch {
+            clearIntentBusy();
+            setNotice('Não foi possível preparar o projeto. Tente novamente.');
+            if (!preserveDraft && !inputRef.current) setInput(action.prompt);
           } finally {
             setChoosing(false);
           }
-        } else await sendConversation(target, action.prompt);
+        } else {
+          clearIntentBusy();
+          await sendConversation(target, action.prompt);
+        }
       } else {
         setOpened((prev) => new Set(prev).add(target.id));
         sendPrompt(target.id, action.prompt, target.agentPresetId || 'codex');
@@ -1751,9 +1817,9 @@ export function TopDock() {
                       ))}
                     </div>
                     <p>
-                      Escreva a tarefa: “Crie um site”, “Leia C:\pasta\arquivo.txt” ou
-                      “Verifique meu PC”. O botão + cria outro MESP para trabalhar em paralelo.
-                      Para trocar, peça “Abrir MESP nome da tarefa”.
+                      Escreva a tarefa: “Crie um site”, “Leia C:\pasta\arquivo.txt” ou “Verifique
+                      meu PC”. O botão + cria outro MESP para trabalhar em paralelo. Para trocar,
+                      peça “Abrir MESP nome da tarefa”.
                     </p>
                     <small className="dock-help-keys">
                       Enter envia · Shift+Enter quebra a linha · Ctrl+K conversa · Esc volta

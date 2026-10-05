@@ -5,7 +5,7 @@ import type { DockMessage } from './DockConversation';
 import { dockGreetingReply, dockModelHistory } from '../services/dockCore.mjs';
 import { DockCommands, useDockCommands } from './DockCommands';
 import { dockModelLabel } from './DockModelPicker';
-import { shouldExecuteProjectRequest } from '../services/dockAgent.mjs';
+import { fallbackTaskIntent, type TaskIntent } from '../services/dockIntent.mjs';
 import { DockProjectPreview } from './DockProjectPreview';
 import {
   addTokenUsage,
@@ -49,6 +49,7 @@ interface VerificationState {
 }
 
 interface QueuedPrompt {
+  intent?: TaskIntent;
   id: string;
   prompt: string;
   mode: MespCodeMode;
@@ -155,7 +156,7 @@ export interface MespCodeDockComposer {
 interface MespCodeChatProps {
   preferredModel?: string;
   onModelChange?: (model: string) => void;
-  externalPrompt?: { id: string; text: string; mode?: MespCodeMode };
+  externalPrompt?: { id: string; text: string; mode?: MespCodeMode; intent?: TaskIntent };
   initialConversation?: DockMessage[];
   petId: string;
   workDir: string | null;
@@ -1616,11 +1617,6 @@ export function MespCodeChat({
         model: task.model,
         cwd: task.cwd,
       };
-      const canResumeSession =
-        task.mode !== 'fast' &&
-        task.mode === mode &&
-        sessionMode === task.mode &&
-        sessionCwd === task.cwd;
       if (task.mode !== mode && mode !== 'fast') {
         setMode(task.mode);
         setSessionId(null);
@@ -1648,16 +1644,62 @@ export function MespCodeChat({
         return;
       }
       try {
+        const history = recentHistory(messages);
+        const intent =
+          task.intent ||
+          (window.mesp.resolveTaskIntent
+            ? await window.mesp.resolveTaskIntent({
+                petId,
+                requestId,
+                prompt: task.prompt,
+                history,
+                cwd: task.cwd,
+              })
+            : fallbackTaskIntent(task.prompt, history));
+        if (!mountedRef.current) return;
+        if (intent.cancelled || cancellingRequestRef.current === requestId) {
+          setMessages((previous) =>
+            previous.map((message) =>
+              message.id === assistantMessage.id ? { ...message, status: 'cancelled' } : message,
+            ),
+          );
+          activeRequestRef.current = null;
+          activeAssistantRef.current = null;
+          activeCwdRef.current = null;
+          activeModeRef.current = null;
+          cancellingRequestRef.current = null;
+          submittingRef.current = false;
+          setBusy(false);
+          setCancelling(false);
+          stateChangeRef.current?.('idle');
+          return;
+        }
+        const executionMode =
+          task.mode === 'fast' && intent.action === 'execute' ? 'autonomous' : task.mode;
+        const canResumeSession =
+          executionMode !== 'fast' &&
+          executionMode === mode &&
+          sessionMode === executionMode &&
+          sessionCwd === task.cwd;
+        activeModeRef.current = executionMode;
+        setMessages((previous) =>
+          previous.map((message) =>
+            message.id === userMessage.id || message.id === assistantMessage.id
+              ? { ...message, mode: executionMode }
+              : message,
+          ),
+        );
         const result = await window.mesp.sendMespCode({
           petId,
           requestId,
           prompt: task.prompt,
           model: task.model,
-          mode: task.mode,
+          mode: executionMode,
+          intent,
           sessionId: canResumeSession ? sessionId : null,
           cwd: task.cwd || undefined,
           history:
-            task.mode === 'fast' || !canResumeSession || !sessionId
+            executionMode === 'fast' || !canResumeSession || !sessionId
               ? recentHistory(messages)
               : undefined,
           limits: task.limits,
@@ -1673,7 +1715,7 @@ export function MespCodeChat({
   );
 
   const send = useCallback(
-    (promptOverride?: string, requestedMode?: MespCodeMode) => {
+    (promptOverride?: string, requestedMode?: MespCodeMode, intent?: TaskIntent) => {
       const prompt = (promptOverride ?? input).trim();
       if (!prompt) return;
       if (promptOverride === undefined && dockComposerRef.current?.onCommand(prompt)) return;
@@ -1698,13 +1740,8 @@ export function MespCodeChat({
       const task: QueuedPrompt = {
         id: id('queue'),
         prompt,
-        mode:
-          requestedMode ||
-          (mode === 'fast' &&
-          workDir &&
-          shouldExecuteProjectRequest(prompt, recentHistory(messages))
-            ? 'autonomous'
-            : mode),
+        mode: requestedMode || mode,
+        intent,
         model: effectiveModel,
         limits: { ...limits },
         cwd: workDir,
@@ -1738,7 +1775,6 @@ export function MespCodeChat({
       startPrompt,
       status?.runtime?.setupRequired,
       workDir,
-      messages,
     ],
   );
 
@@ -1752,7 +1788,7 @@ export function MespCodeChat({
     )
       return;
     consumedPromptRef.current = externalPrompt.id;
-    send(externalPrompt.text, externalPrompt.mode);
+    send(externalPrompt.text, externalPrompt.mode, externalPrompt.intent);
   }, [externalPrompt, status, send]);
 
   useEffect(() => {
@@ -2702,7 +2738,9 @@ export function MespCodeChat({
               ?
             </span>
             <p className="mesp-chat-eyebrow">Aprovacao necessaria</p>
-            <h2 id="mesp-permission-title">Permitir {toolDisplayName(permission.tool || permission.action)}?</h2>
+            <h2 id="mesp-permission-title">
+              Permitir {toolDisplayName(permission.tool || permission.action)}?
+            </h2>
             <p id="mesp-permission-description">
               O MESP pausou antes de executar esta acao. Revise os recursos envolvidos e escolha o
               alcance da permissao.

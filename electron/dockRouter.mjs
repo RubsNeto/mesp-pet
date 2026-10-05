@@ -148,7 +148,7 @@ export function classifyRouterRequest(body = {}, purpose = '') {
     .toLowerCase();
   const tools = Array.isArray(body.tools) && body.tools.length > 0 && body.tool_choice !== 'none';
   const inputChars = messages.reduce((sum, item) => sum + requestText(item?.content).length, 0);
-  if (purpose === 'title') return { complexity: 'light', level: 1, tools: false, inputChars };
+  if (purpose === 'title' || purpose === 'intent') return { complexity: 'light', level: 1, tools: false, inputChars };
   const advanced =
     /arquitetura|architecture|refator(?:acao|ar)|refactor|migr(?:acao|ar|ation)|seguranca|security|vulnerab|race condition|concorrencia|concurrency|distributed|distribuid|performance|desempenho|memory leak|vazamento|investig(?:ue|ar)|causa raiz|root cause|auditor|estrategia|strategy|raciocinio|prove\b|demonstr(?:e|acao)|matematic|otimiz(?:acao|ar|e)|optimiz/g;
   const advancedSignals = (text.match(advanced) || []).length;

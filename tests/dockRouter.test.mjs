@@ -16,6 +16,11 @@ import {
 } from '../electron/dockRouter.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
+test('intent classification uses light Auto models even for a complex programming request', () => {
+  const body = { messages: [{ role: 'user', content: 'Refatore a arquitetura inteira do backend e migre o banco' }] };
+  assert.equal(classifyRouterRequest(body, 'intent').complexity, 'light');
+});
+
 test('Auto attribution separates simultaneous sessions and rejects previous, cancelled and manual runs', () => {
   const route = { session: 'ses_a', startedAt: 200, model: 'cx/model-a' };
   const run = { sessionId: 'ses_a', startedAt: 100, autoModel: true, cancelled: false };

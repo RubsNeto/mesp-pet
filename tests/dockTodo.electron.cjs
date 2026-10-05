@@ -9,6 +9,9 @@ const root = path.resolve(__dirname, '..');
 
 (async () => {
   const profile = path.join(root, 'qa', `todo-${Date.now()}`);
+  const prompt = process.argv.includes('--indirect')
+    ? 'Gostaria de uma todolist que eu consiga abrir no navegador'
+    : 'crie uma todolist';
   const cwd = path.join(profile, 'projects', 'mesp-primary');
   fs.mkdirSync(path.join(profile, 'opencode'), { recursive: true });
   fs.mkdirSync(cwd, { recursive: true });
@@ -50,6 +53,22 @@ document.querySelector('form').onsubmit=e=>{e.preventDefault();if(input.value.tr
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     const payload = JSON.parse(Buffer.concat(chunks).toString());
+    if (req.headers['x-mesp-purpose'] === 'intent') {
+      const prompt = JSON.parse(payload.messages.at(-1).content).request;
+      return reply({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify(
+                prompt.startsWith('Como')
+                  ? { action: 'conversation', workspace: 'none', web: false }
+                  : { action: 'execute', workspace: 'new', web: true },
+              ),
+            },
+          },
+        ],
+      });
+    }
     requests.push(payload);
     if (!payload.stream)
       return reply({
@@ -151,7 +170,7 @@ document.querySelector('form').onsubmit=e=>{e.preventDefault();if(input.value.tr
     await page.getByText('Explicação de uma lista de tarefas.', { exact: true }).waitFor();
     assert.equal(await page.locator('.mesp-chat').count(), 0);
     const before = requests.length;
-    await field.fill('crie uma todolist');
+    await field.fill(prompt);
     await field.press('Enter');
     await page.getByRole('link', { name: 'Abrir site', exact: true }).waitFor();
     await page.waitForFunction(
@@ -207,7 +226,7 @@ document.querySelector('form').onsubmit=e=>{e.preventDefault();if(input.value.tr
       profile,
       simulatedProvider: true,
       nativeOpenCode: true,
-      exactPrompt: 'crie uma todolist',
+      exactPrompt: prompt,
       checks: [
         'tutorial stays fast',
         'command executes native write tools',

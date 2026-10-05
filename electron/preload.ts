@@ -82,6 +82,11 @@ export interface MespCodeVerifyEvent {
 }
 
 const api = {
+  resolveTaskIntent(
+    request: import('../src/services/dockIntent.mjs').IntentRequest,
+  ): Promise<import('../src/services/dockIntent.mjs').TaskIntent> {
+    return ipcRenderer.invoke('dock:resolve-intent', request);
+  },
   chatDock(
     request: import('./dockChat.mjs').DockChatRequest,
   ): Promise<import('./dockChat.mjs').DockChatReply> {
@@ -256,6 +261,7 @@ const api = {
     cwd?: string;
     history?: Array<{ role: 'user' | 'assistant'; content: string }>;
     limits?: { maxDurationMs: number; maxTokens: number; maxToolCalls: number };
+    intent?: import('../src/services/dockIntent.mjs').TaskIntent;
   }): Promise<{ ok: boolean; error?: string }> {
     return ipcRenderer.invoke('mesp-code:send', opts);
   },

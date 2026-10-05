@@ -7,6 +7,7 @@ const { _electron } = require('playwright');
 const root = path.resolve(__dirname, '..');
 
 (async () => {
+  const { fallbackTaskIntent } = await import('../src/services/dockIntent.mjs');
   const profile = path.join(root, 'qa', `routing-ui-${Date.now()}`);
   const project = path.join(profile, 'project');
   fs.mkdirSync(project, { recursive: true });
@@ -17,6 +18,8 @@ const root = path.resolve(__dirname, '..');
   let interruptedResponse = false;
   let emptyReplies = 0;
   let slowDiscovery = false;
+  let slowIntent = false;
+  const intentRequests = [];
   const check = (name) => {
     checks.push(name);
     console.log(`PASS ${name}`);
@@ -28,6 +31,44 @@ const root = path.resolve(__dirname, '..');
       const chunks = [];
       for await (const chunk of req) chunks.push(chunk);
       const payload = JSON.parse(Buffer.concat(chunks).toString());
+      if (req.headers['x-mesp-purpose'] === 'intent') {
+        const context = JSON.parse(payload.messages.at(-1).content);
+        intentRequests.push({ payload, context });
+        if (slowIntent) {
+          const timer = setTimeout(() => reply({ choices: [] }), 10000);
+          res.once('close', () => clearTimeout(timer));
+          return;
+        }
+        const semantic = {
+          'O botão salvar parou': { action: 'execute', workspace: 'existing', web: false },
+          'Como eu resolvo isso? Implemente a correção': {
+            action: 'execute',
+            workspace: 'existing',
+            web: false,
+          },
+          'Não altere arquivos; só explique o problema': {
+            action: 'conversation',
+            workspace: 'none',
+            web: false,
+          },
+          'Queria poder acompanhar minhas pendências numa tela': {
+            action: 'execute',
+            workspace: 'new',
+            web: true,
+          },
+        };
+        return reply({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify(
+                  semantic[context.request] || fallbackTaskIntent(context.request, context.history),
+                ),
+              },
+            },
+          ],
+        });
+      }
       requests.push(payload);
       if (payload.model === 'mesp-auto') res.setHeader('x-mesp-model', 'cc/model-b');
       const prompt = payload.messages.at(-1).content;
@@ -557,6 +598,38 @@ const root = path.resolve(__dirname, '..');
         next.sessionId === 'ses_qa_context',
     );
     check('/model works inside a project and preserves the existing session or its history');
+    for (const prompt of ['O botão salvar parou', 'Como eu resolvo isso? Implemente a correção']) {
+      await ask(prompt);
+      await idle();
+      const task = (await app.evaluate(() => globalThis.__routingQA.calls)).at(-1);
+      assert.equal(task.prompt, prompt);
+      assert.equal(task.mode, 'autonomous');
+      assert.equal(task.intent.source, 'model');
+    }
+    await ask('Não altere arquivos; só explique o problema');
+    await idle();
+    const explanation = (await app.evaluate(() => globalThis.__routingQA.calls)).at(-1);
+    assert.equal(explanation.mode, 'fast');
+    assert.equal(explanation.intent.action, 'conversation');
+    check(
+      'Model intent executes indirect programming requests and mixed explanation/implementation requests while respecting explicit explanations',
+    );
+    const taskCount = (await app.evaluate(() => globalThis.__routingQA.calls)).length;
+    slowIntent = true;
+    await ask('Solicitação ambígua durante interpretação lenta');
+    await page.getByRole('button', { name: 'Parar', exact: true }).waitFor();
+    await field().fill('Rascunho durante a interpretação');
+    await page.getByRole('button', { name: 'Parar', exact: true }).click();
+    await idle();
+    slowIntent = false;
+    assert.equal((await app.evaluate(() => globalThis.__routingQA.calls)).length, taskCount);
+    assert.equal(await field().inputValue(), 'Rascunho durante a interpretação');
+    check('Stop cancels model intent before execution and preserves the draft');
+    assert.ok(
+      intentRequests.length > 0 &&
+        intentRequests.every((r) => !r.payload.tools && r.payload.max_tokens <= 180),
+    );
+    check('Intent uses an isolated small model request without tools');
     await page.getByRole('button', { name: 'Adicionar MESP', exact: true }).click();
     const pets = await page.evaluate(() =>
       JSON.parse(localStorage.getItem('mesp-top-projects-v1')),

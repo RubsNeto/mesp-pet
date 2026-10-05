@@ -41,6 +41,8 @@ import { stopWindowsProcessTree, stopWindowsProcessTreeSync } from './dockProces
 import { spawnOwnedTask, isOwnedTask } from './dockOwnedTask.mjs';
 import { isWebProjectRequest, shouldExecuteProjectRequest, taskExecutionInstructions, webProjectInstructions } from '../src/services/dockAgent.mjs';
 import { parseRouterConversation } from './dockChatResponse.mjs';
+import { routerResponseText } from './dockChatResponse.mjs';
+import { createIntentResolver, fallbackTaskIntent, parseTaskIntent } from '../src/services/dockIntent.mjs';
 import { chooseRouterDataDirectory } from './dockRouterProfile.mjs';
 import { routerLocalAuthHeaders } from './dockRouterLocalAuth.mjs';
 import { DockRouterView } from './dockRouterView';
@@ -333,11 +335,12 @@ let routerRuntimeSource: RouterRuntimeSource = 'unavailable';
 let applicationQuitting = false;
 let dockActiveTasks = 0;
 const dockChatRequests = new Map<string, AbortController>();
+const dockIntentRequests = new Map<string, { requestId: string; controller: AbortController }>();
 
 function hasActiveDockWork(): boolean {
   return (
     dockActiveTasks > 0 ||
-    dockChatRequests.size > 0 ||
+    dockChatRequests.size > 0 || dockIntentRequests.size > 0 ||
     runningProcesses.size > 0 ||
     mespCodeProcesses.size > 0 ||
     mespCodeFetches.size > 0 ||
@@ -2207,6 +2210,7 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
   if (!mode) return { ok: false, error: 'modo invalido' };
   const history = validateMespHistory(payload.history);
   if (!history) return { ok: false, error: 'historico invalido' };
+  const taskIntent = parseTaskIntent(payload.intent);
   const limits = validateMespLimits(payload.limits);
   const sessionId = payload.sessionId == null ? null : validateRunId(payload.sessionId);
   if (payload.sessionId != null && !sessionId) {
@@ -2247,8 +2251,10 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
     }),
     'O acesso usa as permissões deste usuário; não há elevação automática. Para operações do Windows, use PowerShell com -NoProfile -NonInteractive e argumentos corretamente escapados. Verifique os caminhos antes de agir. Não afirme clicar ou controlar telas sem uma ferramenta capaz disso.',
   ].join('\n');
-  const taskPrompt = mode !== 'plan' && shouldExecuteProjectRequest(prompt, history)
-    ? `${taskExecutionInstructions}\n${isWebProjectRequest(prompt, history) ? webProjectInstructions : ''}\n\nPedido do usuário:\n${prompt}`
+  const executeTask = taskIntent ? taskIntent.action === 'execute' : shouldExecuteProjectRequest(prompt, history);
+  const webTask = taskIntent ? taskIntent.web : isWebProjectRequest(prompt, history);
+  const taskPrompt = mode !== 'plan' && executeTask
+    ? `${taskExecutionInstructions}\n${webTask ? webProjectInstructions : ''}\n\nPedido do usuário:\n${prompt}`
     : prompt;
   const executionPrompt = `${computerContext}\n\n${taskPrompt}`;
   const contextualPrompt =
@@ -2427,14 +2433,14 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
         ? 'O OpenCode foi interrompido inesperadamente.'
         : undefined);
     if (!rawError && !run.cancelled && code === 0 && mode === 'autonomous' &&
-        shouldExecuteProjectRequest(prompt, history) && toolCalls.size === 0)
+        executeTask && toolCalls.size === 0)
       rawError = 'O modelo respondeu sem executar ferramentas. A tarefa não foi realizada. Tente o Auto ou outro modelo com suporte a ferramentas.';
     if (
       !rawError &&
       !run.cancelled &&
       code === 0 &&
       mode === 'autonomous' &&
-      isWebProjectRequest(prompt, history)
+      webTask
     ) {
       try {
         const preview = await getDockProjectService().preview(cwd);
@@ -3048,6 +3054,11 @@ ipcMain.handle('mesp-code:cancel', async (_evt, petIdRaw: unknown) => {
   const requestId = validateRunId(payload.requestId);
   if (!petId) return false;
   if (!requestId) return false;
+  const intentRun = dockIntentRequests.get(petId);
+  if (intentRun?.requestId === requestId) {
+    intentRun.controller.abort();
+    return true;
+  }
   const processRun = mespCodeProcesses.get(petId);
   const fetchRun = mespCodeFetches.get(petId);
   const serverRun = mespCodeServerRuns.get(petId);
@@ -3270,6 +3281,48 @@ async function resolveDockRouterModel(requested: unknown): Promise<string | null
 }
 
 let dockProjectService: ReturnType<typeof createDockProjectService> | null = null;
+const resolveTaskIntent = createIntentResolver({
+  classify: async (messages, signal) => {
+    const { baseURL, apiKey } = configured9RouterOptions(readOpenCodeConfig());
+    if (!apiKey && !isLoopbackRouterURL(baseURL)) throw new Error('Router credential required');
+    const headers = { 'content-type': 'application/json', 'x-mesp-purpose': 'intent', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) };
+    // The dashboard can require its own login while the native model API works.
+    // Use Auto only when the running server advertises the actual capability.
+    let model: string | null = null;
+    if (isLoopbackRouterURL(baseURL)) {
+      await ensure9RouterRuntime(baseURL);
+      const capabilities = await fetch(`${routerOriginForApiBase(baseURL)}/api/mesp/capabilities`, { headers, signal });
+      if (capabilities.ok && (await capabilities.json() as { auto?: unknown }).auto === true) model = AUTO_ROUTER_MODEL;
+    }
+    if (!model) model = await resolveDockRouterModel(AUTO_ROUTER_MODEL);
+    if (!model || signal.aborted) throw new Error('Intent model unavailable');
+    const response = await fetch(`${baseURL}/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ model: modelIdFor9Router(model), messages, stream: false, max_tokens: 180 }),
+      signal,
+    });
+    if (!response.ok) throw new Error('Intent response unavailable');
+    return routerResponseText(await response.json());
+  },
+});
+ipcMain.handle('dock:resolve-intent', async (_event, raw: unknown) => {
+  if (!raw || typeof raw !== 'object') return { ...fallbackTaskIntent(''), cancelled: true };
+  const payload = raw as Record<string, unknown>;
+  const petId = validatePetId(payload.petId), requestId = validateRunId(payload.requestId);
+  const prompt = isString(payload.prompt, MAX_MESP_PROMPT_LENGTH) ? payload.prompt.trim() : '';
+  const history = validateMespHistory(payload.history);
+  if (!petId || !requestId || !prompt || !history || dockIntentRequests.has(petId))
+    return { ...fallbackTaskIntent(''), cancelled: true };
+  const controller = new AbortController();
+  const run = { requestId, controller };
+  dockIntentRequests.set(petId, run);
+  try {
+    return await resolveTaskIntent({ petId, requestId, prompt, history, cwd: isString(payload.cwd, 4096) ? payload.cwd : null }, controller.signal);
+  } finally {
+    if (dockIntentRequests.get(petId) === run) dockIntentRequests.delete(petId);
+  }
+});
 function getDockProjectService() {
   if (!dockProjectService)
     dockProjectService = createDockProjectService({
@@ -3422,8 +3475,10 @@ ipcMain.handle('dock:cancel-chat', (_event, raw: unknown) => {
   const petId = validatePetId(raw);
   if (!petId) return false;
   const controller = dockChatRequests.get(petId);
+  const intentController = dockIntentRequests.get(petId)?.controller;
+  intentController?.abort();
   controller?.abort();
-  return Boolean(controller);
+  return Boolean(controller || intentController);
 });
 ipcMain.handle('dock:generate-title', async (_event, payload: unknown) => {
   if (!payload || typeof payload !== 'object') return null;
@@ -4241,6 +4296,7 @@ app.on('before-quit', () => {
   applicationQuitting = true;
   dockProjectService?.dispose(true);
   for (const controller of dockChatRequests.values()) controller.abort();
+  for (const run of dockIntentRequests.values()) run.controller.abort();
   try {
     globalShortcut.unregisterAll();
   } catch {

@@ -337,10 +337,11 @@ const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1'
       stream = true,
       session = 'ses_qa_auto',
       prompt = 'Corrija o código',
+      purpose = '',
     ) => {
       const response = await fetch(`${origin}/v1/chat/completions`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-session-id': session },
+        headers: { 'content-type': 'application/json', 'x-session-id': session, ...(purpose ? { 'x-mesp-purpose': purpose } : {}) },
         body: JSON.stringify({
           model,
           stream,
@@ -418,6 +419,9 @@ const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1'
     assert.equal(requests.at(-1).model, 'mesp-mini');
     assert.equal(technicalQuestion.response.headers.get('x-mesp-complexity'), 'light');
     assert.ok(Number(technicalQuestion.response.headers.get('x-mesp-routing-ms')) < 100);
+    const intent = await send('mesp-auto', false, 'ses_intent', 'Audite a segurança e refatore a arquitetura do sistema', 'intent');
+    assert.equal(intent.response.headers.get('x-mesp-complexity'), 'light');
+    assert.equal(requests.at(-1).model, 'mesp-mini');
     const warmup = await fetch(`${origin}/api/mesp/warmup`);
     assert.equal(warmup.status, 202);
     assert.equal((await warmup.json()).warming, true);

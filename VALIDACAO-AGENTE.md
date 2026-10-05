@@ -1,6 +1,41 @@
 # MESP como desenvolvedor de vários projetos — 5 de outubro de 2026
 
-## Correção: executar comandos de criação
+## Atualização: interpretação de intenção por modelo
+
+A decisão principal agora usa uma consulta isolada ao 9Router Auto com pedido,
+histórico limitado e indicação de projeto selecionado. Retorna somente a intenção,
+o tipo de pasta necessário e a necessidade de prévia. Não recebe ferramentas,
+arquivos do projeto ou credenciais. O Auto trata essa consulta como trabalho
+leve, mantendo o modelo escolhido para a execução do MESP.
+
+Pedidos indiretos e mistos podem executar: **O botão salvar parou**, **Dá para
+colocar login com Google?**, **Como resolvo isso? Implemente a correção**.
+Explicações explícitas continuam na conversa. O modelo avalia continuações com
+o histórico. Novos entregáveis recebem pasta própria; correções de um projeto
+ainda não localizado recebem o aviso de acesso antes de escolher a pasta.
+
+O prazo máximo da interpretação é seis segundos; respostas inválidas, falhas
+ou demora usam o detector local. Decisões válidas têm cache de 30 segundos,
+considerando histórico e presença de pasta. Parar interrompe a interpretação
+antes do envio ao agente. Plano e Assistido não são promovidos a Autônomo.
+O estado de atividade permanece contínuo ao preparar a pasta e iniciar a tarefa.
+
+Passaram **261 testes unitários**, lint, build, roteamento no Electron, usabilidade
+e a todolist com OpenCode nativo, incluindo um pedido indireto. Os testes de
+roteamento verificam decisões vindas do provedor simulado, respeito a explicações,
+cancelamento antes da execução e preservação do rascunho. Credenciais continuam
+somente no processo principal. A autenticação separada do painel do 9Router não
+bloqueia o classificador quando a API anuncia suporte real ao Auto.
+
+Com uma conta real, o modelo aprovou os oito casos da matriz, incluindo contexto
+de continuação, criação de CSV, todolist e explicações sem alterações. As decisões
+levaram aproximadamente **0,9 a 2,4 segundos nesta verificação**. O pedido indireto
+**Gostaria de uma todolist que eu consiga abrir no navegador** criou HTML, CSS e
+JavaScript pelo agente real. O navegador confirmou adicionar, concluir, desmarcar,
+excluir, persistência ao recarregar e ajuste em 390 px. A captura opcional da
+janela oculta ultrapassou o prazo; as verificações funcionais passaram.
+
+## Correção anterior: executar comandos de criação
 
 O pedido **crie uma todolist** caía na conversa rápida porque o detector
 reconhecia apenas alguns tipos de entregáveis. A criação agora aceita outros

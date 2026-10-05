@@ -1,5 +1,23 @@
 # MESP Top Dock
 
+## Intenção interpretada por IA
+
+O MESP usa um modelo rápido do **9Router Auto** para decidir entre conversar e
+executar, levando em conta o pedido e o histórico. **O botão salvar parou** e
+**Dá para colocar login com Google?** podem iniciar trabalho no projeto;
+**Como funciona async?** e **Só explique, sem alterar arquivos** continuam
+como explicações. Você não precisa trocar o modo Rápido para pedir uma ação.
+
+O modelo identifica se deve criar um novo entregável ou trabalhar em arquivos
+existentes. Se esses arquivos ainda não estiverem localizados, o MESP explica
+a necessidade e oferece a escolha de pasta dentro da ilha. Não abre o seletor
+automaticamente. Plano e Assistido mantêm suas restrições e aprovações.
+
+A interpretação é uma consulta curta, sem ferramentas ou acesso aos arquivos,
+e permanece cancelável pelo botão **Parar**. Tem prazo de seis segundos e cache
+temporário; se a IA ficar indisponível, a identificação local continua disponível.
+O modelo usado para executar a tarefa permanece o escolhido para aquele MESP.
+
 ## Comandos de criação
 
 **Crie uma todolist** aciona o agente com ferramentas, cria os arquivos e entrega
