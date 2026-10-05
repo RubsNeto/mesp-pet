@@ -1,5 +1,21 @@
 # MESP Top Dock
 
+## Comandos de criação
+
+**Crie uma todolist** aciona o agente com ferramentas, cria os arquivos e entrega
+**Abrir site**, inclusive sem projeto selecionado e no modo Rápido. A lista
+permite adicionar, concluir, excluir e salvar tarefas localmente. Se você pedir
+explicitamente TXT ou Markdown, o agente cria esse arquivo.
+
+Comandos de criação também reconhecem entregáveis sem depender de uma lista
+fechada de nomes. Explicações como **Como criar uma todolist?**, conteúdo para
+a conversa e pedidos explícitos de somente código continuam no modo Rápido.
+O Plano e as aprovações do Assistido continuam sendo respeitados.
+
+O teste `node tests/dockTodo.electron.cjs` envia o pedido exato pela interface,
+usa OpenCode real com provedor simulado e confere os arquivos, o link e as
+interações da lista no navegador. Ele também faz parte de `test:agent`.
+
 ## Acesso ao computador — 5 de outubro de 2026
 
 O agente pode ler e editar arquivos e executar comandos e programas em qualquer

@@ -6,6 +6,13 @@ const clean = (text) =>
 const webTopic = /\b(site|website|pagina|landing\s*page|portfolio|html|front.?end|webapp)\b/;
 const buildAction =
   /\b(crie|cria|criar|create|construa|construir|build|faca|fazer|desenvolva|desenvolver|implemente|implementar|monte|montar|quero|preciso)\b/;
+const createAction =
+  /\b(crie|cria|criar|create|construa|construir|build|faca|fazer|desenvolva|desenvolver|implemente|implementar|monte|montar|gere|gerar|salve|salvar|grave|gravar)\b/;
+const todoTopic =
+  /\b(?:todo\s*list|to[ -]?do[ -]?list|lista de tarefas|lista de afazeres|gerenciador de tarefas)\b/;
+const fileDeliverable = /\b(?:arquivo|txt|markdown|md|csv|json|pdf|docx|xlsx|script|python)\b/;
+const chatContent =
+  /\b(?:poema|poesia|piada|conto|historia|resumo|explicacao|resposta|mensagem|email|ideias|sugestoes|exemplo|traducao|roteiro|legenda)\b/;
 const explanation = (text) =>
   /^(?:(?:oi|ola)[,!. ]+)?(?:como\b|explique\b|explica\b|ensine\b|o que\b|qual\b|quais\b|tutorial\b|mostre um exemplo\b)/.test(
     text,
@@ -57,8 +64,10 @@ export function isWebProjectRequest(prompt, history = []) {
     const previous = previousPrompt(history);
     return previous ? isWebProjectRequest(previous.content || previous.text) : false;
   }
-  if (!buildAction.test(text) && !taskAction.test(text)) return false;
+  if (!buildAction.test(text) && !createAction.test(text) && !taskAction.test(text)) return false;
   if (webTopic.test(text)) return true;
+  // A to-do list is an interactive deliverable unless a file format was requested.
+  if (todoTopic.test(text) && !fileDeliverable.test(text)) return true;
   return (
     /\b(projeto completo|arquivos|link|abra|abrir|execute|executar|rode|rodar)\b/.test(text) &&
     history
@@ -79,10 +88,14 @@ export function shouldExecuteProjectRequest(prompt, history = []) {
   }
   if (
     buildAction.test(text) &&
-    /\b(botao|componente|funcao|arquivo|classe|teste|rota|api|interface|script|aplicativo|app|sistema|programa|automacao|relatorio|planilha|documento|csv|json|python)\b/.test(
+    /\b(botao|componente|funcao|arquivo|classe|teste|rota|api|interface|script|aplicativo|app|sistema|programa|automacao|relatorio|planilha|documento|csv|json|python|checklist|agenda|calendario|dashboard|painel|formulario|grafico|tabela|lista de compras|lista de tarefas|lista de afazeres|todolist)\b/.test(
       text,
     )
   )
+    return true;
+  // Commands to produce a deliverable should execute without a closed vocabulary.
+  // Content requested for the conversation still uses the fast path.
+  if (createAction.test(text) && (!chatContent.test(text) || fileDeliverable.test(text)))
     return true;
   return taskAction.test(text);
 }
@@ -114,6 +127,7 @@ export const taskExecutionInstructions = [
   'Para copiar arquivos sem alterar o conteúdo, use mesp_computer_copy_file, que preserva os bytes e verifica SHA-256 automaticamente; não reconstrua o arquivo a partir da saída da ferramenta read, que inclui números de linha e metadados. Preserve a codificação e as quebras de linha. Não sobrescreva um destino existente sem isso fazer parte do pedido.',
   'Antes de alterar, examine os arquivos relevantes e preserve alterações existentes. Aja nos arquivos e programas necessários ao pedido; não altere projetos ou dados sem relação com a tarefa.',
   'Produza os arquivos e resultados necessários, execute as verificações apropriadas e corrija falhas encontradas.',
+  'Pedidos como crie, faça, monte ou gere são ordens para produzir o resultado. Escolha uma solução simples quando detalhes opcionais não forem informados. Não transforme a tarefa em um tutorial nem devolva passos para o usuário executar por você.',
   'Ao validar uma operação, faça a verificação falhar com um erro se o resultado estiver incorreto. Em PowerShell use $ErrorActionPreference = "Stop" e throw quando uma condição esperada não for atendida; imprimir False e encerrar com código zero não comprova sucesso.',
   'Pedidos de análise ou pesquisa devem consultar fontes ou arquivos reais e distinguir fatos verificados de hipóteses.',
   'Não invente execução, testes, dados, links, publicação ou sucesso. Informe bloqueios e etapas que não conseguiu verificar.',
@@ -125,9 +139,11 @@ export const webProjectInstructions = [
   'Este é um pedido para implementar um projeto web de verdade, não apenas devolver exemplos de código.',
   'Use as ferramentas para criar e editar os arquivos na pasta atual e verificar o resultado. Preserve arquivos e alterações existentes.',
   'Para HTML, CSS e JavaScript simples, mantenha index.html na raiz, estilos e scripts em arquivos próprios, com caminhos relativos e interações funcionais.',
+  'Se o pedido for criar uma todolist ou lista de tarefas sem formato especificado, entregue um aplicativo web simples: adicionar tarefas, marcar e desmarcar como concluídas, excluir e salvar localmente para persistir após recarregar. Comece sem tarefas fictícias. Faça a interface responsiva e teste as interações. Se o usuário pedir explicitamente TXT, Markdown ou outro arquivo, respeite esse formato.',
   'Se o projeto já usa um framework, siga a estrutura existente, instale as dependências necessárias e execute o build. A prévia aceita dist/index.html e build/index.html.',
   'Se houver formulários POST ou uma API local, implemente um backend Node e grave .mesp-preview.json com {"entry":"server.cjs"}, usando o caminho real do servidor. O servidor deve servir a página e a API em HTTP, escutar process.env.PORT e process.env.HOST (127.0.0.1), e permanecer em primeiro plano. O MESP inicia, verifica e encerra esse processo automaticamente. Não simule um envio bem-sucedido sem processar os dados.',
   'Confira a sintaxe, os recursos referenciados e a responsividade. Não considere a tarefa concluída apenas por escrever código na resposta.',
+  'Para telas pequenas, use box-sizing: border-box, limite contêineres à largura disponível e aplique min-width: 0 nos filhos flexíveis. Não some padding a larguras em vw sem border-box. Verifique que a página não produz rolagem horizontal em 320px e 390px.',
   'O MESP inicia a prévia local e oferece o link depois que os arquivos estiverem prontos. Não invente URLs, não abra processos de servidor em segundo plano nem publique na internet sem um pedido explícito.',
   'Ao concluir, responda brevemente em português com o que foi feito e verificado e indique que o botão Abrir site aparecerá no resultado. Não diga que não pode fornecer um link nem peça ao usuário para abrir index.html manualmente: o MESP fornece a prévia. Se uma etapa falhar, informe a falha; não afirme que o projeto está funcionando sem verificá-lo.',
 ].join('\n');

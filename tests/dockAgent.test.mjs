@@ -12,6 +12,57 @@ import {
 import { createDockProjectService } from '../electron/dockProjects.mjs';
 import { restoreMespLimits } from '../src/services/mespCodeCore.mjs';
 
+test('creation commands produce usable deliverables instead of fast-path tutorials', () => {
+  for (const prompt of [
+    'crie uma todolist',
+    'Crie uma to-do list',
+    'Faça uma lista de tarefas',
+    'Quero uma lista de afazeres',
+    'Crie um checklist',
+    'Monte uma agenda',
+    'Gere um arquivo com o resumo desta conversa',
+    'Crie um organizador de despesas',
+    'Faça um orçamento',
+    'Gere uma todolist',
+    'Salve minhas anotações',
+    'Crie uma lista de compras',
+  ]) {
+    assert.equal(shouldExecuteProjectRequest(prompt), true, prompt);
+    assert.equal(shouldCreateTaskWorkspace(prompt), true, prompt);
+  }
+  for (const prompt of [
+    'crie uma todolist',
+    'Crie uma to do list',
+    'Faça uma lista de tarefas',
+    'Gere uma todolist',
+  ])
+    assert.equal(isWebProjectRequest(prompt), true, prompt);
+  for (const prompt of ['Crie uma todolist em TXT', 'Crie uma lista de tarefas em Markdown']) {
+    assert.equal(shouldCreateTaskWorkspace(prompt), true, prompt);
+    assert.equal(isWebProjectRequest(prompt), false, prompt);
+  }
+  const history = [{ role: 'user', content: 'crie uma todolist' }];
+  assert.equal(shouldCreateTaskWorkspace('pode fazer', history), true);
+  assert.equal(isWebProjectRequest('continue', history), true);
+});
+
+test('explanations and conversational content remain fast after creation routing changes', () => {
+  for (const prompt of [
+    'Como criar uma todolist?',
+    'Explique como fazer uma lista de tarefas',
+    'Crie apenas o código de uma todolist',
+    'Crie uma piada',
+    'Crie um resumo desta conversa',
+    'Gere ideias para minha empresa',
+    'Crie uma mensagem para um cliente',
+    'oi',
+  ]) {
+    assert.equal(shouldExecuteProjectRequest(prompt), false, prompt);
+    assert.equal(shouldCreateTaskWorkspace(prompt), false, prompt);
+    assert.equal(isWebProjectRequest(prompt), false, prompt);
+  }
+});
+
 test('computer requests use tools without requiring a repository, including external file corrections', () => {
   for (const prompt of [
     'Leia C:\\Users\\ruben\\Downloads\\relatorio.txt',

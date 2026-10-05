@@ -30,7 +30,7 @@
     "test:audit": "node tests/dockAudit.electron.cjs",
     "test:chat": "node tests/dockRouting.electron.cjs",
     "test:projects": "node tests/dockProjects.electron.cjs",
-    "test:agent": "node tests/dockAgent.electron.cjs && node tests/dockAgent.electron.cjs --parallel-only",
+    "test:agent": "node tests/dockAgent.electron.cjs && node tests/dockAgent.electron.cjs --parallel-only && node tests/dockTodo.electron.cjs",
     "test:computer": "node tests/dockComputer.electron.cjs && node tests/dockComputer.electron.cjs --dashboard-locked",
     "test:complete": "node scripts/validate-dock.cjs",
     "test:performance": "node tests/dockPerformance.electron.cjs",

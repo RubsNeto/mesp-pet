@@ -1,6 +1,29 @@
 # MESP como desenvolvedor de vários projetos — 5 de outubro de 2026
 
-## Resultado da revisão
+## Correção: executar comandos de criação
+
+O pedido **crie uma todolist** caía na conversa rápida porque o detector
+reconhecia apenas alguns tipos de entregáveis. A criação agora aceita outros
+entregáveis; lista de tarefas sem formato especificado vira um aplicativo web
+com prévia. TXT e Markdown explícitos continuam sendo arquivos. Tutoriais e
+conteúdo pedido na conversa não exigem execução.
+
+Nesta atualização passaram **254 testes unitários**, lint, build, a suíte de
+roteamento e o novo teste de todolist no Electron. O novo teste usa OpenCode
+instalado, provedor simulado e arquivos reais: verifica o pedido exato sem
+seletor de pasta, o link, adicionar/concluir/desmarcar/excluir, persistência após
+recarregar e largura pequena. Seu projeto Git isolado evita que snapshots do
+OpenCode indexem o repositório inteiro do aplicativo durante a verificação.
+
+O pedido exato também foi executado com **Auto e uma conta real do 9Router**.
+O agente criou HTML, CSS e JavaScript; o navegador verificou adicionar, concluir,
+desmarcar, excluir, persistência após recarregar e ausência de rolagem horizontal
+em 390 px. A primeira página gerada excedia a largura; as instruções de CSS
+foram reforçadas e a nova geração passou nas verificações. A captura opcional
+da janela oculta ultrapassou o prazo; as verificações funcionais não dependem
+dessa imagem. A repetição sobre os mesmos arquivos passou sem pedir nova geração.
+
+## Resultado da revisão anterior: acesso ao computador
 
 Todas as **14 verificações cobertas por `npm run test:complete` passaram** nesta
 compilação, incluindo **252 testes unitários**, lint e build. Os testes usaram
