@@ -70,6 +70,16 @@ const root = path.resolve(__dirname, '..');
         });
       }
       requests.push(payload);
+      if (payload.messages.at(-1).content === 'Resposta após prazo antigo') {
+        setTimeout(
+          () =>
+            reply({
+              choices: [{ message: { content: 'A resposta terminou sem o corte antigo.' } }],
+            }),
+          250,
+        );
+        return;
+      }
       if (payload.model === 'mesp-auto') res.setHeader('x-mesp-model', 'cc/model-b');
       const prompt = payload.messages.at(-1).content;
       if (prompt === 'Responda com conteúdo vazio' && ++emptyReplies > 1)
@@ -655,6 +665,34 @@ const root = path.resolve(__dirname, '..');
     assert.ok(persistedModels.includes('"modelUsed":"cx/model-a"'));
     assert.deepEqual(errors, []);
     check('Models and appearances persist after reload with no renderer errors');
+    await app.evaluate(() => {
+      globalThis.__originalRoutingTimer = globalThis.setTimeout;
+      globalThis.setTimeout = (callback, delay, ...args) =>
+        globalThis.__originalRoutingTimer(callback, delay === 120000 ? 20 : delay, ...args);
+    });
+    try {
+      const uninterrupted = await page.evaluate(
+        (petId) =>
+          window.mesp.chatDock({
+            petId,
+            prompt: 'Resposta após prazo antigo',
+            model: '9router/mesp-auto',
+            history: [],
+            agent: 'mesp-code',
+          }),
+        first.id,
+      );
+      assert.equal(uninterrupted.ok, true, JSON.stringify(uninterrupted));
+      assert.equal(requests.at(-1).max_tokens, undefined);
+      check(
+        'Free conversation completes beyond its accelerated former timeout without a local generation token cap',
+      );
+    } finally {
+      await app.evaluate(() => {
+        globalThis.setTimeout = globalThis.__originalRoutingTimer;
+        delete globalThis.__originalRoutingTimer;
+      });
+    }
     // Expire discovery's short cache to exercise cancelling before HTTP chat dispatch.
     await new Promise((resolve) => setTimeout(resolve, 15100));
     slowDiscovery = true;

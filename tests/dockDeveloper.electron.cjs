@@ -32,7 +32,7 @@ const root = path.resolve(__dirname, '..');
   fs.writeFileSync(path.join(cwd, 'user-draft.txt'), 'Customer work: preserve exactly.');
   let step = 0,
     cancelStep = 0,
-    fixes = 0;
+    fixes = new Set();
   const calls = [],
     errors = [];
   const router = http.createServer(async (req, res) => {
@@ -69,6 +69,7 @@ const root = path.resolve(__dirname, '..');
     );
     const cancelling = latest.includes('QA_CANCEL_CHECK');
     const repair = latest.includes('Correção automática');
+    const repairAttempt = Number(latest.match(/Correção automática (\d+)/)?.[1] || 0);
     let delta,
       reason = 'stop';
     const write = (name, content, id) => ({
@@ -92,8 +93,14 @@ const root = path.resolve(__dirname, '..');
     else if (!repair && step++ === 0) {
       delta = write('app.js', 'export function add(a,b){return a-b}', 'bad-implementation');
       reason = 'tool_calls';
-    } else if (repair && fixes++ === 0) {
-      delta = write('app.js', 'export function add(a,b){return a+b}', 'fix-implementation');
+    } else if (repair && !fixes.has(repairAttempt)) {
+      fixes.add(repairAttempt);
+      const expression = repairAttempt === 1 ? 'a*b' : repairAttempt === 2 ? 'a/b' : 'a+b';
+      delta = write(
+        'app.js',
+        `export function add(a,b){return ${expression}}`,
+        'fix-implementation-' + repairAttempt,
+      );
       reason = 'tool_calls';
     } else delta = { role: 'assistant', content: 'Implementação finalizada.' };
     res.setHeader('content-type', 'text/event-stream');
@@ -105,6 +112,9 @@ const root = path.resolve(__dirname, '..');
             object: 'chat.completion.chunk',
             model: payload.model,
             choices: [{ index: 0, delta: item, finish_reason: finish }],
+            ...(finish
+              ? { usage: { prompt_tokens: 40000, completion_tokens: 1000, total_tokens: 41000 } }
+              : {}),
           }) +
           '\n\n',
       );
@@ -150,10 +160,17 @@ const root = path.resolve(__dirname, '..');
     page.on('pageerror', (error) => errors.push(error.message));
     await app.evaluate(({ BrowserWindow, ipcMain }) => {
       globalThis.__developerQA = [];
+      const clock = Date.now.bind(Date);
+      globalThis.__developerClockOffset = 0;
+      Date.now = () => clock() + globalThis.__developerClockOffset;
       const contents = BrowserWindow.getAllWindows()[0].webContents,
         send = contents.send.bind(contents);
       contents.send = (channel, ...args) => {
-        if (channel === 'mesp-code:event') globalThis.__developerQA.push(args[0]);
+        if (channel === 'mesp-code:event') {
+          globalThis.__developerQA.push(args[0]);
+          if (args[0].kind === 'started' && args[0].petId === 'mesp-primary')
+            globalThis.__developerClockOffset = 600000;
+        }
         send(channel, ...args);
       };
       ipcMain.removeHandler('dock:generate-title');
@@ -172,6 +189,15 @@ const root = path.resolve(__dirname, '..');
       pets[0].agentPresetId = 'mesp-code';
       pets[0].routerModel = '9router/cx/qa-developer';
       localStorage.setItem('mesp-top-projects-v1', JSON.stringify(pets));
+      localStorage.setItem(
+        'mesp-code-chat-mesp-primary',
+        JSON.stringify({
+          messages: [],
+          mode: 'fast',
+          limitsVersion: 2,
+          limits: { maxDurationMs: 300000, maxTokens: 1000, maxToolCalls: 1 },
+        }),
+      );
     }, cwd);
     await page.reload();
     await page.locator('.dock-character-button').first().click();
@@ -234,7 +260,21 @@ const root = path.resolve(__dirname, '..');
     await page.locator('.dock-delivery.status-passed').waitFor();
     const events = await app.evaluate(() => globalThis.__developerQA);
     const delivery = events.find((event) => event.event?.type === 'developer_report').event.report;
-    assert.equal(delivery.repairs, 1);
+    assert.equal(delivery.repairs, 3, 'Corrections continue beyond the former two-attempt budget');
+    assert.ok(
+      delivery.durationMs > 300000,
+      'Elapsed clock beyond five minutes does not terminate work',
+    );
+    assert.ok(!JSON.stringify(events).includes('Limite de tokens atingido'));
+    assert.deepEqual(
+      await page.evaluate(
+        () => JSON.parse(localStorage.getItem('mesp-code-chat-mesp-primary')).limits,
+      ),
+      { maxDurationMs: 0, maxTokens: 0, maxToolCalls: 0 },
+    );
+    await app.evaluate(() => {
+      globalThis.__developerClockOffset = 0;
+    });
     assert.ok(delivery.checks.some((check) => check.name === 'test' && check.code === 0));
     assert.ok(calls.some((call) => JSON.stringify(call.messages).includes('addition')));
     assert.ok(calls.some((call) => JSON.stringify(call.messages).includes('user-draft.txt')));
@@ -318,6 +358,9 @@ const root = path.resolve(__dirname, '..');
       profile,
       checks: [
         'real failing Node test repaired automatically',
+        'three successive corrections exceed the previous two-correction cap',
+        'old saved duration, token and tool budgets migrate to unlimited execution',
+        'native task completes beyond five minutes of simulated elapsed time and 100k tokens',
         'original user files preserved',
         'same-project conflict blocked',
         'same-project task waits automatically and can be cancelled before tools',

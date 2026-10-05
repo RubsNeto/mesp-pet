@@ -5,6 +5,7 @@ export interface DeveloperSnapshot {
   bytes: number;
 }
 export interface DeveloperProfile {
+  context?: import('./dockDeveloperContext.mjs').DeveloperContext;
   cwd: string;
   name: string;
   manager: { name: string; conflict: boolean; declared: boolean };
@@ -21,7 +22,11 @@ export interface DeveloperCheck {
   name: string;
   script?: string;
   file?: string;
-  kind: 'script' | 'node' | 'python' | 'json';
+  kind: 'script' | 'node' | 'python' | 'json' | 'command';
+  command?: string;
+  args?: string[];
+  directory?: string;
+  manager?: string;
 }
 export interface DeveloperCheckResult {
   name: string;
@@ -60,6 +65,10 @@ export function discoverDeveloperChecks(profile: DeveloperProfile): {
 export function inspectDeveloperProject(cwd: string): Promise<DeveloperProfile>;
 export function developerBrief(profile: DeveloperProfile, memory?: unknown): string;
 export function repairDeveloperPrompt(prompt: string, problems: string, attempt: number): string;
+export function developerRepairSignature(
+  snapshot: DeveloperSnapshot,
+  problems: string,
+): string | null;
 export function runDeveloperChecks(
   profile: DeveloperProfile,
   options: {

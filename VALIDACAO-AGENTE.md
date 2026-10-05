@@ -1,6 +1,79 @@
 # MESP como desenvolvedor de vários projetos — 5 de outubro de 2026
 
-## Atualização: 50 melhorias e entrega independente
+## Versão atual: outras 50 melhorias e execução sem orçamento local
+
+As [outras 50 melhorias](MELHORIAS-50-DESENVOLVEDOR-2.md) foram implementadas.
+Duração, tokens, ferramentas, espera na fila e número de correções não têm mais
+um orçamento local de execução. Sessões e tarefas salvas migram para esse comportamento.
+A correção continua enquanto há progresso; a repetição dos mesmos arquivos e erros
+é informada sem entrar em um ciclo. Inspeções incompletas não provam ausência de progresso.
+O botão Parar continua cancelando os processos pertencentes à tarefa.
+
+Passaram **304 testes unitários**, lint e build. As 15 categorias da validação
+foram exercitadas; falhas de espera do ambiente de QA foram repetidas isoladamente,
+com sucesso, sem apresentar janelas simuladas no perfil real. O agente nativo,
+acesso ao computador, usabilidade e histórico passaram nas repetições exclusivas.
+O primeiro resultado da rodada completa é preservado, incluindo suas falhas;
+os registros de repetição não o substituem.
+
+O teste nativo de entrega provoca três defeitos sucessivos, observa três correções
+e aprova os testes reais do projeto. A contagem acumulada ultrapassa 100 mil tokens
+e a duração ultrapassa cinco minutos **com relógio simulado**; isso verifica o
+comportamento do corte antigo, sem alegar dez minutos de tempo real. Orçamentos
+antigos salvos de tempo, tokens e ferramentas são migrados para zero/sem corte.
+
+A auditoria Chromium verifica 320, 390, 768, 1024 e 1440 px com emulação de viewport,
+além de recursos, erros e nomes acessíveis. Nomes de botões com role, links nomeados
+por imagem e tabulação móvel em componentes compostos não geram falsas falhas.
+Os testes também cobrem cancelamento e ausência de janelas órfãs.
+
+Workspaces, gerenciadores por pacote, manifests inválidos, instruções locais,
+Git preexistente, templates de ambiente sem seus valores e origem estável da
+prévia têm testes unitários. **Python/unittest, Go e Rust** foram executados de
+verdade, com código correto e defeitos intencionais; .NET não está instalado
+neste computador e sua descoberta não é apresentada como execução real.
+
+Evidências locais, ignoradas pelo Git:
+
+- `qa/final-304.log`, `qa/final-unlimited-lint.log`, `qa/final-unlimited-build.log`.
+- `qa/final-unlimited-developer.log`: três correções, migração dos orçamentos e auditoria final.
+- `qa/final-unlimited-routing.log`: comandos, modelos, contexto, cancelamento e conversa sem corte.
+- `qa/validation-1791219088679/results.json`: rodada completa com resultados originais.
+- `qa/second-agent-recheck.log`: agente, projetos simultâneos e duas tarefas de todolist.
+- `qa/second-computer-recheck.log`: acesso externo, Windows, Plano, Assistido e API Auto.
+- `qa/second-usability-recheck.log` e `qa/second-history-recheck.log`.
+- `qa/languages-1791218547172/evidence.json`: runtimes e defeitos detectados.
+
+Uma verificação com conta real encontrou uma falha de interpretação ao pedir
+"continue o projeto existente e finalize a entrega". A retomada explícita agora
+aciona o agente na pasta existente sem esperar uma classificação redundante;
+pedidos de explicação e de não alterar arquivos continuam respeitados.
+Pedidos ambíguos continuam usando classificação por modelo e fallback cancelável.
+A conversa sem projeto também deixou de usar o prazo de dois minutos e o teto
+de 4096 tokens de geração. O teste acelera o relógio antigo para provocar um corte
+caso ele volte, confirma a resposta completa e verifica o cancelamento manual.
+
+**Conta real do 9Router Auto:** após corrigir a retomada, o OpenCode leu o projeto
+existente e finalizou a entrega em 61 segundos, sem recriar os arquivos corretos.
+As oito verificações independentes passaram: sintaxe, página/recursos,
+acessibilidade e cinco larguras. No navegador passaram adicionar, concluir,
+persistir após recarregar, desmarcar e excluir, sem erro de JavaScript ou
+transbordamento em 390 px. A captura opcional oculta excedeu cinco segundos;
+isso não foi apresentado como falha funcional nem como captura concluída.
+Evidência: `qa/todo-live-1791219338886/evidence.json` e
+`qa/second-live-todo-final.log`. A tentativa anterior interrompida e a resposta
+em formato de tutorial também permanecem registradas na pasta de QA.
+
+Os limites de contexto, geração e cota dos provedores continuam se aplicando.
+As verificações automáticas de acessibilidade são pontuais, sem certificação completa.
+
+O aplicativo real foi fechado normalmente após identificar sua árvore exata,
+sem agentes em execução, e reaberto com a compilação final. A cópia de segurança
+do perfil está em `qa/final-unlimited-profile-20261005-143352`; histórico,
+rascunhos e configuração foram preservados. A instância real reaberta apresentou
+o título MESP Top Dock e estado Responding=true.
+
+## Histórico da primeira rodada: 50 melhorias e entrega independente
 
 As [50 melhorias](MELHORIAS-50-DESENVOLVEDOR.md) foram implementadas. O agente
 agora recebe inspeção e memória do projeto, entrega arquivos, passa por verificações

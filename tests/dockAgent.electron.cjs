@@ -311,7 +311,7 @@ const root = path.resolve(__dirname, '..');
         shell.openPath = async () => '';
       });
       const page = await app.firstWindow();
-      page.setDefaultTimeout(120000);
+      page.setDefaultTimeout(300000);
       page.on('pageerror', (error) => errors.push(error.message));
       await page.locator('.dock-character-button').click();
       await page.getByRole('button', { name: 'Manter painel aberto', exact: true }).click();

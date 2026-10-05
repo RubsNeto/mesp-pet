@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { resolve, join, relative, isAbsolute, extname } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { readPreviewRuntime, startPreviewRuntime } from './dockPreviewRuntime.mjs';
+import { listenPreviewServer } from './dockPreviewAddress.mjs';
 
 const types = {
   '.html': 'text/html; charset=utf-8',
@@ -150,8 +151,10 @@ export function createDockProjectService({
           }
         }
         const previous = previews.get(project);
-        if (previous?.root === root && !previous.runtime)
+        if (previous && !previous.runtime) {
+          previous.updateRoot(root);
           return { ok: true, url: previous.url, cwd: project };
+        }
         if (previous) {
           await previous.stop();
           previews.delete(project);
@@ -218,10 +221,7 @@ export function createDockProjectService({
             deny(404);
           }
         });
-        await new Promise((resolve, reject) => {
-          server.once('error', reject);
-          server.listen(0, '127.0.0.1', resolve);
-        });
+        await listenPreviewServer(server, project);
         if (disposed) {
           server.close();
           throw new Error('O MESP está fechando.');
@@ -231,9 +231,13 @@ export function createDockProjectService({
           server,
           root,
           url,
+          updateRoot(nextRoot) {
+            root = nextRoot;
+            this.root = nextRoot;
+          },
           stop() {
             server.closeAllConnections();
-            server.close();
+            return new Promise((resolve) => server.close(resolve));
           },
         });
         return { ok: true, url, cwd: project };

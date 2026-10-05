@@ -18,7 +18,7 @@ const root = path.resolve(__dirname, '..');
     }
     res.end(
       req.url === '/good'
-        ? '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ready</title><style>*{box-sizing:border-box}body{margin:0;padding:20px}main{max-width:800px;width:100%}</style><main>Working page</main>'
+        ? '<!doctype html><html lang="pt-BR"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ready</title><style>*{box-sizing:border-box}body{margin:0;padding:20px}main{max-width:800px;width:100%}</style><main>Working page<div role="button" tabindex="0">Executar</div><a href="/good"><img alt="Página inicial" src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%221%22 height=%221%22/%3E"></a><div role="tablist"><button role="tab" tabindex="0">Primeira aba</button><button role="tab" tabindex="-1">Segunda aba</button></div></main></html>'
         : '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div style="width:1500px">Overflow</div><img src="/missing.png"><script>console.error("Broken action");window.open("https://example.com")</script>',
     );
   });
@@ -65,7 +65,7 @@ const root = path.resolve(__dirname, '..');
         { moduleURL, url: `http://127.0.0.1:${server.address().port}/${route}`, cancel },
       );
     const good = await run('good');
-    assert.equal(good.length, 4);
+    assert.equal(good.length, 7);
     assert.ok(
       good.every((check) => check.status === 'passed'),
       JSON.stringify(good),
@@ -76,7 +76,7 @@ const root = path.resolve(__dirname, '..');
     assert.equal(
       broken.filter((check) => check.name.startsWith('Responsividade') && check.status === 'failed')
         .length,
-      3,
+      5,
     );
     const cancelled = await run('slow', true);
     assert.equal(cancelled[0].status, 'cancelled');
@@ -89,7 +89,7 @@ const root = path.resolve(__dirname, '..');
       passed: true,
       profile,
       checks: [
-        'good page with 320/390/1024px audit',
+        'good page with accessible controls and 320/390/768/1024/1440px audit',
         'missing resource reported',
         'browser error reported',
         'overflow detected',

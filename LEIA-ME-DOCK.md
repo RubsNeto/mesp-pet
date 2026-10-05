@@ -4,8 +4,10 @@
 
 Pedidos de programação acionam **inspeção → implementação → verificação → correção → entrega**.
 O modo Autônomo verifica os scripts disponíveis e a sintaxe compatível, testa prévias web
-em 320, 390 e 1024 px e tenta corrigir até duas vezes quando encontra falhas.
-O prazo e os limites da tarefa são compartilhados entre as tentativas.
+em 320, 390, 768, 1024 e 1440 px, incluindo nomes/rótulos dos controles e problemas básicos
+de acessibilidade. A correção continua enquanto houver progresso; ciclos repetidos são informados.
+Não há corte local por tempo, tokens ou quantidade de ferramentas. O botão **Parar** cancela
+quando você desejar. Configurações antigas e tarefas já guardadas são migradas automaticamente.
 
 Abaixo da resposta aparece um cartão de entrega com arquivos alterados, testes,
 falhas e verificações não executadas. Você pode expandir, copiar e salvar o relatório.
@@ -15,6 +17,9 @@ em paralelo para reduzir pressão no computador. O botão Parar também cancela 
 
 As [50 melhorias implementadas](MELHORIAS-50-DESENVOLVEDOR.md) têm evidências e limites
 documentados. O comando `npm run test:complete` reúne 15 etapas de validação em perfis isolados.
+Há também [outras 50 melhorias](MELHORIAS-50-DESENVOLVEDOR-2.md), com suporte adicional a
+workspaces e verificações de Python, Go, Rust e .NET. `npm run test:languages` exercita os
+runtimes instalados nesta máquina com testes reais e defeitos intencionais.
 
 ## Intenção interpretada por IA
 
@@ -99,7 +104,8 @@ concluída. Uma falha pausa as tarefas seguintes; a fila e o rascunho permanecem
 salvos. **Parar** encerra a árvore de processos da própria tarefa, sem encerrar
 outros aplicativos. No Windows, cada execução nativa e cada backend gerenciado
 ficam em um Job Object próprio, que também encerra filhos destacados quando a
-tarefa termina. Os limites continuam ajustáveis por MESP.
+tarefa termina. As tarefas não têm orçamento local de duração, tokens ou ferramentas;
+o botão **Verificações** controla a checagem da entrega.
 
 Sites estáticos usam a prévia integrada. Sites com um backend Node podem ter
 `.mesp-preview.json` com `{"entry":"server.cjs"}`; o agente prepara esse arquivo
@@ -153,10 +159,10 @@ de um servidor Node compatível com esse contrato.
 Uma resposta contendo apenas exemplos de código não conta como site pronto.
 Sem `index.html` ou com scripts/estilos ausentes, o MESP informa a falha.
 O pedido inicial aguarda o carregamento dos modelos em vez de ser descartado.
-O limite padrão de tarefas é de 5 minutos, 100 mil tokens e 50 chamadas de
-ferramentas. Os tokens incluem o contexto reenviado em cada etapa, por isso
-o antigo padrão de 25 mil podia interromper a criação antes da verificação.
-Somente esse padrão antigo é atualizado; limites personalizados são preservados.
+As tarefas não têm mais corte local por tempo, tokens ou quantidade de ferramentas.
+O consumo continua visível e inclui o contexto reenviado em cada etapa. Todos os
+orçamentos antigos salvos, inclusive personalizados e da fila, são migrados para
+execução sem esses limites. O botão Parar continua disponível.
 Os testes `npm run test:agent` executam o OpenCode instalado com um provedor
 simulado, criam arquivos reais, rodam `node --check`, abrem a página no Electron
 e verificam a interação JavaScript, contexto, rascunho e retomada após reiniciar.
@@ -414,7 +420,7 @@ limite, conexão e respostas vazias antes do início da resposta permitem uma no
 tentativa com o mesmo contexto. Um intervalo de espera, conservado ao reiniciar,
 impede repetir uma conta ou modelo que acabou de falhar. Esse cache guarda somente
 identificadores de contas/modelos e o término da espera, sem prompts ou credenciais.
-O roteamento tem limites de espera e tentativas;
+O roteamento percorre as alternativas disponíveis sem prazo local de geração;
 uma resposta em andamento permanece na mesma conta e cancelar não reenvia a tarefa.
 O histórico de consumo não precisa ser carregado para responder: contas, modelos
 e cotas compartilham um cache curto, atualizado ao passar um reset.
@@ -430,8 +436,8 @@ MESP. Depois da primeira consulta, modelos e cotas recentes não bloqueiam o env
 enquanto se atualizam; o reaproveitamento é limitado a cinco minutos. Um reset
 passado, dados mais antigos e a atualização manual exigem nova consulta. Contas
 desativadas continuam sendo verificadas na configuração local, e erros de
-autenticação/cota continuam acionando a proteção do Auto. Perguntas leves usam
-um limite de oito segundos por tentativa antes de buscar uma alternativa.
+autenticação/cota continuam acionando a proteção do Auto. Perguntas leves priorizam
+modelos rápidos; erros explícitos permitem buscar outra alternativa.
 Na conversa livre, o título por IA só é solicitado depois da resposta, para não
 competir pela conta durante o pedido principal. O título provisório aparece imediatamente.
 

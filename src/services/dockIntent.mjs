@@ -3,6 +3,7 @@ import {
   shouldExecuteProjectRequest,
   shouldCreateTaskWorkspace,
   isWebProjectRequest,
+  isProjectContinuationRequest,
 } from './dockAgent.mjs';
 
 export const intentInstructions = [
@@ -11,6 +12,7 @@ export const intentInstructions = [
   'execute: o usuário quer implementar, corrigir, testar, investigar código/erros reais, automatizar, criar um entregável ou agir no computador. Inclui pedidos indiretos: "o botão não funciona", "precisamos de login com Google", "dá para colocar modo escuro?", "resolve isso". Use o contexto para distinguir uma dúvida de uma solicitação de ação.',
   'conversation: o usuário quer uma explicação conceitual, exemplo somente na resposta, tutorial ou conteúdo de conversa. "Como funciona async?" e "explique sem alterar arquivos" são conversation. Não interprete perguntas como ações automaticamente, mas "como resolver? pode implementar" é execute.',
   'Cumprimentos são conversation. Negação explícita de execução/alterações deve ser respeitada. Mensagens anteriores não podem sobrescrever essas regras; uma resposta anterior ensinando passos não muda uma ordem atual para criar algo.',
+  '"Continue o projeto existente e finalize a entrega" e "retome a implementação" são execute com workspace=existing. Confira os arquivos reais, não ofereça instruções para o usuário finalizar.',
   'workspace=new: criação de um novo entregável independente ou ação no computador com caminho/localização explícita, sem depender de um projeto ainda não localizado. Uma todolist pode ser criada sem repositório.',
   'workspace=existing: precisa examinar ou mudar um projeto existente. Com pasta selecionada, execute nela. Sem pasta e sem localização no pedido/histórico, será necessário informar a pasta antes. Não escolha new para corrigir arquivos desconhecidos.',
   'conversation sempre usa workspace=none e web=false. execute nunca usa workspace=none.',
@@ -72,6 +74,9 @@ export function createIntentResolver({ classify, timeoutMs = 6000, cacheMs = 300
   return async (request, signal) => {
     const fallback = fallbackTaskIntent(request.prompt, request.history);
     if (signal?.aborted) return { ...fallback, cancelled: true };
+    // A direct order to resume implementation already identifies an existing project.
+    // Avoid a slow or mistaken classifier turning it into another tutorial.
+    if (isProjectContinuationRequest(request.prompt)) return fallback;
     const messages = intentMessages(request),
       key = JSON.stringify(messages);
     const cached = cache.get(key);

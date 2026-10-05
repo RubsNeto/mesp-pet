@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import {
   projectSnapshot,
   changedProjectFiles,
@@ -13,6 +15,7 @@ import {
   createDeveloperMemory,
   developerBrief,
   repairDeveloperPrompt,
+  developerRepairSignature,
   redactDeveloperText,
   deliveryMarkdown,
 } from '../electron/dockDeveloper.mjs';
@@ -25,6 +28,11 @@ import {
   normalizeStoredMespQueue,
 } from '../src/services/mespCodeCore.mjs';
 import { createDockProjectService } from '../electron/dockProjects.mjs';
+import {
+  inspectDeveloperContext,
+  additionalDeveloperChecks,
+} from '../electron/dockDeveloperContext.mjs';
+const executeFile = promisify(execFile);
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'mesp-developer-'));
@@ -179,7 +187,7 @@ test('transpiled React JS is left to its build instead of invalid Node parsing',
   );
 });
 
-test('independent verification stops on failure with real failure output', async () => {
+test('independent verification collects all real failures before repairing', async () => {
   const executed = [];
   const result = await runDeveloperChecks(
     profile({ lint: 'eslint .', test: 'node --test', build: 'vite build' }),
@@ -192,12 +200,12 @@ test('independent verification stops on failure with real failure output', async
       },
     },
   );
-  assert.deepEqual(executed, ['lint']);
+  assert.deepEqual(executed, ['lint', 'test', 'build']);
   assert.equal(result.passed, false);
   assert.equal(result.results[0].output, 'assertion failed');
   assert.deepEqual(
     result.skipped.map((check) => check.name),
-    ['test', 'build'],
+    [],
   );
 });
 
@@ -296,7 +304,7 @@ test('invalid delivery data cannot inject states or unbounded content', () => {
     repairs: 99,
     checks: [{ name: 'test', status: 'passed', output: 'x'.repeat(30000), code: 0 }],
   });
-  assert.equal(normalized.repairs, 2);
+  assert.equal(normalized.repairs, 99);
   assert.equal(normalized.checks[0].output.length, 12000);
 });
 
@@ -375,4 +383,218 @@ test('large lockfiles still select the correct manager without reading their con
   assert.equal(inspected.manager.name, 'pnpm');
   assert.equal(inspected.snapshot.truncated, true);
   assert.equal(inspected.snapshot.files['pnpm-lock.yaml'], undefined);
+});
+
+test('unlimited verification survives elapsed task clocks and passes no command deadline', async () => {
+  const timeouts = [];
+  const result = await runDeveloperChecks(profile({ lint: 'eslint .', test: 'node --test' }), {
+    signal: new AbortController().signal,
+    deadline: Infinity,
+    execute: async (_check, _manager, timeout) => {
+      timeouts.push(timeout);
+      return { code: 0, output: 'verified' };
+    },
+  });
+  assert.equal(result.passed, true);
+  assert.deepEqual(timeouts, [0, 0]);
+});
+
+test('repair progress ignores volatile test durations but retains changed files and assertion values', () => {
+  const snapshot = { files: { 'app.js': 'hash-one' } };
+  const first = developerRepairSignature(snapshot, 'Expected 5, actual 6\nduration_ms: 10.12');
+  assert.equal(
+    first,
+    developerRepairSignature(snapshot, 'Expected 5, actual 6\nduration_ms: 22.31'),
+  );
+  assert.notEqual(
+    first,
+    developerRepairSignature(snapshot, 'Expected 5, actual 3\nduration_ms: 10.12'),
+  );
+  assert.notEqual(
+    first,
+    developerRepairSignature(
+      { files: { 'app.js': 'hash-two' } },
+      'Expected 5, actual 6\nduration_ms: 10.12',
+    ),
+  );
+});
+
+test('partial inspections cannot falsely stop a correction that changes uninspected files', () => {
+  assert.equal(
+    developerRepairSignature({ files: { 'app.js': 'same' }, truncated: true }, 'Failure'),
+    null,
+  );
+});
+
+test('plain Jest and Vitest scripts run once with CI arguments, explicit watches stay excluded', () => {
+  assert.deepEqual(discoverDeveloperChecks(profile({ test: 'vitest' })).checks[0].args, ['run']);
+  assert.deepEqual(discoverDeveloperChecks(profile({ test: 'jest' })).checks[0].args, [
+    '--runInBand',
+    '--watchAll=false',
+  ]);
+  assert.equal(discoverDeveloperChecks(profile({ test: 'vitest --watch' })).checks.length, 0);
+  assert.equal(discoverDeveloperChecks(profile({ test: 'jest && npm publish' })).checks.length, 0);
+});
+
+test('monorepo checks keep their working directory and validate nested manifests', async (t) => {
+  const root = await fixture(t);
+  await mkdir(join(root, 'packages', 'api'), { recursive: true });
+  await writeFile(join(root, 'package.json'), '{"scripts":{"build":"echo build"}}');
+  await writeFile(
+    join(root, 'packages', 'api', 'package.json'),
+    '{"name":"api","scripts":{"test":"node --test","build":"echo nested"}}',
+  );
+  await writeFile(join(root, 'packages', 'api', 'AGENTS.md'), 'Preserve customer tables.');
+  const inspected = await inspectDeveloperProject(root);
+  const checks = discoverDeveloperChecks(inspected).checks;
+  assert.ok(
+    checks.some(
+      (check) => check.name === 'packages/api: test' && check.directory === 'packages/api',
+    ),
+  );
+  assert.ok(checks.some((check) => check.file === 'packages/api/package.json'));
+  assert.ok(
+    !checks.some((check) => check.name === 'packages/api: build'),
+    'Root build orchestration is not duplicated',
+  );
+  assert.match(developerBrief(inspected), /Preserve customer tables/);
+});
+
+test('declared workspace globs preserve intentionally invalid test fixtures and excluded packages', async (t) => {
+  const root = await fixture(t);
+  await writeFile(
+    join(root, 'package.json'),
+    JSON.stringify({ workspaces: ['custom/*', '!custom/excluded'] }),
+  );
+  for (const directory of ['custom/api', 'custom/excluded', 'tests/fixtures/broken'])
+    await mkdir(join(root, directory), { recursive: true });
+  await writeFile(
+    join(root, 'custom/api/package.json'),
+    JSON.stringify({ packageManager: 'pnpm@10', scripts: { test: 'node --test' } }),
+  );
+  await writeFile(join(root, 'custom/excluded/package.json'), '{intentional invalid');
+  await writeFile(join(root, 'tests/fixtures/broken/package.json'), '{intentional invalid');
+  const inspected = await inspectDeveloperProject(root);
+  const checks = discoverDeveloperChecks(inspected).checks;
+  assert.ok(checks.some((check) => check.name === 'custom/api: test' && check.manager === 'pnpm'));
+  assert.ok(!checks.some((check) => /excluded|fixtures/.test(check.name)));
+});
+
+test('Python chooses pytest for function tests and unittest for TestCase instead of reporting zero tests', async (t) => {
+  const root = await fixture(t);
+  await writeFile(join(root, 'test_add.py'), 'def test_add():\n assert 2+3==5\n');
+  assert.equal((await inspectDeveloperProject(root)).context.pythonTestFramework, 'pytest');
+  await writeFile(
+    join(root, 'test_add.py'),
+    'from unittest import TestCase\nclass Add(TestCase):\n def test_add(self): self.assertEqual(2+3,5)\n',
+  );
+  assert.equal((await inspectDeveloperProject(root)).context.pythonTestFramework, 'unittest');
+});
+
+test('repository context observes branch/head/dirty state without touching the index or customer file', async (t) => {
+  const root = await fixture(t);
+  await executeFile('git', ['init', '-q', root], { windowsHide: true });
+  await writeFile(join(root, 'customer.txt'), 'original');
+  await executeFile('git', ['-C', root, 'add', 'customer.txt'], { windowsHide: true });
+  await executeFile(
+    'git',
+    [
+      '-C',
+      root,
+      '-c',
+      'user.name=MESP QA',
+      '-c',
+      'user.email=qa@example.invalid',
+      'commit',
+      '-qm',
+      'baseline',
+    ],
+    { windowsHide: true },
+  );
+  await writeFile(join(root, 'customer.txt'), 'unsaved customer changes');
+  const index = await readFile(join(root, '.git', 'index'));
+  const context = await inspectDeveloperContext(root, ['customer.txt']);
+  assert.ok(context.repository.branch);
+  assert.match(context.repository.head, /^[a-f0-9]{40}$/);
+  assert.match(context.repository.status, /M customer.txt/);
+  assert.equal(context.repository.parentRepository, false);
+  assert.deepEqual(await readFile(join(root, '.git', 'index')), index);
+  assert.equal(await readFile(join(root, 'customer.txt'), 'utf8'), 'unsaved customer changes');
+  await mkdir(join(root, 'nested'));
+  assert.equal(
+    (await inspectDeveloperContext(join(root, 'nested'), [])).repository.parentRepository,
+    true,
+  );
+});
+
+test('environment context extracts variable names and architecture, never example values', async (t) => {
+  const root = await fixture(t);
+  await writeFile(
+    join(root, '.env.example'),
+    'DATABASE_URL=private-database\nexport API_KEY=private-key\n',
+  );
+  await writeFile(join(root, 'ARCHITECTURE.md'), 'The queue stores pending jobs.');
+  await mkdir(join(root, 'node_modules'));
+  const inspected = await inspectDeveloperProject(root);
+  assert.deepEqual(inspected.context.environment, ['DATABASE_URL', 'API_KEY']);
+  assert.equal(inspected.context.dependenciesInstalled, true);
+  assert.match(developerBrief(inspected), /queue stores pending jobs/);
+  assert.ok(!developerBrief(inspected).includes('private-key'));
+  assert.ok(!developerBrief(inspected).includes('private-database'));
+});
+
+test('uppercase generated directories do not consume project context', async (t) => {
+  const root = await fixture(t);
+  await mkdir(join(root, 'DIST'));
+  await writeFile(join(root, 'DIST', 'generated.js'), 'generated');
+  await writeFile(join(root, 'source.js'), 'source');
+  assert.deepEqual(Object.keys((await projectSnapshot(root)).files), ['source.js']);
+});
+
+test('backend checks select manifest-specific toolchains and locked Rust dependencies', () => {
+  const checks = additionalDeveloperChecks(
+    profile({}, ['Cargo.toml', 'Cargo.lock', 'go.mod', 'App.csproj', 'pytest.ini']),
+  );
+  assert.deepEqual(
+    checks.filter((check) => check.command === 'cargo').map((check) => check.args),
+    [
+      ['check', '--locked'],
+      ['test', '--locked'],
+    ],
+  );
+  assert.deepEqual(
+    checks.filter((check) => check.command === 'go').map((check) => check.args),
+    [
+      ['vet', './...'],
+      ['test', './...'],
+    ],
+  );
+  assert.ok(checks.some((check) => check.command === 'dotnet' && check.args[0] === 'build'));
+  assert.ok(checks.some((check) => check.command === 'python' && check.args.includes('pytest')));
+  assert.deepEqual(additionalDeveloperChecks(profile({}, ['tests/test_add.py']))[0].args, [
+    '-m',
+    'unittest',
+    'discover',
+    '-s',
+    'tests',
+    '-v',
+  ]);
+});
+
+test('static preview preserves browser origin across build and service restart with fresh access keys', async (t) => {
+  const root = await fixture(t);
+  await writeFile(join(root, 'index.html'), '<title>One</title>');
+  const first = createDockProjectService({ directory: root });
+  const a = await first.preview(root);
+  await (await fetch(a.url)).text();
+  await first.dispose();
+  const second = createDockProjectService({ directory: root });
+  t.after(() => second.dispose());
+  const b = await second.preview(root);
+  assert.equal(new URL(a.url).origin, new URL(b.url).origin);
+  assert.notEqual(a.url, b.url);
+  // The old token can never authorize the new process, while the origin remains stable.
+  const request = await fetch(a.url).catch(() => fetch(a.url));
+  assert.equal(request.status, 404);
+  assert.equal((await fetch(b.url)).status, 200);
 });

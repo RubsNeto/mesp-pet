@@ -21,13 +21,27 @@ const explanation = (text) =>
     text,
   );
 const taskAction =
-  /\b(corrija|corrige|conserte|implemente|altere|modifique|adicione|remova|refatore|rode|execute|teste|instale|atualize|investigue|analise|pesquise|organize|automatize)\b/;
+  /\b(corrija|corrige|conserte|implemente|altere|modifique|adicione|remova|refatore|rode|execute|teste|instale|atualize|investigue|analise|pesquise|organize|automatize|confira|verifique)\b/;
 const continuation =
   /^(?:sim[,!. ]*)?(?:continue|pode continuar|prossiga|pode fazer|faca isso|faca|execute|pode executar|agora implemente)[.! ]*$/;
 const previousPrompt = (history) =>
   [...history]
     .reverse()
     .find((item) => item.role === 'user' && !continuation.test(clean(item.content || item.text)));
+
+export function isProjectContinuationRequest(prompt) {
+  const text = clean(prompt).trim();
+  return (
+    !explanation(text) &&
+    /^(?:continue|prossiga|retome|finalize|conclua|termine)\b/.test(text) &&
+    /\b(?:projeto|implementacao|site|aplicativo|app|sistema|codigo|todolist|todo\s*list)\b/.test(
+      text,
+    ) &&
+    !/\b(?:apenas|somente|so)\b.*\b(?:explique|explique-me|resposta|mostrar|exemplo|instrucoes)\b/.test(
+      text,
+    )
+  );
+}
 
 const computerLocation =
   /(?:[a-z]:[\\/]|\\\\[^\\\s]+\\|%(?:userprofile|appdata|localappdata|onedrive|temp|programfiles)%|\b(?:downloads|desktop|area de trabalho|meus documentos|meu pc|meu computador|neste pc|neste computador|no windows|disco [a-z])\b)/;
@@ -64,7 +78,13 @@ export function isWebProjectRequest(prompt, history = []) {
     const previous = previousPrompt(history);
     return previous ? isWebProjectRequest(previous.content || previous.text) : false;
   }
-  if (!buildAction.test(text) && !createAction.test(text) && !taskAction.test(text)) return false;
+  if (
+    !buildAction.test(text) &&
+    !createAction.test(text) &&
+    !taskAction.test(text) &&
+    !isProjectContinuationRequest(prompt)
+  )
+    return false;
   if (webTopic.test(text)) return true;
   // A to-do list is an interactive deliverable unless a file format was requested.
   if (todoTopic.test(text) && !fileDeliverable.test(text)) return true;
@@ -78,6 +98,7 @@ export function isWebProjectRequest(prompt, history = []) {
 }
 
 export function shouldExecuteProjectRequest(prompt, history = []) {
+  if (isProjectContinuationRequest(prompt)) return true;
   if (isComputerTaskRequest(prompt, history)) return true;
   if (isWebProjectRequest(prompt, history)) return true;
   const text = clean(prompt);
@@ -101,6 +122,7 @@ export function shouldExecuteProjectRequest(prompt, history = []) {
 }
 
 export function shouldCreateTaskWorkspace(prompt, history = []) {
+  if (isProjectContinuationRequest(prompt)) return false;
   if (isComputerTaskRequest(prompt, history)) return true;
   const text = clean(prompt);
   if (explanation(text)) return false;

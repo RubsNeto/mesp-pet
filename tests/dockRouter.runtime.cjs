@@ -239,6 +239,7 @@ const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1'
         MESP_QA_QUOTAS: fixtureFile,
         MESP_QA_UPSTREAM: `http://127.0.0.1:${upstream.address().port}`,
         MESP_AUTO_TIMEOUT_MS: '1000',
+        MESP_DOCK_TEST_HIDDEN: '1',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
@@ -341,7 +342,11 @@ const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1'
     ) => {
       const response = await fetch(`${origin}/v1/chat/completions`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-session-id': session, ...(purpose ? { 'x-mesp-purpose': purpose } : {}) },
+        headers: {
+          'content-type': 'application/json',
+          'x-session-id': session,
+          ...(purpose ? { 'x-mesp-purpose': purpose } : {}),
+        },
         body: JSON.stringify({
           model,
           stream,
@@ -419,7 +424,13 @@ const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1'
     assert.equal(requests.at(-1).model, 'mesp-mini');
     assert.equal(technicalQuestion.response.headers.get('x-mesp-complexity'), 'light');
     assert.ok(Number(technicalQuestion.response.headers.get('x-mesp-routing-ms')) < 100);
-    const intent = await send('mesp-auto', false, 'ses_intent', 'Audite a segurança e refatore a arquitetura do sistema', 'intent');
+    const intent = await send(
+      'mesp-auto',
+      false,
+      'ses_intent',
+      'Audite a segurança e refatore a arquitetura do sistema',
+      'intent',
+    );
     assert.equal(intent.response.headers.get('x-mesp-complexity'), 'light');
     assert.equal(requests.at(-1).model, 'mesp-mini');
     const warmup = await fetch(`${origin}/api/mesp/warmup`);

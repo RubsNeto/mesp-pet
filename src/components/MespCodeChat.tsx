@@ -220,9 +220,9 @@ const MODE_LABELS: Record<MespCodeMode, string> = {
   autonomous: 'autonoma',
 };
 const DEFAULT_LIMITS: MespCodeLimits = {
-  maxDurationMs: 5 * 60_000,
-  maxTokens: 100_000,
-  maxToolCalls: 50,
+  maxDurationMs: 0,
+  maxTokens: 0,
+  maxToolCalls: 0,
 };
 const PROJECT_CHECK_ORDER: ProjectCheckName[] = ['typecheck', 'lint', 'test', 'build', 'check'];
 const PROJECT_CHECK_LABELS: Record<ProjectCheckName, string> = {
@@ -381,7 +381,7 @@ export function MespCodeChat({
     preferredModel || initialRef.current.selectedModel,
   );
   const [mode, setMode] = useState<MespCodeMode>(initialRef.current.mode);
-  const [limits, setLimits] = useState<MespCodeLimits>(initialRef.current.limits);
+  const [limits] = useState<MespCodeLimits>(initialRef.current.limits);
   const [queue, setQueue] = useState<QueuedPrompt[]>(initialRef.current.queue);
   const [queuePaused, setQueuePaused] = useState(initialRef.current.queuePaused);
   const [availableChecks, setAvailableChecks] = useState<ProjectCheckName[]>([]);
@@ -534,7 +534,7 @@ export function MespCodeChat({
           selectedModel,
           mode,
           limits,
-          limitsVersion: 2,
+          limitsVersion: 3,
           queue: normalizeStoredMespQueue(queue, 10),
           queuePaused,
           autoVerify,
@@ -647,7 +647,11 @@ export function MespCodeChat({
                   ...message,
                   status: 'error',
                   error,
-                  text: message.text || 'Nao consegui responder.',
+                  text:
+                    message.text ||
+                    (message.delivery?.files.length
+                      ? 'Os arquivos foram alterados, mas a entrega ainda precisa de correção. Veja a falha abaixo.'
+                      : 'A execução encontrou uma falha antes de concluir. Veja o motivo abaixo.'),
                 },
                 {
                   id: 'run-exit',
@@ -1069,6 +1073,11 @@ export function MespCodeChat({
                     {
                       ...message,
                       status: 'done',
+                      text:
+                        message.text ||
+                        (message.delivery?.status === 'passed'
+                          ? 'A implementação foi concluída. Confira as verificações e abra o resultado abaixo.'
+                          : 'A execução foi concluída.'),
                       durationMs: data.durationMs,
                       firstTokenMs: data.firstTokenMs,
                       sessionId: data.sessionId || message.sessionId,
@@ -2028,61 +2037,11 @@ export function MespCodeChat({
             aria-expanded={limitsOpen}
             aria-haspopup="dialog"
           >
-            Limites · {Math.round(limits.maxDurationMs / 60_000)}m ·{' '}
-            {limits.maxTokens === 0 ? 'sem limite' : `${Math.round(limits.maxTokens / 1000)}k`}
+            Verificações
           </button>
           {limitsOpen && (
-            <div className="mesp-limits-popover" role="dialog" aria-label="Limites por execucao">
-              <label>
-                Tempo maximo
-                <select
-                  value={limits.maxDurationMs}
-                  onChange={(event) =>
-                    setLimits((current) => ({
-                      ...current,
-                      maxDurationMs: Number(event.target.value),
-                    }))
-                  }
-                >
-                  <option value={120000}>2 minutos</option>
-                  <option value={300000}>5 minutos</option>
-                  <option value={600000}>10 minutos</option>
-                  <option value={1200000}>20 minutos</option>
-                </select>
-              </label>
-              <label>
-                Tokens maximos
-                <select
-                  value={limits.maxTokens}
-                  onChange={(event) =>
-                    setLimits((current) => ({ ...current, maxTokens: Number(event.target.value) }))
-                  }
-                >
-                  <option value={0}>Sem limite de tokens</option>
-                  <option value={10000}>10.000 tokens</option>
-                  <option value={25000}>25.000 tokens</option>
-                  <option value={50000}>50.000 tokens</option>
-                  <option value={100000}>100.000 tokens</option>
-                </select>
-              </label>
-              <label>
-                Chamadas de ferramentas
-                <select
-                  value={limits.maxToolCalls}
-                  onChange={(event) =>
-                    setLimits((current) => ({
-                      ...current,
-                      maxToolCalls: Number(event.target.value),
-                    }))
-                  }
-                >
-                  <option value={20}>20 chamadas</option>
-                  <option value={50}>50 chamadas</option>
-                  <option value={100}>100 chamadas</option>
-                  <option value={200}>200 chamadas</option>
-                </select>
-              </label>
-              <small>Valem para a proxima mensagem.</small>
+            <div className="mesp-limits-popover" role="dialog" aria-label="Verificações do projeto">
+              <small>A tarefa continua até concluir ou você cancelar.</small>
               <div className="mesp-quality-config">
                 <div className="mesp-quality-heading">
                   <strong>Quality gates</strong>

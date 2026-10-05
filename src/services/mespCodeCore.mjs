@@ -15,19 +15,11 @@ export function normalizeMespTokenLimit(value, fallback = 25_000) {
   return Math.max(1_000, Math.min(200_000, Math.floor(value)));
 }
 export function restoreMespLimits(saved, version, defaults) {
-  const value = saved && typeof saved === 'object' ? saved : {};
-  const previousDefault =
-    version !== 2 &&
-    value.maxDurationMs === 300_000 &&
-    value.maxTokens === 25_000 &&
-    value.maxToolCalls === 50;
-  const number = (key) =>
-    typeof value[key] === 'number' && Number.isFinite(value[key]) ? value[key] : defaults[key];
-  return {
-    maxDurationMs: number('maxDurationMs'),
-    maxTokens: previousDefault ? defaults.maxTokens : number('maxTokens'),
-    maxToolCalls: number('maxToolCalls'),
-  };
+  // Migrate every saved session and queued task to execution without local budgets.
+  void saved;
+  void version;
+  void defaults;
+  return { maxDurationMs: 0, maxTokens: 0, maxToolCalls: 0 };
 }
 
 export function isMespTokenLimitExceeded(total, limit) {
@@ -380,9 +372,7 @@ export function normalizeStoredMespQueue(value, limit = 10) {
       mode: task.mode,
       model: task.model.slice(0, 256),
       limits: {
-        maxDurationMs: optionalFiniteNumber(task.limits.maxDurationMs) ?? 300_000,
-        maxTokens: optionalFiniteNumber(task.limits.maxTokens) ?? 25_000,
-        maxToolCalls: optionalFiniteNumber(task.limits.maxToolCalls) ?? 50,
+        ...restoreMespLimits(),
       },
       cwd: typeof task.cwd === 'string' ? task.cwd.slice(0, 4_096) : null,
       createdAt: optionalFiniteNumber(task.createdAt) ?? Date.now(),

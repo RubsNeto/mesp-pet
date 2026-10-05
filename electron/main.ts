@@ -45,6 +45,7 @@ import {
   changedProjectFiles,
   developerBrief,
   repairDeveloperPrompt,
+  developerRepairSignature,
   runDeveloperChecks,
   createDeveloperMemory,
   deliveryMarkdown,
@@ -98,7 +99,6 @@ import {
   isMespTokenLimitExceeded,
   isLoopbackRouterURL,
   modelIdFor9Router,
-  normalizeMespTokenLimit,
   normalizeProjectChecks,
   parseDotEnvValue,
   parseOpenAIStreamData,
@@ -134,9 +134,9 @@ const MAX_MESP_HISTORY_ITEMS = 40;
 const MAX_MESP_HISTORY_ITEM_LENGTH = 12_000;
 const MAX_MESP_HISTORY_LENGTH = 48_000;
 const MESP_DEFAULT_LIMITS = {
-  maxDurationMs: 5 * 60_000,
-  maxTokens: 100_000,
-  maxToolCalls: 50,
+  maxDurationMs: 0,
+  maxTokens: 0,
+  maxToolCalls: 0,
 } as const;
 
 const MESP_ASSISTED_PERMISSION_RULES = [
@@ -157,11 +157,9 @@ const MAX_MESP_DIFF_TOTAL_LENGTH = 1_000_000;
 const MAX_PROJECT_PACKAGE_JSON_BYTES = 1_000_000;
 const MAX_OPENCODE_AUTH_BYTES = 1_000_000;
 const MAX_PROJECT_CHECK_OUTPUT = 160_000;
-const MAX_PROJECT_CHECK_DURATION_MS = 5 * 60_000;
 const DEFAULT_NINEROUTER_BASE_URL = 'http://127.0.0.1:20127/v1';
 const ROUTER_START_TIMEOUT_MS = 30_000;
 const MAX_PROJECT_CHECK_RUNS = 4;
-const MAX_PROJECT_CHECK_SUITE_DURATION_MS = 12 * 60_000;
 const LEGACY_OPENCODE_CONFIG_PATH = path.join(os.homedir(), '.config', 'opencode', 'opencode.json');
 const MESP_AGENT_CONFIG = {
   enabled_providers: ['9router'],
@@ -354,6 +352,7 @@ const mespCodeServerRuns = new Map<string, MespCodeServerRun>();
 const sessionRouteModels = new Map<string, unknown>();
 const projectCheckRuns = new Map<string, ProjectCheckRun>();
 interface DeveloperRun {
+  repairSignatures: Set<string>;
   petId: string;
   requestId: string;
   cwd: string;
@@ -1605,16 +1604,8 @@ function validateMespHistory(
 }
 
 function validateMespLimits(value: unknown): MespCodeLimits {
-  const raw = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
-  const clamp = (candidate: unknown, fallback: number, minimum: number, maximum: number) =>
-    typeof candidate === 'number' && Number.isFinite(candidate)
-      ? Math.max(minimum, Math.min(maximum, Math.floor(candidate)))
-      : fallback;
-  return {
-    maxDurationMs: clamp(raw.maxDurationMs, MESP_DEFAULT_LIMITS.maxDurationMs, 30_000, 30 * 60_000),
-    maxTokens: normalizeMespTokenLimit(raw.maxTokens, MESP_DEFAULT_LIMITS.maxTokens),
-    maxToolCalls: clamp(raw.maxToolCalls, MESP_DEFAULT_LIMITS.maxToolCalls, 1, 500),
-  };
+  void value;
+  return { ...MESP_DEFAULT_LIMITS };
 }
 
 function configuredMespSecrets(): string[] {
@@ -1722,10 +1713,13 @@ async function runFastMespCode(options: {
   const controller = new AbortController();
   const run: MespCodeFetchRun = { requestId, controller, cancelled: false };
   mespCodeFetches.set(petId, run);
-  const limitTimer = setTimeout(() => {
-    run.limitError = `Limite de tempo atingido (${Math.round(limits.maxDurationMs / 60_000)} min).`;
-    controller.abort();
-  }, limits.maxDurationMs);
+  const limitTimer =
+    limits.maxDurationMs > 0
+      ? setTimeout(() => {
+          run.limitError = `Limite de tempo atingido (${Math.round(limits.maxDurationMs / 60_000)} min).`;
+          controller.abort();
+        }, limits.maxDurationMs)
+      : null;
   safeSend('mesp-code:event', {
     petId,
     requestId,
@@ -1737,7 +1731,7 @@ async function runFastMespCode(options: {
   const finish = (code: number | null, error?: string) => {
     if (finished) return;
     finished = true;
-    clearTimeout(limitTimer);
+    if (limitTimer) clearTimeout(limitTimer);
     if (mespCodeFetches.get(petId) === run) mespCodeFetches.delete(petId);
     const resolvedError =
       run.limitError ||
@@ -2004,11 +1998,16 @@ async function runAssistedMespCode(options: {
     void abortMespServerSession(run);
     finish(null, message);
   };
-  limitTimer = setTimeout(
-    () =>
-      stopAtLimit(`Limite de tempo atingido (${Math.round(limits.maxDurationMs / 60_000)} min).`),
-    limits.maxDurationMs,
-  );
+  limitTimer =
+    limits.maxDurationMs > 0
+      ? setTimeout(
+          () =>
+            stopAtLimit(
+              `Limite de tempo atingido (${Math.round(limits.maxDurationMs / 60_000)} min).`,
+            ),
+          limits.maxDurationMs,
+        )
+      : null;
 
   const emitText = (text: string) => {
     if (!text || finished) return;
@@ -2068,7 +2067,7 @@ async function runAssistedMespCode(options: {
           '';
         if (callId && !toolCalls.has(callId)) {
           toolCalls.add(callId);
-          if (toolCalls.size > limits.maxToolCalls) {
+          if (limits.maxToolCalls > 0 && toolCalls.size > limits.maxToolCalls) {
             stopAtLimit(`Limite de ferramentas atingido (${limits.maxToolCalls}).`);
             return;
           }
@@ -2276,61 +2275,89 @@ async function executeDeveloperCheck(
   timeout: number,
 ) {
   const node = resolveBundledNodeBinary() || commandOnPath('node');
+  const python =
+    [
+      path.join(
+        run.cwd,
+        '.venv',
+        process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python',
+      ),
+      path.join(
+        run.cwd,
+        'venv',
+        process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python',
+      ),
+    ].find(isExistingFile) ||
+    commandOnPath('python') ||
+    commandOnPath('python3');
+  const checkCwd = check.directory
+    ? await fs.promises.realpath(path.join(run.cwd, check.directory))
+    : run.cwd;
+  const localPart = path.relative(run.cwd, checkCwd);
+  if (path.isAbsolute(localPart) || localPart.startsWith('..'))
+    return { code: null, output: 'A verificação aponta para fora do projeto.' };
   const runner =
-    check.kind === 'json'
-      ? node
-        ? {
-            command: node,
-            args: [
-              '-e',
-              'const fs=require("node:fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8").replace(/^\\uFEFF/,""));if(!p||typeof p!=="object"||Array.isArray(p))throw new Error("package.json precisa ser um objeto")',
-              check.file!,
-            ],
-          }
-        : null
-      : check.kind === 'node'
+    check.kind === 'command'
+      ? (() => {
+          const binary = check.command === 'python' ? python : commandOnPath(check.command!);
+          return binary ? { command: binary, args: check.args || [] } : null;
+        })()
+      : check.kind === 'json'
         ? node
-          ? { command: node, args: ['--check', check.file!] }
+          ? {
+              command: node,
+              args: [
+                '-e',
+                'const fs=require("node:fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8").replace(/^\\uFEFF/,""));if(!p||typeof p!=="object"||Array.isArray(p))throw new Error("package.json precisa ser um objeto")',
+                check.file!,
+              ],
+            }
           : null
-        : check.kind === 'python'
-          ? (() => {
-              const python = commandOnPath('python') || commandOnPath('python3');
-              return python
-                ? {
-                    command: python,
-                    args: [
-                      '-c',
-                      'import ast,sys;ast.parse(open(sys.argv[1],encoding="utf-8-sig").read(),filename=sys.argv[1])',
-                      check.file!,
-                    ],
-                  }
-                : null;
-            })()
-          : (() => {
-              const cli = developerScriptRunner(manager);
-              return cli
-                ? {
-                    command: cli.command,
-                    args: [
-                      ...cli.args,
-                      ...(manager === 'npm' ? ['--ignore-scripts'] : []),
-                      'run',
-                      check.script!,
-                    ],
-                  }
-                : null;
-            })();
+        : check.kind === 'node'
+          ? node
+            ? { command: node, args: ['--check', check.file!] }
+            : null
+          : check.kind === 'python'
+            ? (() => {
+                return python
+                  ? {
+                      command: python,
+                      args: [
+                        '-c',
+                        'import ast,sys;ast.parse(open(sys.argv[1],encoding="utf-8-sig").read(),filename=sys.argv[1])',
+                        check.file!,
+                      ],
+                    }
+                  : null;
+              })()
+            : (() => {
+                const cli = developerScriptRunner(manager);
+                return cli
+                  ? {
+                      command: cli.command,
+                      args: [
+                        ...cli.args,
+                        ...(manager === 'npm' ? ['--ignore-scripts'] : []),
+                        'run',
+                        check.script!,
+                        ...(check.args?.length
+                          ? [...(manager === 'npm' ? ['--'] : []), ...check.args]
+                          : []),
+                      ],
+                    }
+                  : null;
+              })();
   if (!runner)
     return {
       code: null,
       skipped: true,
-      output: `${check.kind === 'python' ? 'Python' : manager} não disponível neste computador.`,
+      output: `${check.command || (check.kind === 'python' ? 'Python' : manager)} não disponível neste computador.`,
     };
   return new Promise<{ code: number | null; output: string }>((resolve) => {
     const output = createBoundedProjectCheckOutput(80_000);
     const child = spawnOwnedTask(runner.command, runner.args, {
       directory: path.join(app.getPath('userData'), 'owned-tasks'),
-      cwd: run.cwd,
+      cwd: checkCwd,
       shell: false,
       windowsHide: true,
       env: {
@@ -2363,7 +2390,10 @@ async function executeDeveloperCheck(
       );
     };
     const abort = () => stop('Verificação cancelada.');
-    const timer = setTimeout(() => stop('A verificação excedeu o limite de tempo.'), timeout);
+    const timer =
+      timeout > 0 && Number.isFinite(timeout)
+        ? setTimeout(() => stop('A verificação excedeu o limite de tempo.'), timeout)
+        : undefined;
     run.controller.signal.addEventListener('abort', abort, { once: true });
     if (run.controller.signal.aborted) abort();
     child.stdout.on('data', (chunk) => output.append('stdout', chunk));
@@ -2453,7 +2483,6 @@ async function sendMespCode(
         error: 'Outro MESP está alterando este projeto. Aguarde a entrega para evitar conflitos.',
       };
     const pending = pendingMespSubmissions.get(petId);
-    const waitingDeadline = Date.now() + 30 * 60_000;
     let waiting = false;
     while (blocked() || developerRuns.size >= 3) {
       if (!waiting) {
@@ -2478,8 +2507,6 @@ async function sendMespCode(
         });
         return { ok: true };
       }
-      if (Date.now() >= waitingDeadline)
-        return { ok: false, error: 'A fila excedeu 30 minutos. A tarefa não foi iniciada.' };
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
     if (pending?.controller.signal.aborted) {
@@ -2495,8 +2522,9 @@ async function sendMespCode(
       controller: new AbortController(),
       profile: null as unknown as DeveloperProfile,
       startedAt: Date.now(),
-      deadline: Date.now() + limits.maxDurationMs,
+      deadline: limits.maxDurationMs > 0 ? Date.now() + limits.maxDurationMs : Infinity,
       repairs: 0,
+      repairSignatures: new Set(),
       totalTokens: 0,
       totalTools: 0,
     };
@@ -2697,7 +2725,10 @@ async function sendMespCode(
           '';
         if (callId && !toolCalls.has(callId)) {
           toolCalls.add(callId);
-          if (toolCalls.size + (developer?.totalTools || 0) > limits.maxToolCalls) {
+          if (
+            limits.maxToolCalls > 0 &&
+            toolCalls.size + (developer?.totalTools || 0) > limits.maxToolCalls
+          ) {
             stopAtLimit(`Limite de ferramentas atingido (${limits.maxToolCalls}).`);
           }
         }
@@ -2824,7 +2855,7 @@ async function sendMespCode(
           const audit = await auditDeveloperPreview({
             url: preview.url,
             signal: developer.controller.signal,
-            timeout: Math.max(1000, Math.min(15_000, developer.deadline - Date.now())),
+            timeout: 0,
             createWindow: () =>
               new BrowserWindow({
                 show: false,
@@ -2854,19 +2885,29 @@ async function sendMespCode(
       }
     }
     if (mespCodeProcesses.get(petId) === run) mespCodeProcesses.delete(petId);
+    const repairSignature =
+      developer && rawError && repairable
+        ? developerRepairSignature(
+            inspectedAfter?.snapshot || (await projectSnapshot(cwd)),
+            sanitizeMespError(rawError, runSecrets),
+          )
+        : '';
+    if (developer && repairSignature && developer.repairSignatures.has(repairSignature))
+      rawError = `A correção repetiu a mesma falha sem alterar o projeto. ${rawError}`;
     if (
       developer &&
       rawError &&
       repairable &&
       !run.cancelled &&
       !developer.controller.signal.aborted &&
-      developer.repairs < 2 &&
+      (!repairSignature || !developer.repairSignatures.has(repairSignature)) &&
       developer.deadline - Date.now() > 15_000 &&
       !isMespTokenLimitExceeded(developer.totalTokens, limits.maxTokens) &&
-      developer.totalTools < limits.maxToolCalls
+      (limits.maxToolCalls === 0 || developer.totalTools < limits.maxToolCalls)
     ) {
       developer.repairs += 1;
-      developerPhase(developer, `Corrigindo falhas (${developer.repairs}/2)`);
+      if (repairSignature) developer.repairSignatures.add(repairSignature);
+      developerPhase(developer, `Corrigindo falhas (${developer.repairs})`);
       try {
         const retry = await sendMespCode(
           {
@@ -2877,7 +2918,7 @@ async function sendMespCode(
               developer.repairs,
             ),
             sessionId: /session not found/i.test(rawError) ? null : run.sessionId,
-            limits: { ...limits, maxDurationMs: Math.max(1000, developer.deadline - Date.now()) },
+            limits,
           },
           developer,
         );
@@ -2951,16 +2992,23 @@ async function sendMespCode(
   });
   child.stdin.end(process.platform === 'win32' ? undefined : contextualPrompt);
 
-  limitTimer = setTimeout(
-    () => {
-      stopAtLimit(`Limite de tempo atingido (${Math.round(limits.maxDurationMs / 60_000)} min).`);
-    },
-    developer ? Math.max(1, developer.deadline - Date.now()) : limits.maxDurationMs,
-  );
+  limitTimer =
+    limits.maxDurationMs > 0
+      ? setTimeout(
+          () => {
+            stopAtLimit(
+              `Limite de tempo atingido (${Math.round(limits.maxDurationMs / 60_000)} min).`,
+            );
+          },
+          developer ? Math.max(1, developer.deadline - Date.now()) : limits.maxDurationMs,
+        )
+      : null;
 
   watchdog = setInterval(() => {
     if (Date.now() - lastOutputAt < 180_000) return;
-    stopAtLimit('O OpenCode não respondeu por 3 minutos. Tente novamente.');
+    if (developer)
+      developerPhase(developer, 'O agente continua trabalhando; aguardando a próxima atualização');
+    lastOutputAt = Date.now();
   }, 15_000);
   return { ok: true };
 }
@@ -3322,11 +3370,7 @@ ipcMain.handle('mesp-code:verify', async (_evt, payloadRaw: unknown) => {
     truncated: boolean;
   }> = [];
   projectCheckRuns.set(petId, run);
-  const suiteTimer = setTimeout(() => {
-    if (run.stopReason) return;
-    run.stopReason = 'suite-timeout';
-    void terminateProjectCheckRun(run);
-  }, MAX_PROJECT_CHECK_SUITE_DURATION_MS);
+  const suiteTimer = undefined;
   safeSend('mesp-code:verify-event', {
     petId,
     verificationId,
@@ -3353,8 +3397,8 @@ ipcMain.handle('mesp-code:verify', async (_evt, payloadRaw: unknown) => {
       }>((resolve) => {
         let child: ChildProcessWithoutNullStreams;
         let settled = false;
-        let timedOut = false;
-        let timer: ReturnType<typeof setTimeout> | null = null;
+        const timedOut = false;
+        const timer: ReturnType<typeof setTimeout> | null = null;
         const output = createBoundedProjectCheckOutput(MAX_PROJECT_CHECK_OUTPUT);
         const emitBufferedOutput = (stream: 'stdout' | 'stderr', raw: string) => {
           const text = redactMespSecrets(raw, secrets);
@@ -3408,11 +3452,6 @@ ipcMain.handle('mesp-code:verify', async (_evt, payloadRaw: unknown) => {
         });
         child.on('error', () => finish(null));
         child.on('close', (code) => finish(code));
-        timer = setTimeout(() => {
-          timedOut = true;
-          if (!run.stopReason) run.stopReason = 'suite-timeout';
-          void terminateProjectCheckRun(run).finally(() => finish(child.exitCode));
-        }, MAX_PROJECT_CHECK_DURATION_MS);
       });
       const item = { check, ...result, durationMs: Date.now() - startedAt };
       results.push(item);
@@ -3932,11 +3971,6 @@ ipcMain.handle('dock:chat', async (_event, raw: unknown) => {
   if (dockChatRequests.has(petId)) return { ok: false, error: 'Este MESP ainda está respondendo.' };
   const controller = new AbortController();
   dockChatRequests.set(petId, controller);
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    if (!controller.signal.aborted) timedOut = true;
-    controller.abort();
-  }, 120000);
   try {
     const model = await new Promise<string | null>((resolve, reject) => {
       const cancel = () => reject(new Error('Chat interrompido.'));
@@ -3970,7 +4004,6 @@ ipcMain.handle('dock:chat', async (_event, raw: unknown) => {
           { role: 'user', content: prompt },
         ],
         stream: false,
-        max_tokens: 4096,
       }),
       signal: controller.signal,
     });
@@ -4004,15 +4037,12 @@ ipcMain.handle('dock:chat', async (_event, raw: unknown) => {
   } catch {
     return {
       ok: false,
-      cancelled: controller.signal.aborted && !timedOut,
-      error: timedOut
-        ? 'A resposta demorou além do limite. Tente novamente ou escolha outro modelo.'
-        : controller.signal.aborted
-          ? 'Resposta interrompida.'
-          : 'Não foi possível conversar com o agente. Confira a conexão nas Configurações.',
+      cancelled: controller.signal.aborted,
+      error: controller.signal.aborted
+        ? 'Resposta interrompida.'
+        : 'Não foi possível conversar com o agente. Confira a conexão nas Configurações.',
     };
   } finally {
-    clearTimeout(timer);
     if (dockChatRequests.get(petId) === controller) dockChatRequests.delete(petId);
   }
 });

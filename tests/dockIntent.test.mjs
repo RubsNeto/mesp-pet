@@ -81,6 +81,44 @@ test('invalid or inconsistent model output cannot trigger execution', () => {
     { action: 'conversation', workspace: 'none', web: false },
   );
 });
+
+test('explicit continuation executes the existing project without a classifier tutorial or delay', async () => {
+  let calls = 0;
+  const resolve = createIntentResolver({
+    classify: async () => {
+      calls++;
+      return { action: 'conversation', workspace: 'none', web: false };
+    },
+  });
+  const resumed = await resolve(
+    request('Continue o projeto existente, confira a todolist já criada e finalize a entrega.', {
+      cwd: 'C:\\Projeto',
+    }),
+  );
+  assert.equal(resumed.action, 'execute');
+  assert.equal(resumed.workspace, 'existing');
+  assert.equal(resumed.web, true);
+  assert.equal(calls, 0);
+  assert.equal(
+    (await resolve(request('Continue o projeto, apenas explique os próximos passos na resposta')))
+      .action,
+    'conversation',
+  );
+  assert.equal(
+    (await resolve(request('Como finalizar o projeto sem alterar arquivos?'))).action,
+    'conversation',
+  );
+  assert.equal(
+    (await resolve(request('Continue a história do programador'))).action,
+    'conversation',
+  );
+  const controller = new AbortController();
+  controller.abort();
+  assert.equal(
+    (await resolve(request('Retome a implementação do projeto'), controller.signal)).cancelled,
+    true,
+  );
+});
 test('known new web deliverables retain the preview default without overriding model intent or file formats', async () => {
   const execute = createIntentResolver({
     classify: async () => ({ action: 'execute', workspace: 'new', web: false }),

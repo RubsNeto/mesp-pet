@@ -35,7 +35,8 @@
     "test:complete": "node scripts/validate-dock.cjs",
     "test:performance": "node tests/dockPerformance.electron.cjs",
     "test:routing": "node tests/dockRouting.electron.cjs",
-    "test:developer": "node tests/dockDeveloper.electron.cjs && node tests/dockWebAudit.electron.cjs"
+    "test:developer": "node tests/dockDeveloper.electron.cjs && node tests/dockWebAudit.electron.cjs",
+    "test:languages": "node tests/dockDeveloperLanguages.cjs"
   },
   "dependencies": {
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",

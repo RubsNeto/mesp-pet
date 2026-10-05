@@ -1,8 +1,8 @@
 # MESP Top Dock
 
 Aplicativo desktop com personagens MESP em uma ilha preta no topo da tela,
-inspirada no Coucou. Cada personagem acompanha um projeto ou tarefa com Codex,
-Claude Code ou MESP Code conectado ao 9Router.
+inspirada no Coucou. Cada personagem acompanha um projeto ou tarefa com o agente
+MESP Code e modelos/contas conectados pelo 9Router.
 
 Esta é a versão atual do repositório. O guia de uso está em
 [LEIA-ME-DOCK.md](LEIA-ME-DOCK.md).
@@ -20,6 +20,11 @@ Esta é a versão atual do repositório. O guia de uso está em
 - Modelo **Auto** que prioriza contas elegíveis com reset mais próximo.
 - Expansão com mola, carinho, compressão ao clicar e movimento reduzido.
 - Proteção ao sair com agentes ou verificações ativos.
+- Execução sem corte local por tempo, tokens ou chamadas de ferramentas.
+- Verificação de workspaces, Python, Go, Rust e .NET conforme o projeto e os runtimes.
+- Prévia com endereço estável e auditoria de controles e cinco tamanhos de tela.
+
+As [outras 50 melhorias implementadas](MELHORIAS-50-DESENVOLVEDOR-2.md) detalham esta rodada.
 
 O MESP Code oferece os modos Rápido, Plano, Assistido e Autônomo. O login dos
 provedores acontece no fluxo real do 9Router. O estado de autenticação precisa

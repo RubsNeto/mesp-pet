@@ -94,11 +94,11 @@ const { pipeline } = require('node:stream/promises');
             type: 'quota_unavailable',
           },
         });
-      // Bound retries. Each upstream attempt has one account, avoiding nested native retry loops.
+      // Exhaust distinct available choices, rather than an arbitrary count or task clock.
       const tried = new Set();
       let lastStatus = 503;
       let selectedAt = null;
-      for (let attempt = 0; attempt < 8 && Date.now() - startedAt < 80000; attempt++) {
+      while (!controller.signal.aborted) {
         if (controller.signal.aborted) return;
         const available = choices.filter(
           (candidate) =>
@@ -147,17 +147,11 @@ const { pipeline } = require('node:stream/promises');
         }
         const attemptController = new AbortController();
         const configuredTimeout = Number(process.env.MESP_AUTO_TIMEOUT_MS);
-        const timeout = Math.min(
-          80000 - (Date.now() - startedAt),
-          configuredTimeout >= 250 && configuredTimeout <= 45000
-            ? configuredTimeout
-            : request.level === 3
-              ? 45000
-              : request.level === 2
-                ? 25000
-                : 8000,
-        );
-        const timer = setTimeout(() => attemptController.abort(), timeout);
+        // An explicit diagnostic override is used by isolated offline-account tests only.
+        const timer =
+          process.env.MESP_DOCK_TEST_HIDDEN === '1' && configuredTimeout >= 250
+            ? setTimeout(() => attemptController.abort(), configuredTimeout)
+            : null;
         try {
           const response = await fetch(`${origin}${req.url}`, {
             method: 'POST',

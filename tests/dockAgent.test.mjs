@@ -107,14 +107,15 @@ test('computer access keeps greetings, tutorials and unspecified project changes
   assert.equal(shouldCreateTaskWorkspace('Corrija os arquivos do projeto'), false);
 });
 
-test('tool tasks get a usable default budget without replacing saved custom limits', () => {
+test('every saved budget migrates to unlimited execution without replacing chat state', () => {
   const defaults = { maxDurationMs: 300000, maxTokens: 100000, maxToolCalls: 50 };
-  assert.deepEqual(restoreMespLimits(null, undefined, defaults), defaults);
+  const unlimited = { maxDurationMs: 0, maxTokens: 0, maxToolCalls: 0 };
+  assert.deepEqual(restoreMespLimits(null, undefined, defaults), unlimited);
   const old = { ...defaults, maxTokens: 25000 };
-  assert.deepEqual(restoreMespLimits(old, undefined, defaults), defaults);
-  assert.deepEqual(restoreMespLimits(old, 2, defaults), old);
+  assert.deepEqual(restoreMespLimits(old, undefined, defaults), unlimited);
+  assert.deepEqual(restoreMespLimits(old, 2, defaults), unlimited);
   const custom = { ...old, maxDurationMs: 60000 };
-  assert.deepEqual(restoreMespLimits(custom, undefined, defaults), custom);
+  assert.deepEqual(restoreMespLimits(custom, undefined, defaults), unlimited);
 });
 
 test('implementation intent distinguishes a real project from questions and code examples', () => {
@@ -309,7 +310,7 @@ test('managed projects keep files and serve a verified local preview without exp
   await mkdir(dist);
   await writeFile(join(dist, 'index.html'), '<title>Build pronto</title>');
   const built = await service.preview(cwd);
-  assert.notEqual(built.url, first.url);
+  assert.equal(built.url, first.url, 'A new build preserves origin and browser storage');
   assert.match(await (await fetch(built.url)).text(), /Build pronto/);
   await service.dispose();
   await assert.rejects(fetch(built.url));

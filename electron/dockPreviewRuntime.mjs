@@ -4,6 +4,8 @@ import { createServer, request } from 'node:http';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { join, relative, isAbsolute, extname } from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { listenPreviewServer } from './dockPreviewAddress.mjs';
+import { redactDeveloperText } from './dockDeveloper.mjs';
 
 export async function readPreviewRuntime(project) {
   let source;
@@ -64,8 +66,12 @@ export async function startPreviewRuntime({
   child.once('error', (error) => {
     spawnError = error;
   });
-  child.stdout.resume();
-  child.stderr.resume();
+  let diagnostic = '';
+  const capture = (chunk) => {
+    diagnostic = (diagnostic + chunk.toString('utf8')).slice(-16_000);
+  };
+  child.stdout.on('data', capture);
+  child.stderr.on('data', capture);
   child.stdin.on('error', () => {});
   child.stdin.end();
   const stop = async () => {
@@ -90,7 +96,7 @@ export async function startPreviewRuntime({
     while (Date.now() < deadline) {
       if (spawnError || child.exitCode !== null || child.signalCode !== null)
         throw new Error(
-          'O servidor do projeto encerrou antes de abrir. Confira o arquivo e as dependências.',
+          'O servidor do projeto encerrou antes de abrir. ' + redactDeveloperText(diagnostic),
         );
       try {
         const result = await globalThis.fetch(backend, {
@@ -106,7 +112,10 @@ export async function startPreviewRuntime({
       await new Promise((resolve) => globalThis.setTimeout(resolve, 150));
     }
     if (!ready)
-      throw new Error('O servidor não abriu a página inicial no endereço local esperado.');
+      throw new Error(
+        'O servidor não abriu a página inicial no endereço local esperado. ' +
+          redactDeveloperText(diagnostic),
+      );
     const token = randomBytes(18).toString('hex');
     const cookieName = `mesp_preview_${token.slice(0, 12)}`;
     const proxy = createServer((req, res) => {
@@ -185,10 +194,7 @@ export async function startPreviewRuntime({
       });
       req.pipe(upstream);
     });
-    await new Promise((resolve, reject) => {
-      proxy.once('error', reject);
-      proxy.listen(0, '127.0.0.1', resolve);
-    });
+    await listenPreviewServer(proxy, project);
     let closed = false;
     let closing = null;
     return {

@@ -11,7 +11,7 @@ export function normalizeDeveloperReport(value) {
     version: 1,
     project: value.project.slice(0, 4096),
     status: value.status,
-    repairs: Number.isInteger(value.repairs) ? Math.max(0, Math.min(2, value.repairs)) : 0,
+    repairs: Number.isSafeInteger(value.repairs) ? Math.max(0, value.repairs) : 0,
     durationMs: Number.isFinite(value.durationMs) ? Math.max(0, value.durationMs) : 0,
     limited: value.limited === true,
     files: list('files')
