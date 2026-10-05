@@ -22,6 +22,34 @@ const previousPrompt = (history) =>
     .reverse()
     .find((item) => item.role === 'user' && !continuation.test(clean(item.content || item.text)));
 
+const computerLocation =
+  /(?:[a-z]:[\\/]|\\\\[^\\\s]+\\|%(?:userprofile|appdata|localappdata|onedrive|temp|programfiles)%|\b(?:downloads|desktop|area de trabalho|meus documentos|meu pc|meu computador|neste pc|neste computador|no windows|disco [a-z])\b)/;
+const computerAction =
+  /\b(?:leia|ler|liste|listar|abra|abre|abrir|copie|copiar|mova|mover|renomeie|localize|encontre|busque|verifique|veja|mostre|consulte|inspecione|organize|execute|rode|instale|desinstale|atualize|crie|faca|corrija|altere|edite|salve|grave|remova|apague)\b/;
+
+export function isComputerTaskRequest(prompt, history = []) {
+  const text = clean(prompt).trim();
+  if (continuation.test(text)) {
+    const previous = previousPrompt(history);
+    return previous ? isComputerTaskRequest(previous.content || previous.text) : false;
+  }
+  // Local factual questions need tools; tutorials and code examples remain conversation.
+  const localQuestion =
+    /^(?:quanto|qual).*espaco.*(?:disco|pc|computador)|^quais (?:programas|aplicativos|arquivos|pastas|processos).*(?:instalad|tenho|existem|estao|ha\b)|^qual.*versao.*instalad|^o que (?:tem|ha|existe) (?:em|na|no)\b/.test(
+      text,
+    );
+  if (explanation(text) && !localQuestion) return false;
+  if (computerLocation.test(text) && (computerAction.test(text) || localQuestion)) return true;
+  if (localQuestion && /\b(?:programas|aplicativos|processos|versao)\b/.test(text)) return true;
+  return (
+    (/\b(?:abra|inicie|execute|rode)\b/.test(text) &&
+      /\b(?:programa|aplicativo|chrome|edge|firefox|notepad|bloco de notas|calculadora|powershell|terminal|comando|ipconfig|systeminfo|explorer)\b/.test(
+        text,
+      )) ||
+    /^(?:quanto|qual).*espaco.*(?:disco|meu pc|meu computador)/.test(text)
+  );
+}
+
 export function isWebProjectRequest(prompt, history = []) {
   const text = clean(prompt);
   if (explanation(text)) return false;
@@ -41,6 +69,7 @@ export function isWebProjectRequest(prompt, history = []) {
 }
 
 export function shouldExecuteProjectRequest(prompt, history = []) {
+  if (isComputerTaskRequest(prompt, history)) return true;
   if (isWebProjectRequest(prompt, history)) return true;
   const text = clean(prompt);
   if (explanation(text)) return false;
@@ -59,6 +88,7 @@ export function shouldExecuteProjectRequest(prompt, history = []) {
 }
 
 export function shouldCreateTaskWorkspace(prompt, history = []) {
+  if (isComputerTaskRequest(prompt, history)) return true;
   const text = clean(prompt);
   if (explanation(text)) return false;
   if (continuation.test(text)) {
@@ -78,9 +108,13 @@ export function shouldCreateTaskWorkspace(prompt, history = []) {
 }
 
 export const taskExecutionInstructions = [
-  'Execute a tarefa com ferramentas na pasta atual; não se limite a devolver código ou prometer ações.',
-  'Antes de alterar, examine os arquivos relevantes e preserve alterações existentes. Mantenha o trabalho dentro deste projeto.',
+  'Execute a tarefa com ferramentas; não se limite a devolver código ou prometer ações. A pasta atual é um ponto de partida, não um limite de acesso.',
+  'Você pode ler e alterar arquivos, consultar o sistema e executar programas e comandos em qualquer pasta acessível ao usuário do Windows, inclusive fora do projeto. Use caminhos absolutos para destinos externos.',
+  'Para localizar arquivos, comece pelo caminho informado ou pelas pastas pessoais relevantes. Faça buscas direcionadas antes de percorrer discos inteiros, para manter a tarefa rápida.',
+  'Para copiar arquivos sem alterar o conteúdo, use mesp_computer_copy_file, que preserva os bytes e verifica SHA-256 automaticamente; não reconstrua o arquivo a partir da saída da ferramenta read, que inclui números de linha e metadados. Preserve a codificação e as quebras de linha. Não sobrescreva um destino existente sem isso fazer parte do pedido.',
+  'Antes de alterar, examine os arquivos relevantes e preserve alterações existentes. Aja nos arquivos e programas necessários ao pedido; não altere projetos ou dados sem relação com a tarefa.',
   'Produza os arquivos e resultados necessários, execute as verificações apropriadas e corrija falhas encontradas.',
+  'Ao validar uma operação, faça a verificação falhar com um erro se o resultado estiver incorreto. Em PowerShell use $ErrorActionPreference = "Stop" e throw quando uma condição esperada não for atendida; imprimir False e encerrar com código zero não comprova sucesso.',
   'Pedidos de análise ou pesquisa devem consultar fontes ou arquivos reais e distinguir fatos verificados de hipóteses.',
   'Não invente execução, testes, dados, links, publicação ou sucesso. Informe bloqueios e etapas que não conseguiu verificar.',
   'Não publique, faça push ou envie mensagens a terceiros sem isso fazer parte do pedido. Não abra servidores em segundo plano por conta própria.',

@@ -1,12 +1,45 @@
 # MESP Top Dock
 
+## Acesso ao computador — 5 de outubro de 2026
+
+O agente pode ler e editar arquivos e executar comandos e programas em qualquer
+pasta ou disco acessível ao seu usuário do Windows, inclusive fora do projeto.
+A pasta selecionada é o ponto de partida; não funciona como uma restrição de
+acesso. O agente recebe os caminhos reais de Documentos, Desktop e Downloads,
+inclusive quando essas pastas estão no OneDrive.
+
+Escreva **Leia C:\\pasta\\arquivo.txt**, **Organize meus Downloads** ou
+**Quanto espaço tenho no disco C?**. Sem projeto selecionado, o MESP prepara
+uma pasta de trabalho própria e aciona as ferramentas, sem pedir um repositório.
+Para alterar um projeto sem informar onde está, a escolha da pasta continua
+disponível dentro da ilha. Cumprimentos e explicações permanecem rápidos.
+
+**Autônomo** executa as ações solicitadas; **Assistido** permite leitura externa
+e pede aprovação para alterações e comandos; **Plano** permite leitura externa
+e mantém gravações e comandos bloqueados. O acesso respeita as permissões do
+Windows, sem elevação automática a administrador. Esse acesso cobre arquivos
+e comandos; não acrescenta ferramentas para enxergar ou clicar em telas.
+
+Cópias de arquivos têm uma ferramenta própria que preserva os bytes e verifica
+SHA-256 automaticamente, incluindo codificação e quebras de linha. Um destino
+existente é preservado por padrão. O Plano bloqueia essa ferramenta e o
+Assistido pede aprovação antes de executá-la. A integração fica no perfil do
+MESP e não precisa instalar dependências adicionais.
+
+**npm run test:computer** usa o OpenCode instalado e um provedor simulado com
+arquivos reais em uma pasta temporária fora do projeto. Verifica leitura,
+gravação, cópia exata, execução de PowerShell, Plano e aprovação no Assistido.
+Também verifica o Auto nativo com o painel do 9Router exigindo autenticação;
+a capacidade anunciada pela API mantém o registro do Auto. O teste usa
+perfil isolado, janela oculta e limpa somente a pasta temporária que criou.
+
 ## Desenvolvedor e agente de tarefas — revisão de 5 de outubro de 2026
 
 Pedidos como **Crie um script Python**, **Crie um relatório em arquivo** e
 **Crie um site** agora usam ferramentas e uma pasta própria do MESP, sem exigir
 um repositório para começar. Cumprimentos, dúvidas e pedidos de explicação
-continuam na conversa. Para corrigir arquivos de um projeto existente, selecione
-essa pasta; o MESP conserva o aviso dentro da ilha antes de abrir o seletor.
+continuam na conversa. Para corrigir arquivos de um projeto existente, informe
+o caminho ou selecione essa pasta; o MESP conserva o aviso dentro da ilha antes de abrir o seletor.
 Com uma pasta aberta, **Rápido** reconhece pedidos de execução e aciona o agente.
 **Plano** mantém acesso somente de leitura; **Assistido** mantém suas aprovações.
 
@@ -32,9 +65,10 @@ carregar os plugins padrão de autenticação de outros provedores. Comandos com
 de servidor contínuo, como `node server.cjs` e `npm run dev`, são bloqueados no
 modo Autônomo para evitar prender a tarefa; a prévia deve gerenciar esses serviços.
 
-Execute **npm run test:complete** para rodar todas as 13 verificações da variante,
+Execute **npm run test:complete** para rodar todas as 14 verificações da variante,
 incluindo testes unitários, lint, build, agente nativo, roteamento, usabilidade,
-histórico, configurações, 9Router, Auto, desempenho, auditoria e vários projetos.
+histórico, configurações, 9Router, Auto, desempenho, auditoria, vários projetos
+e acesso ao computador fora do projeto.
 Os resultados individuais ficam em `qa/validation-*/results.json`, com logs por
 verificação. As janelas de teste ficam ocultas e usam perfis isolados.
 

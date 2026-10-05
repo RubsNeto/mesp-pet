@@ -2,14 +2,20 @@
 
 ## Resultado da revisão
 
-Todas as **13 verificações de `npm run test:complete` passaram** nesta
-compilação, incluindo **248 testes unitários**, lint e build. Os testes usaram
+Todas as **14 verificações cobertas por `npm run test:complete` passaram** nesta
+compilação, incluindo **252 testes unitários**, lint e build. Os testes usaram
 perfis isolados e janelas ocultas. A auditoria aprovou 37 verificações de
 interface; a suíte de vários projetos aprovou 14 verificações.
 
+A execução final em sequência aprovou 13/14 na primeira tentativa. A abertura
+de Configurações ultrapassou o prazo de 30 segundos do teste durante a partida
+do servidor local; a repetição isolada passou. O teste agora reserva 60 segundos
+para combinar a inicialização do 9Router com o carregamento da página.
+
 | Verificação | Resultado |
 | --- | --- |
-| Unitários, lint e build | Aprovados; 248 testes unitários |
+| Unitários, lint e build | Aprovados; 252 testes unitários |
+| Acesso ao computador | Leitura, gravação e PowerShell em arquivos fora do projeto; Plano e Assistido aprovados |
 | Agente nativo | Arquivos, comandos, prévia, fila, falha e cancelamento aprovados |
 | Dois agentes nativos simultâneos | Pastas distintas, arquivos reais e rascunho preservado |
 | Roteamento, usabilidade e histórico | Aprovados |
@@ -23,6 +29,7 @@ interface; a suíte de vários projetos aprovou 14 verificações.
 | Necessidade | Comportamento e evidência |
 | --- | --- |
 | Conversar sem repositório | Cumprimentos e perguntas seguem pelo modo Rápido, sem abrir seletor de pasta. |
+| Trabalhar fora do projeto | Caminhos absolutos, pastas pessoais, discos e comandos usam as permissões do usuário do Windows. Pedidos com localização externa usam ferramentas sem exigir repositório. |
 | Pedir uma implementação | Novos entregáveis recebem uma pasta própria; o agente cria arquivos e executa comandos. Correções de projetos existentes mantêm a escolha da pasta dentro da ilha. |
 | Trabalhar em vários sistemas | Dois OpenCode nativos executaram simultaneamente em pastas distintas. Dez MESP foram verificados na interface, com títulos, estados, resultados e persistência. |
 | Manter o contexto | Históricos e sessões são separados por MESP. Trocas, recolhimento e promoção do resultado preservam a conversa selecionada e o rascunho. |
@@ -42,6 +49,47 @@ saída UTF-8, processos destacados e preservação de um processo independente.
 Também foram corrigidos a criação de tarefas além de sites, a pausa da fila após
 falha, a espera pelo encerramento da prévia, o espaço do cabeçalho em telas
 estreitas e um aviso de execução que podia permanecer depois da conclusão.
+
+## Acesso ao computador
+
+Foram removidos o bloqueio de diretórios externos no Plano e no Assistido e a
+instrução que limitava o Autônomo ao projeto. O agente recebe o diretório inicial,
+o perfil e os caminhos reais de Desktop, Documentos e Downloads, para localizar
+arquivos inclusive no OneDrive. Busca direcionada evita varrer discos inteiros
+sem necessidade. O acesso não altera as permissões ou configurações globais de
+Codex e Claude.
+
+`test:computer` executou o OpenCode instalado com um provedor simulado, leu um
+arquivo com espaços no nome em uma pasta temporária externa, escreveu outro e
+executou PowerShell sobre esses arquivos. A resposta da ferramenta continha o
+texto real lido; o arquivo escrito e o resultado do comando foram conferidos no
+disco. Nenhum seletor de repositório foi aberto. Plano leu o arquivo e teve a
+tentativa de escrita bloqueada. Assistido leu e manteve a gravação pendente até
+uma aprovação específica. O perfil permaneceu isolado e a pasta temporária foi
+removida ao terminar.
+
+A cópia tem uma ferramenta local do MESP, conectada ao agente pelo
+[MCP suportado pelo OpenCode](https://opencode.ai/docs/mcp-servers/).
+Ela preserva os bytes e compara SHA-256 da origem e do destino. Os testes
+incluem dados binários, BOM, CRLF e texto sem quebra final, além de preservar
+destinos existentes por padrão. Plano bloqueia a ferramenta; Assistido aguarda
+aprovação. A ferramenta não depende de cmdlets opcionais do PowerShell.
+
+O teste com conta real usando **Auto** leu um arquivo temporário externo,
+copiou o conteúdo exato e executou PowerShell para conferir os bytes. A primeira
+verificação com GPT-4o mini havia reconstruído o texto incluindo números de
+linha ou uma quebra final; esse resultado foi rejeitado. A ferramenta de cópia
+e as instruções do agente foram ajustadas, mantendo a comparação exata no teste.
+
+Também foi corrigida a perda do registro do modelo Auto no agente nativo quando
+o painel do 9Router exigia autenticação e a API de modelos permanecia acessível.
+O registro agora consulta a capacidade real do servidor. O teste reproduz o
+painel bloqueado e verifica que Auto chega à API e executa ferramentas reais.
+
+O acesso é a arquivos, programas e comandos, com as permissões do usuário que
+executa o MESP. Não concede administração automática nem acrescenta ferramentas
+de visão ou clique em interfaces gráficas. O gerenciamento de processos da
+própria tarefa continua funcionando.
 
 ## 9Router real e conta real
 

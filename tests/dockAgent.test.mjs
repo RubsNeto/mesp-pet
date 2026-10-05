@@ -7,9 +7,54 @@ import {
   isWebProjectRequest,
   shouldExecuteProjectRequest,
   shouldCreateTaskWorkspace,
+  isComputerTaskRequest,
 } from '../src/services/dockAgent.mjs';
 import { createDockProjectService } from '../electron/dockProjects.mjs';
 import { restoreMespLimits } from '../src/services/mespCodeCore.mjs';
+
+test('computer requests use tools without requiring a repository, including external file corrections', () => {
+  for (const prompt of [
+    'Leia C:\\Users\\ruben\\Downloads\\relatorio.txt',
+    'Corrija o arquivo D:\\outro projeto\\app.js',
+    'Liste meus Downloads',
+    'Organize minha área de trabalho',
+    'Copie \\\\servidor\\documentos\\teste.txt para meus documentos',
+    'Leia %USERPROFILE%\\Documents\\notas.txt',
+    'Verifique os processos no meu PC',
+    'Veja o arquivo C:\\Temp\\notas.txt',
+    'Quais programas tenho instalados?',
+    'Qual versão do Python está instalada?',
+    'Quanto espaço tenho no disco C?',
+    'Qual versão do Node está instalada no meu computador?',
+    'O que tem em C:\\Temp?',
+    'Abra a calculadora',
+    'Execute o comando ipconfig',
+  ]) {
+    assert.equal(isComputerTaskRequest(prompt), true, prompt);
+    assert.equal(shouldExecuteProjectRequest(prompt), true, prompt);
+    assert.equal(shouldCreateTaskWorkspace(prompt), true, prompt);
+  }
+  assert.equal(
+    shouldCreateTaskWorkspace('Continue', [{ role: 'user', content: 'Leia C:\\Temp\\a.txt' }]),
+    true,
+  );
+});
+
+test('computer access keeps greetings, tutorials and unspecified project changes in their existing flows', () => {
+  for (const prompt of [
+    'oi',
+    'Como organizar meus Downloads?',
+    'Explique como ler C:\\Temp\\a.txt',
+    'Quais programas você recomenda para meu PC?',
+    'Qual arquivo contém o JavaScript?',
+    'Crie apenas o código de um script para meus Downloads',
+  ]) {
+    assert.equal(isComputerTaskRequest(prompt), false, prompt);
+    assert.equal(shouldExecuteProjectRequest(prompt), false, prompt);
+    assert.equal(shouldCreateTaskWorkspace(prompt), false, prompt);
+  }
+  assert.equal(shouldCreateTaskWorkspace('Corrija os arquivos do projeto'), false);
+});
 
 test('tool tasks get a usable default budget without replacing saved custom limits', () => {
   const defaults = { maxDurationMs: 300000, maxTokens: 100000, maxToolCalls: 50 };

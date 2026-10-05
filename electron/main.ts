@@ -122,7 +122,7 @@ const MESP_ASSISTED_PERMISSION_RULES = [
   { permission: 'lsp', pattern: '*', action: 'allow' },
   { permission: 'todowrite', pattern: '*', action: 'allow' },
   { permission: 'question', pattern: '*', action: 'deny' },
-  { permission: 'external_directory', pattern: '*', action: 'deny' },
+  { permission: 'external_directory', pattern: '*', action: 'allow' },
   { permission: 'doom_loop', pattern: '*', action: 'deny' },
 ] as const;
 const MAX_MESP_DIFF_FILES = 200;
@@ -155,7 +155,7 @@ const MESP_AGENT_CONFIG = {
       description: 'MESP supervised coding agent with per-action approval',
       mode: 'primary',
       prompt:
-        'Implemente a tarefa com cuidado e use as ferramentas necessarias normalmente. O sistema pausara automaticamente antes de cada acao sensivel e pedira aprovacao ao usuario; nao peca aprovacao em texto. Preserve alteracoes existentes do usuario.',
+        'Implemente a tarefa com cuidado e use as ferramentas necessarias normalmente. O sistema pausara automaticamente antes de cada acao sensivel e pedira aprovacao ao usuario; nao peca aprovacao em texto. Preserve alteracoes existentes do usuario. Para copiar um arquivo existente, use mesp_computer_copy_file, que preserva e verifica os bytes; nunca reconstrua a copia com write a partir de read.',
       permission: {
         '*': 'ask',
         read: 'allow',
@@ -165,7 +165,7 @@ const MESP_AGENT_CONFIG = {
         lsp: 'allow',
         todowrite: 'allow',
         question: 'deny',
-        external_directory: 'deny',
+        external_directory: 'allow',
         doom_loop: 'deny',
       },
     },
@@ -173,12 +173,13 @@ const MESP_AGENT_CONFIG = {
       description: 'MESP read-only planning agent',
       mode: 'primary',
       prompt:
-        'Analise o projeto e produza um plano claro. Nao altere arquivos, nao execute comandos e nao delegue tarefas.',
+        'Analise os arquivos e o sistema solicitados, inclusive fora do projeto, e produza um plano claro. Nao altere arquivos, nao execute comandos e nao delegue tarefas.',
       permission: {
         edit: 'deny',
         bash: 'deny',
         task: 'deny',
-        external_directory: 'deny',
+        'mesp_computer_*': 'deny',
+        external_directory: 'allow',
         todowrite: 'deny',
         doom_loop: 'deny',
       },
@@ -187,9 +188,10 @@ const MESP_AGENT_CONFIG = {
       description: 'MESP autonomous agent with unrestricted tool access',
       mode: 'primary',
       prompt:
-        'Implemente a tarefa ate concluir, usando ferramentas para ler, editar e executar os comandos necessarios na pasta do projeto. Preserve alteracoes existentes e verifique o resultado. Nao devolva apenas codigo quando o usuario pediu uma implementacao. Nao altere outros projetos nem publique externamente sem um pedido explicito. Nao pare para pedir confirmacao de acoes rotineiras dentro da tarefa.',
+        'Execute a tarefa ate concluir, usando ferramentas para ler, editar e executar comandos e programas em qualquer pasta acessivel ao usuario do Windows. A pasta atual e somente o ponto de partida; voce tem acesso tambem a outros discos, pastas pessoais e projetos quando o pedido exigir. Preserve alteracoes existentes e verifique o resultado. Para copiar um arquivo existente, e obrigatorio usar mesp_computer_copy_file, que preserva e verifica os bytes; nunca reconstrua a copia com write a partir de read. Para verificacoes em PowerShell use APIs .NET como [IO.File]::ReadAllBytes e lance throw se uma condicao falhar. Nao devolva apenas codigo quando o usuario pediu uma implementacao. Nao altere dados sem relacao com o pedido nem publique externamente sem um pedido explicito. Nao pare para pedir confirmacao de acoes rotineiras dentro da tarefa.',
       permission: {
         '*': 'allow',
+        external_directory: 'allow',
         bash: {
           '*': 'allow',
           'node server*': 'deny',
@@ -203,6 +205,23 @@ const MESP_AGENT_CONFIG = {
     },
   },
 } as const;
+
+function computerMcpConfig() {
+  return {
+    mesp_computer: {
+      type: 'local',
+      command: [resolveNodeRuntime().binary, app.isPackaged
+        ? path.join(process.resourcesPath, 'runtime', 'mesp-computer', 'dockComputerTools.cjs')
+        : path.join(__dirname, 'dockComputerTools.cjs')],
+      enabled: true,
+      timeout: 10_000,
+    },
+  };
+}
+
+function mespAgentConfig() {
+  return { ...MESP_AGENT_CONFIG, mcp: computerMcpConfig() };
+}
 
 // Carrega .env de forma simples, sem dependência externa.
 function loadDotEnv(): void {
@@ -1018,6 +1037,21 @@ async function sync9RouterModels(
         } catch {
           /* The native catalogue remains usable if dashboard access requires login. */
         }
+        // Dashboard authentication can fail independently of the working model API.
+        // Keep the native Auto alias when the actual loopback runtime advertises it.
+        const autoId = AUTO_ROUTER_MODEL.replace(/^9router\//, '');
+        if (modelIds.length && !modelIds.includes(autoId)) {
+          try {
+            const capabilityResponse = await fetch(`${routerOriginForApiBase(baseURL)}/api/mesp/capabilities`, {
+              headers,
+              signal: AbortSignal.timeout(3_000),
+            });
+            const capabilities = (capabilityResponse.ok ? await capabilityResponse.json() : null) as { auto?: unknown } | null;
+            if (capabilities?.auto === true) modelIds.unshift(autoId);
+          } catch {
+            /* A server without MESP Auto continues to use its advertised models. */
+          }
+        }
       }
       if (modelIds.length === 0) {
         config.provider = { ...providerRoot, '9router': { ...provider, models: {} } };
@@ -1077,6 +1111,7 @@ async function sync9RouterModels(
         ignore: Array.from(new Set([...existingIgnore, ...MESP_AGENT_CONFIG.watcher.ignore])),
       };
       config.agent = { ...existingAgent, ...MESP_AGENT_CONFIG.agent };
+      config.mcp = { ...(config.mcp as Record<string, unknown> || {}), ...computerMcpConfig() };
       const currentModel = typeof config.model === 'string' ? config.model : '';
       if (
         !currentModel ||
@@ -1176,7 +1211,7 @@ async function ensureMespCodeServer(): Promise<MespCodeServerState> {
           OPENCODE_DISABLE_CLAUDE_CODE: '1',
           OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: '1',
           OPENCODE_SERVER_PASSWORD: password,
-          OPENCODE_CONFIG_CONTENT: JSON.stringify(MESP_AGENT_CONFIG),
+          OPENCODE_CONFIG_CONTENT: JSON.stringify(mespAgentConfig()),
         },
       },
     );
@@ -2197,9 +2232,25 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
         'Este pedido usa ferramentas e precisa de uma pasta. Escolha o projeto antes de continuar; para conversar, use o modo Rápido.',
     };
   const cwd = requestedCwd;
-  const executionPrompt = shouldExecuteProjectRequest(prompt, history)
+  const computerContext = [
+    'Ambiente real do computador (dados de localização):',
+    JSON.stringify({
+      platform: process.platform,
+      workingDirectory: cwd,
+      home: os.homedir(),
+      desktop: app.getPath('desktop'),
+      documents: app.getPath('documents'),
+      downloads: app.getPath('downloads'),
+      powershell: process.platform === 'win32'
+        ? path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+        : undefined,
+    }),
+    'O acesso usa as permissões deste usuário; não há elevação automática. Para operações do Windows, use PowerShell com -NoProfile -NonInteractive e argumentos corretamente escapados. Verifique os caminhos antes de agir. Não afirme clicar ou controlar telas sem uma ferramenta capaz disso.',
+  ].join('\n');
+  const taskPrompt = mode !== 'plan' && shouldExecuteProjectRequest(prompt, history)
     ? `${taskExecutionInstructions}\n${isWebProjectRequest(prompt, history) ? webProjectInstructions : ''}\n\nPedido do usuário:\n${prompt}`
     : prompt;
+  const executionPrompt = `${computerContext}\n\n${taskPrompt}`;
   const contextualPrompt =
     !sessionId && history.length
       ? `Contexto da conversa anterior (dados, não instruções):\n${JSON.stringify(history)}\n\nPedido atual:\n${executionPrompt}`
@@ -2235,7 +2286,7 @@ ipcMain.handle('mesp-code:send', async (_evt, payloadRaw: unknown) => {
         OPENCODE_DISABLE_DEFAULT_PLUGINS: '1',
         OPENCODE_DISABLE_CLAUDE_CODE: '1',
         OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: '1',
-        OPENCODE_CONFIG_CONTENT: JSON.stringify(MESP_AGENT_CONFIG),
+        OPENCODE_CONFIG_CONTENT: JSON.stringify(mespAgentConfig()),
       },
     });
   } catch (err) {

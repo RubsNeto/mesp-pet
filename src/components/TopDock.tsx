@@ -1751,9 +1751,9 @@ export function TopDock() {
                       ))}
                     </div>
                     <p>
-                      Para trabalhar: “Peça ao Codex para revisar o código” ou escreva a tarefa
-                      diretamente. O botão + cria outro MESP para trabalhar em paralelo. Para
-                      trocar, peça “Abrir MESP nome da tarefa”.
+                      Escreva a tarefa: “Crie um site”, “Leia C:\pasta\arquivo.txt” ou
+                      “Verifique meu PC”. O botão + cria outro MESP para trabalhar em paralelo.
+                      Para trocar, peça “Abrir MESP nome da tarefa”.
                     </p>
                     <small className="dock-help-keys">
                       Enter envia · Shift+Enter quebra a linha · Ctrl+K conversa · Esc volta

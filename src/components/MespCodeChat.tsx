@@ -196,6 +196,8 @@ const SUGGESTIONS: Record<MespCodeMode, string[]> = {
   ],
 };
 const EMPTY_MODELS: string[] = [];
+const toolDisplayName = (name: string) =>
+  name === 'mesp_computer_copy_file' ? 'Copiar arquivo' : name;
 const OPEN_MODEL_PATTERN =
   /(?:qwen|deepseek|llama|mistral|mixtral|minimax|glm|kimi|devstral|codestral)/i;
 const MODE_OPTIONS: Array<{ id: MespCodeMode; label: string; short: string }> = [
@@ -771,11 +773,11 @@ export function MespCodeChat({
       if (data.kind === 'permission' && data.permission) {
         if (wasCancelled) return;
         setPermission({ ...data.permission, requestId: data.requestId });
-        setAnnouncement(`Aprovacao necessaria para ${data.permission.action}.`);
+        setAnnouncement(`Aprovação necessária para ${toolDisplayName(data.permission.action)}.`);
         const assistantId = activeAssistantRef.current;
         if (assistantId) {
           const permissionId = data.permission.id;
-          const permissionLabel = data.permission.tool || data.permission.action;
+          const permissionLabel = toolDisplayName(data.permission.tool || data.permission.action);
           setMessages((previous) =>
             previous.map((message) =>
               message.id === assistantId
@@ -877,7 +879,7 @@ export function MespCodeChat({
             (part && typeof part.callID === 'string' && part.callID) ||
             (part && typeof part.id === 'string' && part.id) ||
             `${toolName}-unidentified`;
-          const label = `${toolName} · ${toolStatus}`;
+          const label = `${toolDisplayName(toolName)} · ${toolStatus}`;
           setMessages((previous) =>
             previous.map((message) => {
               if (message.id !== assistantId) return message;
@@ -1211,7 +1213,7 @@ export function MespCodeChat({
         const assistantId = activeAssistantRef.current;
         if (assistantId) {
           const permissionId = permission.id;
-          const permissionLabel = permission.tool || permission.action;
+          const permissionLabel = toolDisplayName(permission.tool || permission.action);
           setMessages((previous) =>
             previous.map((message) =>
               message.id === assistantId
@@ -2278,7 +2280,7 @@ export function MespCodeChat({
               {mode === 'fast'
                 ? dockComposer
                   ? 'Converse ou peça uma implementação. Eu crio os arquivos e verifico o resultado.'
-                  : 'Pergunte e receba uma resposta leve. Para agir no repositório, use Assistido ou Autônomo.'
+                  : 'Pergunte ou peça uma ação no computador. Pedidos de execução acionam as ferramentas.'
                 : 'Converse com o agente, troque de modelo quando quiser e acompanhe o pet reagir ao trabalho.'}
             </p>
             <div className="mesp-chat-suggestions">
@@ -2700,7 +2702,7 @@ export function MespCodeChat({
               ?
             </span>
             <p className="mesp-chat-eyebrow">Aprovacao necessaria</p>
-            <h2 id="mesp-permission-title">Permitir {permission.tool || permission.action}?</h2>
+            <h2 id="mesp-permission-title">Permitir {toolDisplayName(permission.tool || permission.action)}?</h2>
             <p id="mesp-permission-description">
               O MESP pausou antes de executar esta acao. Revise os recursos envolvidos e escolha o
               alcance da permissao.
@@ -2796,8 +2798,8 @@ export function MespCodeChat({
             <p className="mesp-chat-eyebrow">Acesso total</p>
             <h2 id="mesp-access-title">Ativar modo Autonomo?</h2>
             <p id="mesp-access-description">
-              O MESP podera ler e editar qualquer arquivo acessivel, executar comandos e continuar
-              sem pedir confirmacao. Use apenas em um projeto confiavel.
+              O MESP poderá ler e editar arquivos em todo o computador e executar comandos e
+              programas com as permissões do seu usuário, sem pedir confirmação a cada ação.
             </p>
             <div className="mesp-access-actions">
               <button type="button" onClick={() => setConfirmAutonomous(false)} autoFocus>

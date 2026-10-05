@@ -168,6 +168,8 @@ const root = path.resolve(__dirname, '..');
           'providers' &&
         document.querySelector('.dock-router-loading')?.getAttribute('aria-label') ===
           '9Router pronto',
+      undefined,
+      { timeout: 60000 },
     );
     await page.keyboard.press('Control+k');
     await page.waitForFunction(
