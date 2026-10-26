@@ -1022,11 +1022,6 @@ body,
   border-radius: 8px;
   color: #9398a1;
 }
-.dock-actions .dock-close-mesp.is-confirming,
-.dock-actions .dock-close-mesp.is-confirming:hover {
-  background: #4a1f27;
-  color: #ff9aac;
-}
 .dock-actions button:hover,
 .dock-actions button[aria-pressed='true'] {
   background: #1d1f23;
@@ -2814,11 +2809,48 @@ body,
   scrollbar-color: #34363c transparent;
   overscroll-behavior: contain;
 }
-.dock-project-switcher > button {
-  display: flex;
+.dock-switcher-item {
+  position: relative;
   flex: 1 0 85px;
   min-width: 0;
   max-width: 130px;
+  display: flex;
+}
+.dock-switcher-close {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  z-index: 1;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #3a1f24;
+  color: #ff7f93;
+  font: 600 13px/1 inherit;
+  opacity: 0;
+  transition:
+    opacity 140ms ease,
+    background 140ms ease;
+}
+.dock-switcher-item:hover .dock-switcher-close,
+.dock-switcher-item:focus-within .dock-switcher-close,
+.dock-switcher-item.is-closing .dock-switcher-close {
+  opacity: 1;
+}
+.dock-switcher-close:hover,
+.dock-switcher-item.is-closing .dock-switcher-close {
+  background: #e5484d;
+  color: #fff;
+}
+.dock-project-switcher > .dock-switcher-item > .dock-switcher-card {
+  display: flex;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
   align-items: center;
   flex-direction: column;
   gap: 2px;
@@ -2827,8 +2859,8 @@ body,
   border-radius: 10px;
   transition: background 160ms ease;
 }
-.dock-project-switcher > button:hover,
-.dock-project-switcher > button[aria-current='true'] {
+.dock-project-switcher > .dock-switcher-item > .dock-switcher-card:hover,
+.dock-project-switcher > .dock-switcher-item > .dock-switcher-card[aria-current='true'] {
   background: #25262b;
 }
 .dock-project-switcher strong,
@@ -2841,7 +2873,7 @@ body,
   font-size: 10px;
   font-weight: 500;
 }
-.dock-project-switcher.is-compact > button {
+.dock-project-switcher.is-compact > .dock-switcher-item > .dock-switcher-card {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
   grid-template-rows: repeat(2, 13px);
@@ -2974,7 +3006,7 @@ body,
   .dock-actions {
     top: 111px;
   }
-  .dock-project-switcher > button {
+  .dock-project-switcher > .dock-switcher-item {
     flex: 0 0 91px;
   }
 }
@@ -2988,7 +3020,7 @@ body,
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .dock-project-switcher > button {
+  .dock-project-switcher > .dock-switcher-item > .dock-switcher-card {
     transition: none;
   }
   .dock-projects-overview .dock-working {
@@ -3162,16 +3194,6 @@ body,
   min-height: 48px;
   padding: 7px 138px 6px 72px;
 }
-/* With several MESP the header gains a close button; shift the add button and mini rail left. */
-.top-dock:has(.dock-close-mesp) .dock-header {
-  padding-right: 168px;
-}
-.top-dock.mode-home:has(.dock-close-mesp) .dock-add-mesp {
-  right: 136px;
-}
-.top-dock.mode-home:has(.dock-close-mesp) .dock-mini-strip {
-  right: 168px;
-}
 .top-dock .dock-title {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -3239,7 +3261,7 @@ body,
 .top-dock .dock-project-switcher.is-compact {
   display: flex;
 }
-.top-dock .dock-project-switcher.is-compact > button {
+.top-dock .dock-project-switcher.is-compact > .dock-switcher-item > .dock-switcher-card {
   grid-template-columns: minmax(0, 1fr);
 }
 .top-dock .dock-project-switcher.is-compact .dock-project-mascot {
@@ -3271,17 +3293,6 @@ body,
     right: 12px;
     top: 44px;
     height: 32px;
-  }
-  /* Narrow screens: the add button joins the mini row so the close button fits the header. */
-  .top-dock:has(.dock-close-mesp) .dock-header {
-    padding-right: 126px;
-  }
-  .top-dock.mode-home:has(.dock-close-mesp) .dock-add-mesp {
-    top: 47px;
-    right: 12px;
-  }
-  .top-dock.mode-home:has(.dock-close-mesp) .dock-mini-strip {
-    right: 44px;
   }
 }
 .dock-delivery {

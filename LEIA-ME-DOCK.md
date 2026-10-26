@@ -2,10 +2,11 @@
 
 ## Fechar um MESP
 
-Com mais de um MESP aberto, o **×** no cabeçalho fecha o MESP ativo. O primeiro clique
-deixa o botão vermelho e o segundo, dentro de quatro segundos, confirma. Fechar remove a
-conversa, o rascunho e o terminal desse MESP, e o próximo assume o lugar. Um MESP com
-tarefa em andamento não fecha: pare a tarefa antes.
+Com mais de um MESP aberto, passe o mouse sobre o cartão do MESP na fileira abaixo do
+cabeçalho: um **×** vermelho aparece no canto superior direito do cartão. O primeiro clique
+deixa o × aceso e o segundo, dentro de quatro segundos, fecha aquele MESP. Fechar remove a
+conversa, o rascunho e o terminal desse MESP; se ele era o ativo, o vizinho assume o lugar.
+Um MESP com tarefa em andamento não fecha: pare a tarefa antes.
 
 No painel do 9Router, **Cancelar** fica à esquerda e a ação principal à direita. O link
 de autorização (o campo com o endereço) abre no navegador com um clique.

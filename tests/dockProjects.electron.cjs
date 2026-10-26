@@ -148,7 +148,7 @@ const root = path.resolve(__dirname, '..');
     await page.reload();
     await page.locator('.dock-compact').click();
     await page.getByRole('button', { name: 'Manter painel aberto', exact: true }).click();
-    assert.equal(await page.locator('.dock-project-switcher button').count(), 10);
+    assert.equal(await page.locator('.dock-project-switcher .dock-switcher-card').count(), 10);
     assert.equal(
       await page.getByRole('button', { name: 'Adicionar MESP', exact: true }).isDisabled(),
       true,

@@ -1,4 +1,4 @@
-import { memo, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { DockMascot } from './DockMascot';
 import { getPresetById } from '../services/aiPresets';
 import {
@@ -39,14 +39,23 @@ export const DockProjectSwitcher = memo(function DockProjectSwitcher({
   active,
   compact = false,
   onSelect,
+  onClose,
 }: {
   projects: PetEntity[];
   selectedId: string;
   active: boolean;
   compact?: boolean;
   onSelect: (id: string) => void;
+  onClose?: (id: string) => void;
 }) {
   const strip = useRef<HTMLElement>(null);
+  // First click arms the ×, a second click within four seconds closes the MESP.
+  const [armed, setArmed] = useState<string | null>(null);
+  useEffect(() => {
+    if (!armed) return;
+    const timer = window.setTimeout(() => setArmed(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [armed]);
   useLayoutEffect(() => {
     if (!active) return;
     strip.current
@@ -60,23 +69,49 @@ export const DockProjectSwitcher = memo(function DockProjectSwitcher({
       aria-label="Trocar de projeto"
     >
       {projects.map((project) => (
-        <button
+        <div
           key={project.id}
-          data-project-id={project.id}
-          aria-current={project.id === selectedId ? 'true' : undefined}
-          aria-label={description(project)}
-          title={description(project)}
-          onClick={() => onSelect(project.id)}
+          className={`dock-switcher-item${armed === project.id ? ' is-closing' : ''}`}
         >
-          <ProjectIcon project={project} active={active} />
-          <strong>{project.taskTitle || project.projectName || 'Novo MESP'}</strong>
-          {project.taskTitle && project.taskTitle !== project.projectName && (
-            <small className="dock-switcher-system">{project.projectName || 'Sem pasta'}</small>
+          {onClose && projects.length > 1 && (
+            <button
+              type="button"
+              className="dock-switcher-close"
+              aria-label={
+                armed === project.id
+                  ? `Confirmar fechar ${project.taskTitle || project.projectName || 'MESP'}`
+                  : `Fechar ${project.taskTitle || project.projectName || 'MESP'}`
+              }
+              title={armed === project.id ? 'Clique de novo para fechar' : 'Fechar este MESP'}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (armed === project.id) {
+                  setArmed(null);
+                  onClose(project.id);
+                } else setArmed(project.id);
+              }}
+            >
+              ×
+            </button>
           )}
-          <small>
-            {unreadDockResult(project) ? '✓ Novo resultado' : dockProjectStatus(project).label}
-          </small>
-        </button>
+          <button
+            className="dock-switcher-card"
+            data-project-id={project.id}
+            aria-current={project.id === selectedId ? 'true' : undefined}
+            aria-label={description(project)}
+            title={description(project)}
+            onClick={() => onSelect(project.id)}
+          >
+            <ProjectIcon project={project} active={active} />
+            <strong>{project.taskTitle || project.projectName || 'Novo MESP'}</strong>
+            {project.taskTitle && project.taskTitle !== project.projectName && (
+              <small className="dock-switcher-system">{project.projectName || 'Sem pasta'}</small>
+            )}
+            <small>
+              {unreadDockResult(project) ? '✓ Novo resultado' : dockProjectStatus(project).label}
+            </small>
+          </button>
+        </div>
       ))}
     </nav>
   );
