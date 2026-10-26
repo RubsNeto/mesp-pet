@@ -214,6 +214,20 @@ export function recentFailure(raw, now = Date.now()) {
   return Number.isFinite(at) && now - at < ROUTER_FAILURE_WINDOW_MS;
 }
 
+/** An account needs a new login only when its quota/profile query is refused, or when the
+ * model listing is refused and nothing else proves the login works. Claude Code's OAuth scope
+ * serves chat and quota but not the model catalogue (401), and that account still works. */
+export function authFailure(usage, live, quotas = [], raw = {}) {
+  const refused = (payload) =>
+    payload?.status === 401 ||
+    /unauthori[sz]ed|authentication|401|expired|re-authorize|no valid token/i.test(
+      `${payload?.error || ''} ${payload?.message || ''} ${payload?.warning || ''}`,
+    );
+  if (refused(usage)) return true;
+  if (!refused(live)) return false;
+  return !quotas.length && raw.testStatus !== 'active' && raw.testStatus !== 'success';
+}
+
 /** Why a listed model has no Auto candidate right now. */
 function unavailableReason(model, accounts) {
   const owners = accounts.filter((account) => model.accountIds.includes(account.id));
@@ -599,11 +613,7 @@ export function createRouterOverviewService({
                   ? raw.isActive === false
                     ? 'disabled'
                     : 'error'
-                  : usage?.status === 401 ||
-                      live?.status === 401 ||
-                      /unauthori[sz]ed|authentication|401|expired|re-authorize|no valid token/i.test(
-                        `${usage?.error || ''} ${usage?.message || ''} ${live?.warning || ''} ${live?.error || ''}`,
-                      )
+                  : authFailure(usage, live, quotas, raw)
                     ? 'auth'
                     : quotas.length ||
                         raw.testStatus === 'success' ||

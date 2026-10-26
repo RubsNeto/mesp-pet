@@ -1000,3 +1000,38 @@ test('installed auth patch honors concurrent request scopes, fallback exclusions
   ]);
   delete globalThis.__mespRouterContext;
 });
+
+test('a refused model catalogue does not mark a working account as needing login', async () => {
+  const service = createRouterOverviewService({
+    origin: 'http://localhost',
+    autoSupported: true,
+    fetchJson: async (route) => {
+      if (route === '/api/providers')
+        return { connections: [{ id: 'cc', provider: 'claude', testStatus: 'active' }] };
+      if (route === '/api/providers/cc/models')
+        return { error: 'Failed to fetch models: 401', status: 401 };
+      if (route === '/api/usage/cc')
+        return { quotas: { session: { used: 44, total: 100, remaining: 56 } } };
+      if (route === '/v1/models') return { data: [{ id: 'cc/claude-sonnet-4-6' }] };
+      return {};
+    },
+  });
+  const overview = await service.overview();
+  assert.equal(overview.accounts[0].health, 'active');
+  assert.deepEqual(
+    overview.models.map((m) => [m.id, m.available, m.reason]),
+    [['9router/cc/claude-sonnet-4-6', false, 'catalog']],
+  );
+  // Without quota or a successful test, the same refusal still means "reconnect".
+  const bare = createRouterOverviewService({
+    origin: 'http://localhost',
+    autoSupported: true,
+    fetchJson: async (route) =>
+      route === '/api/providers'
+        ? { connections: [{ id: 'cc', provider: 'claude' }] }
+        : route === '/api/providers/cc/models'
+          ? { error: 'Failed to fetch models: 401', status: 401 }
+          : {},
+  });
+  assert.equal((await bare.overview()).accounts[0].health, 'auth');
+});

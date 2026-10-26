@@ -165,3 +165,9 @@ export function routerPatchTargets(
   files: string[],
   read: (file: string) => string,
 ): { auth: string; copilot: string | null };
+export function authFailure(
+  usage: unknown,
+  live: unknown,
+  quotas?: RouterQuota[],
+  raw?: unknown,
+): boolean;

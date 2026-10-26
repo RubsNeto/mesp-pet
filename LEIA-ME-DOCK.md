@@ -38,9 +38,11 @@ não bloqueiam mais a conta.
 
 O 9Router integrado foi atualizado para a versão 0.5.111, que corrige o acesso ao
 Antigravity e traz Claude Opus 5.5 e Sonnet 5.5 no catálogo. Esses dois só respondem
-para contas com acesso a eles; nas contas testadas o Google respondeu "não encontrado",
-e o Auto usou Claude Opus 4.6 Thinking. Quando uma conta ganhar acesso, o Auto passa a
-usá-los automaticamente.
+para contas com acesso a eles; nas contas Antigravity testadas o Google respondeu "não
+encontrado". Pela conta **Claude Code**, Opus 5.5, Sonnet 5.5 e Fable 5.1 respondem e
+aparecem na lista. O catálogo de modelos do Claude Code devolve 401 mesmo com a conta
+funcionando; o MESP não trata isso como login perdido quando a cota ou o teste da conta
+confirmam o acesso.
 
 ## Entrega autônoma de projetos
 

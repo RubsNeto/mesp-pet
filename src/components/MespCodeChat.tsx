@@ -323,7 +323,7 @@ function recentHistory(messages: ChatMessage[]) {
 }
 
 function modelParts(model: string | null | undefined): { provider: string; name: string } {
-  if (model === '9router/mesp-auto') return { provider: 'MESP', name: 'Auto · próximo reset' };
+  if (model === '9router/mesp-auto') return { provider: 'MESP', name: 'Auto' };
   const clean = (model || '9router/modelo automatico').replace(/^9router\//, '');
   const [prefix, ...rest] = clean.split('/');
   return {
