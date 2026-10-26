@@ -57,6 +57,14 @@ export interface MespCodeDiffFile {
 
 export type ProjectCheckName = 'typecheck' | 'lint' | 'test' | 'build' | 'check';
 
+export interface ModelVerificationStatus {
+  running: boolean;
+  total: number;
+  done: number;
+  ok: number;
+  failed: number;
+}
+
 export interface MespCodeVerifyEvent {
   petId: string;
   verificationId: string;
@@ -198,6 +206,20 @@ const api = {
     force = false,
   ): Promise<import('./dockRouter.mjs').RouterOverview> {
     return ipcRenderer.invoke('dock:router-overview', { period, force });
+  },
+  /** Testa com um pedido real cada modelo ainda não testado em cada conta (force: todos). */
+  verifyModels(force = false): Promise<ModelVerificationStatus | null> {
+    return ipcRenderer.invoke('dock:verify-models', force);
+  },
+  getModelVerification(): Promise<ModelVerificationStatus | null> {
+    return ipcRenderer.invoke('dock:verify-status');
+  },
+  /** Ordem de provedores que o Auto tenta primeiro; os demais vêm depois, como fallback. */
+  getRouterPriority(): Promise<string[]> {
+    return ipcRenderer.invoke('dock:router-priority');
+  },
+  setRouterPriority(priority: string[]): Promise<string[] | null> {
+    return ipcRenderer.invoke('dock:set-router-priority', priority);
   },
   get9RouterModels(force = false): Promise<import('./dockRouter.mjs').RouterOverview> {
     return ipcRenderer.invoke('dock:router-models', force);

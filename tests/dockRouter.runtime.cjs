@@ -36,9 +36,23 @@ const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1'
         if (req.method === 'POST' && req.url === '/api/qa/copilot') {
           req.resume();
           const path = require('node:path');
-          const runtime = require(path.join(path.dirname(process.env.MESP_ROUTER_SERVER), '.next-cli-build/server/webpack-runtime.js'));
+          const serverDir = path.join(path.dirname(process.env.MESP_ROUTER_SERVER), '.next-cli-build/server');
+          const runtime = require(path.join(serverDir, 'webpack-runtime.js'));
           // Seed only this isolated profile through the installed native OAuth storage function.
-          Promise.resolve(runtime(9248).iE({ provider: 'github', name: 'Copilot isolado', authType: 'oauth',
+          // Module ids change between 9Router releases, so find the exported creator by name.
+          let create = null;
+          for (const name of fs.readdirSync(path.join(serverDir, 'chunks'))) {
+            const file = path.join(serverDir, 'chunks', name);
+            const text = fs.readFileSync(file, 'utf8');
+            for (const match of text.matchAll(/(\d+):\(a,b,c\)=>\{(?:"use strict";)?c\.d\(b,\{[^}]*createProviderConnection:\(\)=>/g)) {
+              runtime.C(require(file));
+              const candidate = runtime(Number(match[1])).createProviderConnection;
+              if (typeof candidate === 'function') { create = candidate; break; }
+            }
+            if (create) break;
+          }
+          if (!create) create = runtime(9248).iE;
+          Promise.resolve(create({ provider: 'github', name: 'Copilot isolado', authType: 'oauth',
             accessToken: 'qa-github', expiresAt: new Date(Date.now() + 3600000).toISOString(), isActive: true, testStatus: 'success',
             providerSpecificData: { copilotToken: 'qa-copilot', copilotTokenExpiresAt: Math.floor(Date.now()/1000) + 3600 } }))
             .then(connection => { res.setHeader('content-type','application/json'); res.end(JSON.stringify({ connection: { id: connection.id } })); })
@@ -292,7 +306,11 @@ const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1'
     await fetch(`${origin}/api/settings`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json', cookie },
-      body: JSON.stringify({ requireLogin: true, tunnelDashboardAccess: false }),
+      body: JSON.stringify({
+        requireLogin: true,
+        tunnelDashboardAccess: false,
+        requireApiKey: false,
+      }),
     });
     const { node } = await api('/api/provider-nodes', {
       name: 'Provedor de teste local',
@@ -417,6 +435,12 @@ const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1'
     await api('/api/providers/' + near.id, { isActive: false }, 'PUT');
     // Force the runtime's actual discovery after enabling the additional live test models.
     await delay(15100);
+    // Newly listed models are offered only after they answer a real test request.
+    await api('/api/mesp/verify', { force: false });
+    for (let i = 0; i < 120; i++) {
+      if (!(await api('/api/mesp/verify')).running) break;
+      await delay(250);
+    }
     const light = await send('mesp-auto', false, 'ses_light', 'Qual é a capital do Brasil?');
     assert.equal(light.response.headers.get('x-mesp-complexity'), 'light');
     assert.equal(requests.at(-1).model, 'mesp-mini', log.slice(-2500));

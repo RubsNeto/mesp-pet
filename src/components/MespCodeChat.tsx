@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PetState } from '../types';
 import { DockCopyButton, DockReplyText } from './DockConversation';
 import type { DockMessage } from './DockConversation';
@@ -22,7 +22,6 @@ import {
 } from '../services/mespCodeCore.mjs';
 
 type MespCodeMode = 'fast' | 'plan' | 'assisted' | 'autonomous';
-type ModelFilter = 'all' | 'cx' | 'kr' | 'gh' | 'open';
 type ProjectCheckName = 'typecheck' | 'lint' | 'test' | 'build' | 'check';
 
 interface TimelineEntry {
@@ -205,14 +204,21 @@ const SUGGESTIONS: Record<MespCodeMode, string[]> = {
 const EMPTY_MODELS: string[] = [];
 const toolDisplayName = (name: string) =>
   name === 'mesp_computer_copy_file' ? 'Copiar arquivo' : name;
-const OPEN_MODEL_PATTERN =
-  /(?:qwen|deepseek|llama|mistral|mixtral|minimax|glm|kimi|devstral|codestral)/i;
 const MODE_OPTIONS: Array<{ id: MespCodeMode; label: string; short: string }> = [
   { id: 'fast', label: 'Rápido', short: 'baixo uso de tokens' },
   { id: 'plan', label: 'Plano', short: 'somente análise' },
   { id: 'assisted', label: 'Assistido', short: 'aprova cada ação' },
   { id: 'autonomous', label: 'Autônomo', short: 'acesso total' },
 ];
+/** Slash commands resolved inside the chat, before the island-level commands. */
+const CHAT_COMMANDS: Record<string, MespCodeMode | 'clear' | 'checks'> = {
+  '/fast': 'fast',
+  '/plan': 'plan',
+  '/assisted': 'assisted',
+  '/autonomous': 'autonomous',
+  '/clear': 'clear',
+  '/checks': 'checks',
+};
 const MODE_LABELS: Record<MespCodeMode, string> = {
   fast: 'rapida',
   plan: 'plano',
@@ -421,14 +427,7 @@ export function MespCodeChat({
   }, [input, visible, isDockComposer]);
   const [busy, setBusy] = useState(false);
   const [cancelling, setCancelling] = useState(false);
-  const [modelOpen, setModelOpen] = useState(false);
-  const [modelQuery, setModelQuery] = useState('');
-  const [modelFilter, setModelFilter] = useState<ModelFilter>('all');
   const [refreshing, setRefreshing] = useState(false);
-  const [routerDiscoveryNotice, setRouterDiscoveryNotice] = useState<{
-    tone: 'success' | 'error';
-    text: string;
-  } | null>(null);
   const [setupOpening, setSetupOpening] = useState(false);
   const [setupError, setSetupError] = useState('');
   const [confirmAutonomous, setConfirmAutonomous] = useState(false);
@@ -465,7 +464,6 @@ export function MespCodeChat({
   const stateChangeRef = useRef(onPetStateChange);
   const statusChangeRef = useRef(onStatusChange);
   const previousFocusRef = useRef<HTMLElement | null>(null);
-  const routerDiscoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   stateChangeRef.current = onPetStateChange;
   statusChangeRef.current = onStatusChange;
   workDirRef.current = workDir;
@@ -477,18 +475,7 @@ export function MespCodeChat({
   const models = status?.models ?? EMPTY_MODELS;
   const effectiveModel = selectedModel || status?.model || models[0] || null;
   const selectedParts = modelParts(effectiveModel);
-  const filteredModels = useMemo(() => {
-    const query = modelQuery.trim().toLowerCase();
-    return models.filter((model) => {
-      const id = model.replace(/^9router\//, '');
-      const prefix = id.split('/')[0];
-      if (modelFilter !== 'all') {
-        if (modelFilter === 'open' && !OPEN_MODEL_PATTERN.test(id)) return false;
-        if (modelFilter !== 'open' && prefix !== modelFilter) return false;
-      }
-      return !query || model.toLowerCase().includes(query);
-    });
-  }, [models, modelFilter, modelQuery]);
+  const modeOption = MODE_OPTIONS.find((option) => option.id === mode) ?? MODE_OPTIONS[0];
   const occupied = busy || verifyingMessageId !== null || pendingAutoVerify !== null;
   const appliedPreferredModel = useRef<string | null>(null);
   const pendingPreferredModel = useRef<string | null>(null);
@@ -1134,7 +1121,6 @@ export function MespCodeChat({
       if (verification && window.mesp?.cancelMespCodeVerification) {
         void window.mesp.cancelMespCodeVerification(petId, verification.id);
       }
-      if (routerDiscoveryTimerRef.current) clearTimeout(routerDiscoveryTimerRef.current);
     };
   }, [petId]);
 
@@ -1154,42 +1140,6 @@ export function MespCodeChat({
     },
     [onStatusChange, refreshing],
   );
-
-  const discoverRouterConnection = useCallback(async () => {
-    if (refreshing) return;
-    if (routerDiscoveryTimerRef.current) clearTimeout(routerDiscoveryTimerRef.current);
-    setRouterDiscoveryNotice(null);
-    const previousModelCount = status?.modelCount ?? 0;
-    const next = await refreshModels(true);
-    if (!mountedRef.current) return;
-
-    let notice: { tone: 'success' | 'error'; text: string };
-    if (!next) {
-      notice = { tone: 'error', text: 'Nao foi possivel consultar o 9Router.' };
-    } else if (next.modelCount > previousModelCount) {
-      const added = next.modelCount - previousModelCount;
-      notice = {
-        tone: 'success',
-        text: `${added} novo${added === 1 ? '' : 's'} modelo${added === 1 ? '' : 's'} encontrado${added === 1 ? '' : 's'}.`,
-      };
-    } else if (next.routerState === 'ready') {
-      notice = {
-        tone: 'success',
-        text: `Conexoes atualizadas. ${next.modelCount} modelo${next.modelCount === 1 ? '' : 's'} disponiveis.`,
-      };
-    } else if (next.routerState === 'misconfigured') {
-      notice = { tone: 'error', text: 'Nenhuma conexao ativa foi encontrada no 9Router.' };
-    } else {
-      notice = { tone: 'error', text: next.routerMessage || '9Router indisponivel.' };
-    }
-
-    setRouterDiscoveryNotice(notice);
-    setAnnouncement(notice.text);
-    routerDiscoveryTimerRef.current = setTimeout(() => {
-      if (mountedRef.current) setRouterDiscoveryNotice(null);
-      routerDiscoveryTimerRef.current = null;
-    }, 5_000);
-  }, [refreshModels, refreshing, status?.modelCount]);
 
   const openRouterSetup = useCallback(async () => {
     if (!window.mesp?.open9RouterDashboard || setupOpening) return;
@@ -1675,7 +1625,6 @@ export function MespCodeChat({
       seenTokenPartsRef.current = new Set();
       firstTokenSeenRef.current = false;
       setMessages((previous) => [...previous, userMessage, assistantMessage]);
-      setModelOpen(false);
       setLimitsOpen(false);
       setBusy(true);
       setCancelling(false);
@@ -1758,11 +1707,36 @@ export function MespCodeChat({
     [finishWithError, messages, mode, petId, sessionCwd, sessionId, sessionMode],
   );
 
+  const newChat = useCallback(() => {
+    if (occupied) return;
+    setMessages([]);
+    queueRef.current = [];
+    setQueue([]);
+    setQueuePaused(false);
+    setSessionId(null);
+    setSessionCwd(workDirRef.current);
+    setSessionMode(null);
+    setInput('');
+    setDiffReviews({});
+    stateChangeRef.current?.('idle');
+  }, [occupied, setInput]);
+
   const send = useCallback(
     (promptOverride?: string, requestedMode?: MespCodeMode, intent?: TaskIntent) => {
       const prompt = (promptOverride ?? input).trim();
       if (!prompt) return;
-      if (promptOverride === undefined && dockComposerRef.current?.onCommand(prompt)) return;
+      if (promptOverride === undefined) {
+        const chatCommand = CHAT_COMMANDS[prompt.toLowerCase()];
+        if (chatCommand) {
+          setInput('');
+          if (chatCommand === 'clear') newChat();
+          else if (chatCommand === 'checks') setLimitsOpen(true);
+          else if (occupied) setAnnouncement('Aguarde a tarefa terminar para trocar o modo.');
+          else activateMode(chatCommand);
+          return;
+        }
+        if (dockComposerRef.current?.onCommand(prompt)) return;
+      }
       const greeting = dockComposerRef.current ? dockGreetingReply(prompt) : null;
       if (greeting) {
         setMessages((previous) => [
@@ -1808,12 +1782,14 @@ export function MespCodeChat({
       void startPrompt(task);
     },
     [
+      activateMode,
       effectiveModel,
       finishWithError,
       input,
       setInput,
       limits,
       mode,
+      newChat,
       occupied,
       queuePaused,
       startPrompt,
@@ -1892,20 +1868,6 @@ export function MespCodeChat({
     }
   }, [finishWithError, pendingAutoVerify, petId]);
 
-  const newChat = useCallback(() => {
-    if (occupied) return;
-    setMessages([]);
-    queueRef.current = [];
-    setQueue([]);
-    setQueuePaused(false);
-    setSessionId(null);
-    setSessionCwd(workDirRef.current);
-    setSessionMode(null);
-    setInput('');
-    setDiffReviews({});
-    stateChangeRef.current?.('idle');
-  }, [occupied, setInput]);
-
   const previewMessage = messages
     .filter(
       (message) =>
@@ -1920,226 +1882,14 @@ export function MespCodeChat({
       className="mesp-chat"
       aria-label="Chat MESP Code"
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && (modelOpen || limitsOpen)) {
+        if (event.key === 'Escape' && limitsOpen) {
           event.preventDefault();
           event.stopPropagation();
-          setModelOpen(false);
           setLimitsOpen(false);
           composerField.current?.focus();
         }
       }}
     >
-      <div className="mesp-chat-toolbar">
-        <div className="mesp-model-control">
-          <button
-            type="button"
-            className="mesp-model-trigger"
-            onClick={() => setModelOpen((open) => !open)}
-            disabled={occupied}
-            aria-expanded={modelOpen}
-            aria-haspopup="listbox"
-          >
-            <span className="mesp-model-provider">{selectedParts.provider}</span>
-            <strong>{selectedParts.name}</strong>
-            <span className="mesp-model-chevron" aria-hidden="true">
-              ⌄
-            </span>
-          </button>
-          {modelOpen && (
-            <div className="mesp-model-popover">
-              <div className="mesp-model-search-row">
-                <input
-                  type="search"
-                  value={modelQuery}
-                  onChange={(event) => setModelQuery(event.target.value)}
-                  placeholder={`Buscar entre ${models.length} modelos`}
-                  aria-label="Buscar modelo"
-                  autoFocus
-                />
-                <button
-                  type="button"
-                  className="mesp-model-refresh"
-                  onClick={() => void refreshModels(true)}
-                  disabled={refreshing}
-                  aria-label="Sincronizar modelos"
-                  title="Sincronizar modelos do 9Router"
-                >
-                  ↻
-                </button>
-              </div>
-              <div className="mesp-model-filters" aria-label="Filtrar modelos">
-                {(
-                  [
-                    ['all', 'Todos'],
-                    ['cx', 'Codex'],
-                    ['kr', 'Kiro'],
-                    ['gh', 'GitHub'],
-                    ['open', 'Open source'],
-                  ] as Array<[ModelFilter, string]>
-                ).map(([filter, label]) => (
-                  <button
-                    type="button"
-                    className={modelFilter === filter ? 'selected' : ''}
-                    aria-pressed={modelFilter === filter}
-                    key={filter}
-                    onClick={() => setModelFilter(filter)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <div className="mesp-model-list" role="listbox" aria-label="Modelos do 9Router">
-                {filteredModels.map((model) => {
-                  const parts = modelParts(model);
-                  return (
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={model === effectiveModel}
-                      className={`mesp-model-option${model === effectiveModel ? ' selected' : ''}`}
-                      key={model}
-                      onClick={() => {
-                        setSelectedModel(model);
-                        setModelOpen(false);
-                        setModelQuery('');
-                      }}
-                    >
-                      <span>{parts.provider}</span>
-                      <strong>{parts.name}</strong>
-                    </button>
-                  );
-                })}
-                {filteredModels.length === 0 && (
-                  <div className="mesp-model-empty">Nenhum modelo encontrado.</div>
-                )}
-              </div>
-              <div className="mesp-model-footer">
-                {models.length} modelos · sincronizados pelo 9Router
-              </div>
-            </div>
-          )}
-        </div>
-        <button
-          type="button"
-          className="mesp-router-discover"
-          onClick={() => void discoverRouterConnection()}
-          disabled={refreshing || setupOpening || occupied}
-          title="Procurar novas conexoes e modelos no 9Router"
-        >
-          {refreshing ? 'Procurando...' : 'Procurar conexao'}
-        </button>
-        <div className="mesp-limits-control">
-          <button
-            type="button"
-            className="mesp-limits-trigger"
-            onClick={() => setLimitsOpen((open) => !open)}
-            disabled={occupied}
-            aria-expanded={limitsOpen}
-            aria-haspopup="dialog"
-          >
-            Verificações
-          </button>
-          {limitsOpen && (
-            <div className="mesp-limits-popover" role="dialog" aria-label="Verificações do projeto">
-              <small>A tarefa continua até concluir ou você cancelar.</small>
-              <div className="mesp-quality-config">
-                <div className="mesp-quality-heading">
-                  <strong>Quality gates</strong>
-                  <span>
-                    {selectedChecks.length}/{availableChecks.length}
-                  </span>
-                </div>
-                {availableChecks.length > 0 ? (
-                  <>
-                    <div
-                      className="mesp-quality-checks"
-                      role="group"
-                      aria-label="Verificacoes do projeto"
-                    >
-                      {PROJECT_CHECK_ORDER.filter((check) => availableChecks.includes(check)).map(
-                        (check) => {
-                          const checkId = `mesp-check-${petId}-${check}`;
-                          return (
-                            <label htmlFor={checkId} key={check}>
-                              <input
-                                id={checkId}
-                                type="checkbox"
-                                checked={selectedChecks.includes(check)}
-                                onChange={(event) =>
-                                  setSelectedChecks((current) =>
-                                    event.target.checked
-                                      ? PROJECT_CHECK_ORDER.filter(
-                                          (item) => item === check || current.includes(item),
-                                        )
-                                      : current.filter((item) => item !== check),
-                                  )
-                                }
-                              />
-                              <span>{PROJECT_CHECK_LABELS[check]}</span>
-                            </label>
-                          );
-                        },
-                      )}
-                    </div>
-                    <label className="mesp-quality-auto" htmlFor={`mesp-auto-verify-${petId}`}>
-                      <input
-                        id={`mesp-auto-verify-${petId}`}
-                        type="checkbox"
-                        checked={autoVerify}
-                        disabled={selectedChecks.length === 0}
-                        onChange={(event) => setAutoVerify(event.target.checked)}
-                      />
-                      <span>
-                        <strong>Verificar no modo Assistido</strong>
-                        <small>O modo Autônomo já verifica e corrige a entrega.</small>
-                      </span>
-                    </label>
-                    <p>Os scripts selecionados executam codigo deste projeto.</p>
-                  </>
-                ) : (
-                  <p>Nenhum script conhecido foi encontrado no package.json.</p>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-        <span className="mesp-chat-session">
-          {mode === 'fast'
-            ? 'contexto curto'
-            : sessionId
-              ? `sessao ${sessionId.slice(-6)}`
-              : 'nova sessao'}
-        </span>
-        {status?.runtime && (
-          <span
-            className={`mesp-runtime-badge${status.runtime.portableReady ? ' is-ready' : ''}`}
-            title={`OpenCode: ${status.runtime.opencode}; 9Router: ${status.runtime.router}; Node/npm: ${status.runtime.node}/${status.runtime.npm}`}
-          >
-            <span aria-hidden="true" />
-            {status.runtime.portableReady ? 'Runtime integrado' : 'Runtime parcial'}
-          </span>
-        )}
-        <button
-          type="button"
-          className="mesp-chat-new"
-          onClick={newChat}
-          disabled={occupied || messages.length === 0}
-          title="Nova conversa"
-        >
-          <span aria-hidden="true">+</span> Nova conversa
-        </button>
-      </div>
-
-      {routerDiscoveryNotice && (
-        <div
-          className={`mesp-router-discovery-notice ${routerDiscoveryNotice.tone}`}
-          role={routerDiscoveryNotice.tone === 'error' ? 'alert' : 'status'}
-          aria-live="polite"
-        >
-          {routerDiscoveryNotice.text}
-        </div>
-      )}
-
       {status && status.routerState !== 'ready' && status.routerState !== 'unknown' && (
         <div
           className={`mesp-router-status state-${status.routerState}`}
@@ -2179,61 +1929,6 @@ export function MespCodeChat({
           </div>
         </div>
       )}
-
-      <div className={`mesp-mode-bar mode-${mode}`}>
-        <div
-          className="mesp-mode-switcher"
-          role="tablist"
-          aria-label="Modo do agente"
-          onKeyDown={(event) => {
-            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-            event.preventDefault();
-            const tabs = [
-              ...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'),
-            ];
-            if (!tabs.length) return;
-            const index = tabs.indexOf(document.activeElement as HTMLButtonElement);
-            const next =
-              event.key === 'Home'
-                ? 0
-                : event.key === 'End'
-                  ? tabs.length - 1
-                  : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
-            tabs[next]?.focus();
-            tabs[next]?.click();
-          }}
-        >
-          {MODE_OPTIONS.map((option) => (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === option.id}
-              tabIndex={mode === option.id ? 0 : -1}
-              className={mode === option.id ? 'selected' : ''}
-              disabled={occupied}
-              key={option.id}
-              title={`${option.label} · ${option.short}`}
-              onClick={() => activateMode(option.id)}
-            >
-              <span className="mesp-mode-dot" aria-hidden="true" />
-              <strong>{option.label}</strong>
-              <small>{option.short}</small>
-            </button>
-          ))}
-        </div>
-        <p title={MODE_OPTIONS.find((option) => option.id === mode)?.short}>
-          {mode === 'fast' &&
-            (dockComposer
-              ? 'Perguntas recebem respostas rápidas. Pedidos de implementação usam ferramentas automaticamente.'
-              : 'Resposta direta pelo 9Router, com contexto curto e sem ferramentas.')}
-          {mode === 'plan' &&
-            'O MESP pode investigar o projeto, mas nao pode editar nem executar comandos.'}
-          {mode === 'assisted' &&
-            'Leitura livre; edicoes e comandos aguardam sua aprovacao antes de executar.'}
-          {mode === 'autonomous' &&
-            'Acesso irrestrito: pode editar arquivos e executar comandos sem confirmacao.'}
-        </p>
-      </div>
 
       {queue.length > 0 && (
         <section
@@ -2629,6 +2324,69 @@ export function MespCodeChat({
         }}
       >
         <DockCommands menu={commands} />
+        {limitsOpen && (
+          <div className="mesp-limits-popover" role="dialog" aria-label="Verificações do projeto">
+            <small>A tarefa continua até concluir ou você cancelar.</small>
+            <div className="mesp-quality-config">
+              <div className="mesp-quality-heading">
+                <strong>Quality gates</strong>
+                <span>
+                  {selectedChecks.length}/{availableChecks.length}
+                </span>
+              </div>
+              {availableChecks.length > 0 ? (
+                <>
+                  <div
+                    className="mesp-quality-checks"
+                    role="group"
+                    aria-label="Verificacoes do projeto"
+                  >
+                    {PROJECT_CHECK_ORDER.filter((check) => availableChecks.includes(check)).map(
+                      (check) => {
+                        const checkId = `mesp-check-${petId}-${check}`;
+                        return (
+                          <label htmlFor={checkId} key={check}>
+                            <input
+                              id={checkId}
+                              type="checkbox"
+                              checked={selectedChecks.includes(check)}
+                              onChange={(event) =>
+                                setSelectedChecks((current) =>
+                                  event.target.checked
+                                    ? PROJECT_CHECK_ORDER.filter(
+                                        (item) => item === check || current.includes(item),
+                                      )
+                                    : current.filter((item) => item !== check),
+                                )
+                              }
+                            />
+                            <span>{PROJECT_CHECK_LABELS[check]}</span>
+                          </label>
+                        );
+                      },
+                    )}
+                  </div>
+                  <label className="mesp-quality-auto" htmlFor={`mesp-auto-verify-${petId}`}>
+                    <input
+                      id={`mesp-auto-verify-${petId}`}
+                      type="checkbox"
+                      checked={autoVerify}
+                      disabled={selectedChecks.length === 0}
+                      onChange={(event) => setAutoVerify(event.target.checked)}
+                    />
+                    <span>
+                      <strong>Verificar no modo Assistido</strong>
+                      <small>O modo Autônomo já verifica e corrige a entrega.</small>
+                    </span>
+                  </label>
+                  <p>Os scripts selecionados executam codigo deste projeto.</p>
+                </>
+              ) : (
+                <p>Nenhum script conhecido foi encontrado no package.json.</p>
+              )}
+            </div>
+          </div>
+        )}
         <textarea
           {...commands.inputProps}
           ref={composerField}
@@ -2656,6 +2414,14 @@ export function MespCodeChat({
           rows={dockComposer ? 1 : 3}
         />
         <div className="mesp-composer-footer">
+          <div
+            className="mesp-composer-state"
+            title={`${selectedParts.provider} ${selectedParts.name} · ${modeOption.label}: ${modeOption.short}. Digite / para trocar.`}
+          >
+            <span>{selectedParts.name}</span>
+            <span aria-hidden="true">·</span>
+            <span className={`mode-${mode}`}>{modeOption.label}</span>
+          </div>
           <div className="mesp-composer-actions">
             {occupied && input.trim() && (
               <button

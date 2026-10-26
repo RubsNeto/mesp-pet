@@ -69,6 +69,14 @@ import {
   parseTaskIntent,
 } from '../src/services/dockIntent.mjs';
 import { chooseRouterDataDirectory } from './dockRouterProfile.mjs';
+import { loginItemIdentity } from './dockLoginItem.mjs';
+import { normalizeProviderPriority } from './dockRouterPriority.mjs';
+import {
+  readProviderPriority,
+  writeProviderPriority,
+  readModelVerification,
+} from './dockRouterPriorityFile.mjs';
+import { verificationState } from './dockModelVerification.mjs';
 import { routerLocalAuthHeaders } from './dockRouterLocalAuth.mjs';
 import { DockRouterView } from './dockRouterView';
 import { routerPanelSection } from './dockRouterPanel.mjs';
@@ -100,6 +108,7 @@ import {
   isLoopbackRouterURL,
   modelIdFor9Router,
   normalizeProjectChecks,
+  openCodeEnvironment,
   parseDotEnvValue,
   parseOpenAIStreamData,
   projectCheckFinalState,
@@ -740,6 +749,42 @@ let routerOverview: {
   credentialHash: string | null;
   service: ReturnType<typeof createRouterOverviewService>;
 } | null = null;
+/** Account/model pairs the Auto runtime recently saw refused, read from its health cache. */
+function blockedRouterModels(dataDir: string): Set<string> {
+  try {
+    const saved = JSON.parse(
+      fs.readFileSync(path.join(dataDir, 'runtime', 'mesp-auto-health.json'), 'utf8'),
+    ) as unknown;
+    const now = Date.now();
+    return new Set(
+      (Array.isArray(saved) ? saved : [])
+        .filter(
+          (entry): entry is [string, number] =>
+            Array.isArray(entry) &&
+            typeof entry[0] === 'string' &&
+            !entry[0].endsWith(':*') &&
+            Number.isFinite(entry[1]) &&
+            entry[1] > now,
+        )
+        .map(([id]) => id),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+/** The router profile in use (or the one it will use), where the Auto priority lives. */
+function routerDataDirectory(): string {
+  return (
+    bundledRouter?.dataDir ||
+    chooseRouterDataDirectory({
+      ownDirectory: path.join(app.getPath('userData'), '9router'),
+      appData: app.getPath('appData'),
+      isolated: Boolean(process.env.MESP_DOCK_DATA_DIR),
+    }).directory
+  );
+}
+
 function localRouterHeaders(origin: string) {
   return routerLocalAuthHeaders(
     bundledRouter?.origin === origin ? bundledRouter.dataDir : undefined,
@@ -761,6 +806,9 @@ async function getRouterOverview(period = 'today', force = false, modelsOnly = f
       origin,
       credentialHash,
       service: createRouterOverviewService({
+        priority: () => readProviderPriority(routerDataDirectory()),
+        blockedModels: () => blockedRouterModels(routerDataDirectory()),
+        verification: () => readModelVerification(routerDataDirectory()),
         origin,
         headers: () => ({
           ...localRouterHeaders(origin),
@@ -833,7 +881,12 @@ async function initializeIntegratedRouterDashboard(
     const update = await fetch(`${origin}/api/settings`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json', cookie },
-      body: JSON.stringify({ requireLogin: false, tunnelDashboardAccess: false }),
+      body: JSON.stringify({
+        requireLogin: false,
+        tunnelDashboardAccess: false,
+        // 9Router 0.5.111+ also enforces API keys by default; this runtime is loopback-only.
+        requireApiKey: false,
+      }),
       signal: AbortSignal.timeout(5_000),
     });
     return update.ok;
@@ -1083,7 +1136,10 @@ async function sync9RouterModels(
       if (isLoopbackRouterURL(baseURL)) {
         try {
           const overview = discovered || (await getRouterOverview('today', force, true));
-          modelIds = overview.models.map((model) => model.id.replace(/^9router\//, ''));
+          // The agent's catalogue holds only models that answered on a usable account.
+          modelIds = overview.models
+            .filter((model) => model.available)
+            .map((model) => model.id.replace(/^9router\//, ''));
           if (overview.auto.supported && overview.models.length)
             modelIds.unshift(AUTO_ROUTER_MODEL.replace(/^9router\//, ''));
         } catch {
@@ -1175,7 +1231,12 @@ async function sync9RouterModels(
         (currentModel.startsWith('9router/') &&
           !modelIds.includes(currentModel.slice('9router/'.length)))
       ) {
-        const preferred = modelIds.includes('cx/gpt-5.4') ? 'cx/gpt-5.4' : modelIds[0]!;
+        const autoId = AUTO_ROUTER_MODEL.replace(/^9router\//, '');
+        const preferred = modelIds.includes(autoId)
+          ? autoId
+          : modelIds.includes('cx/gpt-5.4')
+            ? 'cx/gpt-5.4'
+            : modelIds[0]!;
         config.model = `9router/${preferred}`;
       }
       const configPath = mespOpenCodeConfigPath();
@@ -1259,7 +1320,7 @@ async function ensureMespCodeServer(): Promise<MespCodeServerState> {
         shell: false,
         windowsHide: true,
         env: {
-          ...process.env,
+          ...openCodeEnvironment(process.env),
           NO_COLOR: '1',
           OPENCODE_CONFIG: mespOpenCodeConfigPath(),
           OPENCODE_DISABLE_AUTOUPDATE: '1',
@@ -1538,6 +1599,63 @@ ipcMain.handle('dock:router-overview', async (_event, payload: unknown) => {
     options.force === true,
   );
 });
+ipcMain.handle('dock:router-priority', () => readProviderPriority(routerDataDirectory()));
+
+/** Asks the router to test, with a real minimal request, every untested account/model pair. */
+async function requestModelVerification(force: boolean, start = true) {
+  const { baseURL, apiKey } = configured9RouterOptions(readOpenCodeConfig());
+  const origin = routerOriginForApiBase(baseURL);
+  if (!origin || (await ensure9RouterRuntime(baseURL)) === 'unavailable') return null;
+  try {
+    const response = await fetch(`${origin}/api/mesp/verify`, {
+      method: start ? 'POST' : 'GET',
+      headers: {
+        'content-type': 'application/json',
+        ...localRouterHeaders(origin),
+        ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+      },
+      ...(start ? { body: JSON.stringify({ force }) } : {}),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return null;
+    const status = (await response.json()) as Record<string, unknown>;
+    return {
+      running: status.running === true,
+      total: Number(status.total) || 0,
+      done: Number(status.done) || 0,
+      ok: Number(status.ok) || 0,
+      failed: Number(status.failed) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+ipcMain.handle('dock:verify-models', (_event, force: unknown) =>
+  requestModelVerification(force === true),
+);
+ipcMain.handle('dock:verify-status', () => requestModelVerification(false, false));
+
+/** A chosen model that no account could run is replaced by Auto instead of failing the task. */
+function usableRouterModel(model: string): string {
+  if (model === AUTO_ROUTER_MODEL) return model;
+  const store = readModelVerification(routerDataDirectory());
+  const keys = Object.keys(store);
+  if (!keys.length) return model;
+  const accounts = keys
+    .filter((key) => key.endsWith(`|${model}`))
+    .map((key) => key.slice(0, key.indexOf('|')));
+  return accounts.some((account) => verificationState(store, account, model) === 'ok')
+    ? model
+    : AUTO_ROUTER_MODEL;
+}
+ipcMain.handle('dock:set-router-priority', (_event, value: unknown) => {
+  if (!Array.isArray(value) || value.length > 24) return null;
+  try {
+    return writeProviderPriority(routerDataDirectory(), normalizeProviderPriority(value));
+  } catch {
+    return null;
+  }
+});
 ipcMain.handle('dock:router-models', async (_event, force: unknown) => {
   const data = await getRouterOverview('today', force === true, true);
   // Prepare the project's isolated agent catalogue without holding the inline menu open.
@@ -1814,9 +1932,7 @@ async function runFastMespCode(options: {
       throw new Error(
         response.status === 401 || response.status === 403
           ? `9Router recusou a autenticacao (${response.status}). Atualize a credencial configurada.`
-          : `9Router respondeu ${response.status}${
-              detail ? `: ${sanitizeMespError(detail, responseSecrets)}` : ''
-            }`,
+          : friendlyRouterError(response.status, sanitizeMespError(detail, responseSecrets)),
       );
     }
     rejectedRouterCredentialHash = null;
@@ -2429,9 +2545,10 @@ async function sendMespCode(
 
   const prompt = isString(payload.prompt, MAX_MESP_PROMPT_LENGTH) ? payload.prompt.trim() : '';
   if (!prompt) return { ok: false, error: 'mensagem vazia' };
-  const model =
+  const requestedModel =
     isString(payload.model, 256) && MODEL_PATTERN.test(payload.model) ? payload.model : null;
-  if (!model) return { ok: false, error: 'modelo invalido' };
+  if (!requestedModel) return { ok: false, error: 'modelo invalido' };
+  const model = usableRouterModel(requestedModel);
   const mode: MespCodeMode | null = isMespCodeMode(payload.mode) ? payload.mode : null;
   if (!mode) return { ok: false, error: 'modo invalido' };
   const history = validateMespHistory(payload.history);
@@ -2621,7 +2738,7 @@ async function sendMespCode(
       shell: false,
       windowsHide: true,
       env: {
-        ...process.env,
+        ...openCodeEnvironment(process.env),
         NO_COLOR: '1',
         OPENCODE_CONFIG: mespOpenCodeConfigPath(),
         OPENCODE_DISABLE_AUTOUPDATE: '1',
@@ -3769,20 +3886,42 @@ function pruneOldImages(dir: string): void {
 
 // ----- Auto-start (login items) ---------------------------------------------
 
-ipcMain.handle('app:get-auto-start', () => {
-  const settings = app.getLoginItemSettings();
-  return settings.openAtLogin;
-});
-
-ipcMain.handle('app:set-auto-start', (_evt, enabledRaw: unknown) => {
-  const enabled = enabledRaw === true;
-  app.setLoginItemSettings({
-    openAtLogin: enabled,
-    openAsHidden: false,
-    args: [],
+function autoStartIdentity() {
+  return loginItemIdentity({
+    packaged: app.isPackaged,
+    execPath: process.execPath,
+    appPath: app.getAppPath(),
   });
-  return app.getLoginItemSettings().openAtLogin;
-});
+}
+
+function isAutoStartEnabled(): boolean {
+  try {
+    return app.getLoginItemSettings(autoStartIdentity()).openAtLogin;
+  } catch {
+    return false;
+  }
+}
+
+function setAutoStart(enabled: boolean): boolean {
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: enabled,
+      name: 'io.mesp.topdock',
+      ...autoStartIdentity(),
+    });
+  } catch {
+    /* Plataformas sem itens de login mantêm o estado anterior. */
+  }
+  const current = isAutoStartEnabled();
+  updateTrayMenu();
+  return current;
+}
+
+ipcMain.handle('app:get-auto-start', () => isAutoStartEnabled());
+
+ipcMain.handle('app:set-auto-start', (_evt, enabledRaw: unknown) =>
+  setAutoStart(enabledRaw === true),
+);
 
 // ----- Notificações do SO ----------------------------------------------------
 
@@ -3819,6 +3958,28 @@ ipcMain.handle('app:notify', (_evt, payloadRaw: unknown): boolean => {
 });
 
 // ----- Comando externo "one-shot" -------------------------------------------
+
+/** Turns a router error body into one sentence the user can act on. */
+function friendlyRouterError(status: number, detail: string): string {
+  let message = detail;
+  try {
+    const parsed = JSON.parse(detail) as { error?: { message?: unknown } | string };
+    const inner = typeof parsed.error === 'string' ? parsed.error : parsed.error?.message;
+    if (typeof inner === 'string') message = inner;
+  } catch {
+    /* Plain-text body. */
+  }
+  if (/\[404\]|NOT_FOUND|Requested entity was not found|model_not_found/i.test(message))
+    return 'Este modelo não está liberado nas suas contas. Escolha outro modelo ou use o Auto.';
+  if (status === 429 || /RESOURCE_EXHAUSTED|quota|rate limit/i.test(message))
+    return 'As contas deste modelo estão sem cota agora. Tente o Auto ou aguarde o reset.';
+  if (/locked|reset after/i.test(message))
+    return 'As contas deste modelo estão em espera por alguns minutos. Use o Auto ou tente de novo.';
+  const short = message.replace(/\s+/g, ' ').trim().slice(0, 240);
+  return short
+    ? `O provedor recusou o pedido (${status}): ${short}`
+    : `O provedor recusou o pedido (${status}).`;
+}
 
 function validActualModel(value: unknown): value is string {
   return (
@@ -4781,6 +4942,12 @@ function updateTrayMenu(): void {
       checked: focusMode,
       click: () => setFocusMode(!focusMode),
     },
+    {
+      label: 'Iniciar com o sistema',
+      type: 'checkbox',
+      checked: isAutoStartEnabled(),
+      click: () => setAutoStart(!isAutoStartEnabled()),
+    },
     { type: 'separator' },
     { label: 'Atalhos: Ctrl+Shift+M (mostrar/esconder) · Ctrl+Shift+F (foco)', enabled: false },
     { type: 'separator' },
@@ -4839,7 +5006,9 @@ app.whenReady().then(() => {
         profile.source === '9router' ||
         isExistingFile(path.join(profile.directory, '.mesp-managed-v1'))
       )
-        void ensure9RouterRuntime(baseURL).catch(() => {});
+        void ensure9RouterRuntime(baseURL)
+          .then((source) => (source === 'unavailable' ? null : requestModelVerification(false)))
+          .catch(() => {});
     }, 750);
     warmupTimer.unref();
   }

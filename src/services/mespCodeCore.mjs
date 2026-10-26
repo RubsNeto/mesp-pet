@@ -43,6 +43,16 @@ export function resolveOpenCodeConfigValue(value, environment = {}) {
   return typeof resolved === 'string' && resolved.trim() ? resolved.trim() : null;
 }
 
+/** OpenCode resolves its working directory from `PWD` before `process.cwd()`.
+ * Shells such as Git Bash export `PWD`, which would redirect the agent to the
+ * folder the app was launched from instead of the project folder. */
+export function openCodeEnvironment(environment = {}) {
+  const copy = { ...environment };
+  delete copy.PWD;
+  delete copy.OLDPWD;
+  return copy;
+}
+
 export function parseDotEnvValue(value) {
   if (typeof value !== 'string') return '';
   const trimmed = value.trim();

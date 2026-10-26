@@ -227,6 +227,7 @@ export function TopDock() {
   const [pinned, setPinned] = useState(false);
   const [customizing, setCustomizing] = useState(false);
   const [confirmQuit, setConfirmQuit] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
   const quitPanel = useRef<HTMLDivElement>(null);
   const [choosing, setChoosing] = useState(false);
   const [notice, setNotice] = useState('');
@@ -698,6 +699,40 @@ export function TopDock() {
     fsm.current?.forceHome();
     void window.mesp?.focusDock(true);
   }, []);
+  // Closing a MESP removes it with its conversation, draft and terminal; another one takes its place.
+  const closeSelected = useCallback(() => {
+    const list = projectsRef.current;
+    const id = selectedRef.current;
+    const index = list.findIndex((project) => project.id === id);
+    const target = list[index];
+    if (!target || list.length < 2) return;
+    if (target.hasActiveTask) {
+      setNotice('Pare a tarefa deste MESP antes de fechá-lo.');
+      setConfirmClose(false);
+      return;
+    }
+    const next = list[index + 1] || list[index - 1];
+    void window.mesp?.terminalKill?.(id).catch(() => false);
+    try {
+      localStorage.removeItem(`mesp-code-chat-${id}`);
+    } catch {
+      /* Storage may be unavailable; the project list below is still updated. */
+    }
+    drafts.current.delete(id);
+    setMessages((prev) => {
+      const rest = { ...prev };
+      delete rest[id];
+      return rest;
+    });
+    setConfirmClose(false);
+    selectProject(next.id);
+    setProjects((prev) => prev.filter((project) => project.id !== id));
+  }, [selectProject]);
+  useEffect(() => {
+    if (!confirmClose) return;
+    const timer = window.setTimeout(() => setConfirmClose(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [confirmClose]);
   const chooseProject = useCallback(
     async (newProject = false) => {
       if (choosing) return;
@@ -1555,6 +1590,16 @@ export function TopDock() {
                 </small>
               </div>
               <div className="dock-actions">
+                {projects.length > 1 && (
+                  <button
+                    className={`dock-close-mesp${confirmClose ? ' is-confirming' : ''}`}
+                    title={confirmClose ? 'Clique de novo para fechar' : 'Fechar este MESP'}
+                    aria-label={confirmClose ? 'Confirmar fechar este MESP' : 'Fechar este MESP'}
+                    onClick={() => (confirmClose ? closeSelected() : setConfirmClose(true))}
+                  >
+                    <Icon name="close" />
+                  </button>
+                )}
                 <button
                   title="Personalizar MESP"
                   aria-label="Personalizar MESP"

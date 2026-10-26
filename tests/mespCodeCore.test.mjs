@@ -16,6 +16,7 @@ import {
   modelIdFor9Router,
   normalizeProjectChecks,
   normalizeMespTokenLimit,
+  openCodeEnvironment,
   normalizeStoredMespMessages,
   normalizeStoredMespQueue,
   parseDotEnvValue,
@@ -404,4 +405,15 @@ test('migrates old saved messages and removes unsafe or duplicate queued tasks',
   ]);
   assert.equal(queue.length, 1);
   assert.equal(queue[0].id, 'task-1');
+});
+
+test('OpenCode environment drops shell PWD so the agent stays in the project folder', () => {
+  const environment = openCodeEnvironment({
+    PWD: '/c/Users/dev/repo',
+    OLDPWD: '/c/Users/dev',
+    PATH: 'C:/bin',
+    OPENCODE_CONFIG: 'C:/cfg.json',
+  });
+  assert.deepEqual(environment, { PATH: 'C:/bin', OPENCODE_CONFIG: 'C:/cfg.json' });
+  assert.deepEqual(openCodeEnvironment(), {});
 });

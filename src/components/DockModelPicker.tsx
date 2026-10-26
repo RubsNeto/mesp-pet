@@ -5,8 +5,16 @@ import { DockConnectionIcon } from './DockConnectionIcon';
 export function dockModelLabel(name: string) {
   return (name.split('/').pop() || name)
     .replace(/^gpt-/i, 'GPT-')
+    .replace(/^claude-(opus|sonnet|haiku)-(\d+)-(\d+)/i, (_m, family: string, major, minor) => {
+      return `Claude ${family[0].toUpperCase()}${family.slice(1)} ${major}.${minor}`;
+    })
+    .replace(/^claude-(opus|sonnet|haiku)-/i, (_m, family: string) => {
+      return `Claude ${family[0].toUpperCase()}${family.slice(1)} `;
+    })
     .replace(/^claude-/i, 'Claude ')
     .replace(/^gemini-/i, 'Gemini ')
+    .replace(/-thinking/i, ' Thinking')
+    .replace(/-(high|medium|low)$/i, (_m, level: string) => ` (${level})`)
     .replace(/_/g, ' ');
 }
 const normalize = (text: string) =>
@@ -38,7 +46,8 @@ export function DockModelPicker({
   const [focusedModel, setFocusedModel] = useState('');
   const search = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
-  const models = overview?.models || [];
+  // Only models that answered a real request on at least one usable account.
+  const models = (overview?.models || []).filter((model) => model.available);
   const providers = [
     ...new Map(models.map((model) => [model.provider, model.providerName])).entries(),
   ];
@@ -55,7 +64,17 @@ export function DockModelPicker({
     models.length > 0 &&
     (!words.length ||
       words.every((word) => normalize('auto automatico reset conta').includes(word)));
-  const groups = [...new Set(filtered.map((model) => model.providerName))];
+  const groups = [...new Set(filtered.map((model) => model.providerName))].sort(
+    (a, b) =>
+      Number(filtered.some((m) => m.providerName === b && m.available)) -
+      Number(filtered.some((m) => m.providerName === a && m.available)),
+  );
+  const updatedAt = overview
+    ? new Date(overview.updatedAt).toLocaleTimeString('pt-BR', {
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '';
   const selectedInfo = models.find((model) => model.id === currentModel);
   const disabled = !canChange || !overview?.modelsAvailable;
   const visibleIds = [
@@ -155,7 +174,9 @@ export function DockModelPicker({
         <span role="status">
           {loading && !overview
             ? 'Buscando seus modelos…'
-            : `${filtered.length} modelo${filtered.length === 1 ? '' : 's'}`}
+            : `${filtered.length} modelo${filtered.length === 1 ? '' : 's'} testado${
+                filtered.length === 1 ? '' : 's'
+              }${updatedAt ? ` · atualizado às ${updatedAt}` : ''}`}
         </span>
         <small>{canChange ? 'Clique para usar' : 'Tarefa em andamento'}</small>
       </div>
@@ -227,8 +248,9 @@ export function DockModelPicker({
                   <span className="dock-choice-copy">
                     <strong>{dockModelLabel(model.name)}</strong>
                     <small>
-                      {model.accountIds.length} conta{model.accountIds.length === 1 ? '' : 's'} ·{' '}
-                      {model.source === 'live' ? 'Consultado na conta' : 'Catálogo do provedor'}
+                      {`Respondeu em ${model.accountIds.length} conta${
+                        model.accountIds.length === 1 ? '' : 's'
+                      }`}
                     </small>
                   </span>
                   <span className="dock-choice-mark" aria-hidden="true">

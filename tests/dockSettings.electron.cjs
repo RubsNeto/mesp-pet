@@ -82,6 +82,9 @@ const root = path.resolve(__dirname, '..');
             providerName,
             accountIds: [`account-${i}`],
             source: 'live',
+            // The picker lists only models that answered a real test on a usable account.
+            available: true,
+            verified: true,
           })),
         );
         return {

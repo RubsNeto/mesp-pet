@@ -26,7 +26,10 @@ Esta é a versão atual do repositório. O guia de uso está em
 
 As [outras 50 melhorias implementadas](MELHORIAS-50-DESENVOLVEDOR-2.md) detalham esta rodada.
 
-O MESP Code oferece os modos Rápido, Plano, Assistido e Autônomo. O login dos
+O MESP Code oferece os modos Rápido, Plano, Assistido e Autônomo, trocados por
+`/fast`, `/plan`, `/assisted` e `/autonomous`; `/clear` inicia outra conversa e
+`/checks` escolhe as verificações. O modelo e o modo atuais aparecem abaixo do
+campo de mensagem. O login dos
 provedores acontece no fluxo real do 9Router. O estado de autenticação precisa
 ser verificado; modelos de catálogo podem depender do plano da conta.
 

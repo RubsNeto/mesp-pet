@@ -8,6 +8,7 @@ import {
   autoRouterCandidates,
   createRouterOverviewService,
   patchRouterAccountSelection,
+  routerPatchTargets,
   routerRunModel,
   classifyRouterRequest,
   createRouterHealth,
@@ -17,7 +18,11 @@ import {
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 test('intent classification uses light Auto models even for a complex programming request', () => {
-  const body = { messages: [{ role: 'user', content: 'Refatore a arquitetura inteira do backend e migre o banco' }] };
+  const body = {
+    messages: [
+      { role: 'user', content: 'Refatore a arquitetura inteira do backend e migre o banco' },
+    ],
+  };
   assert.equal(classifyRouterRequest(body, 'intent').complexity, 'light');
 });
 
@@ -37,7 +42,7 @@ test('Auto attribution separates simultaneous sessions and rejects previous, can
     assert.equal(routerRunModel({ ...route, model }, run), null);
   assert.equal(routerRunModel(undefined, run), null);
 });
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { createHmac } from 'node:crypto';
 import { routerLocalAuthHeaders } from '../electron/dockRouterLocalAuth.mjs';
@@ -134,8 +139,13 @@ test('expired accounts do not advertise fallback models or enter Auto routing', 
   const overview = await service.overview();
   assert.equal(overview.accounts[0].health, 'auth');
   assert.equal(overview.accounts[0].quotaState, 'error');
-  assert.deepEqual(overview.models, []);
+  assert.deepEqual(
+    overview.models.map((m) => [m.id, m.available, m.reason]),
+    [['9router/cx/gpt-codex', false, 'auth']],
+  );
+  assert.equal(overview.modelsAvailable, false);
   assert.equal(overview.auto.available, false);
+  assert.deepEqual((await service.routing()).models, []);
 });
 
 test('model discovery does not wait for consumption and coalesces concurrent refreshes', async () => {
@@ -148,7 +158,8 @@ test('model discovery does not wait for consumption and coalesces concurrent ref
       if (route === '/api/providers')
         return { connections: [{ id: 'ready', provider: 'codex', testStatus: 'success' }] };
       if (route === '/api/providers/ready/models') return { models: [{ id: 'gpt-codex' }] };
-      throw new Error('Consumption and catalog must not be queried by the model menu');
+      if (route === '/v1/models') return { data: [] };
+      throw new Error('Consumption must not be queried by the model menu');
     },
   });
   const [first, second] = await Promise.all([service.models(true), service.models(true)]);
@@ -159,10 +170,10 @@ test('model discovery does not wait for consumption and coalesces concurrent ref
   );
   assert.equal(first.totals, null);
   assert.equal(first.auto.available, true);
-  assert.deepEqual(calls, ['/api/providers', '/api/providers/ready/models']);
+  assert.deepEqual(calls.sort(), ['/api/providers', '/api/providers/ready/models', '/v1/models']);
 });
 
-test('model menu omits unconfirmed, exhausted, locked and forbidden account models', async () => {
+test('model menu flags exhausted and locked account models and omits unconfirmed or forbidden ones', async () => {
   const connections = [
     { id: 'ready', provider: 'codex', testStatus: 'success' },
     { id: 'empty', provider: 'claude', testStatus: 'success' },
@@ -172,7 +183,21 @@ test('model menu omits unconfirmed, exhausted, locked and forbidden account mode
       testStatus: 'success',
       modelLock_all: new Date(Date.now() + 60000).toISOString(),
     },
-    { id: 'forbidden', provider: 'github', testStatus: 'success', errorCode: 403 },
+    {
+      id: 'forbidden',
+      provider: 'github',
+      testStatus: 'unavailable',
+      errorCode: 403,
+      lastErrorAt: new Date().toISOString(),
+    },
+    // An old 403 that 9Router never cleared does not block a recovered account.
+    {
+      id: 'recovered',
+      provider: 'antigravity',
+      testStatus: 'active',
+      errorCode: 403,
+      lastErrorAt: '2026-10-01T12:00:00Z',
+    },
     { id: 'unconfirmed', provider: 'openai', testStatus: 'success' },
   ];
   const service = createRouterOverviewService({
@@ -190,13 +215,26 @@ test('model menu omits unconfirmed, exhausted, locked and forbidden account mode
   });
   const overview = await service.overview();
   assert.deepEqual(
-    overview.models.map((m) => m.id),
-    ['9router/cx/model'],
+    overview.models.map((m) => [m.id, m.available, m.reason]),
+    [
+      ['9router/ag/model', true, undefined],
+      ['9router/cc/model', false, 'quota'],
+      ['9router/gc/model', false, 'unknown'],
+      ['9router/cx/model', true, undefined],
+    ],
   );
+  assert.deepEqual(overview.auto.next && [overview.auto.next.accountId, overview.auto.next.model], [
+    'ready',
+    '9router/cx/model',
+  ]);
   const quick = await service.models();
   assert.deepEqual(
-    quick.models.map((m) => m.id),
-    ['9router/cx/model'],
+    quick.models.filter((m) => m.available).map((m) => m.id),
+    ['9router/ag/model', '9router/cx/model'],
+  );
+  assert.deepEqual(
+    (await service.routing()).models.map((m) => m.id),
+    ['9router/ag/model', '9router/cx/model'],
   );
 });
 
@@ -462,7 +500,7 @@ test('Auto respects tool support, published context limits, remaining balances a
   health.failed(choice, 'model', null, now);
   assert.equal(health.available(choice, now), false);
   assert.equal(health.available({ ...choice, model: 'other' }, now), true);
-  assert.equal(health.available(choice, now + 600001), true);
+  assert.equal(health.available(choice, now + 43200001), true);
   health.failed(choice, 429, '2', now);
   assert.equal(health.available({ ...choice, model: 'other' }, now), false);
   assert.equal(health.available(choice, now + 2001), true);
@@ -658,8 +696,9 @@ test('Copilot Responses compatibility uses the native stream translator and fail
     patchRouterCopilotResponses(before),
     'n=this.buildHeaders(d,!0),p=(0,h.h)(a,b,!0,d);',
   );
-  assert.throws(() => patchRouterCopilotResponses('another build'), /incompatível/);
-  assert.throws(() => patchRouterCopilotResponses(before + before), /incompatível/);
+  // Builds without (or with an ambiguous) legacy path are left untouched instead of failing startup.
+  assert.equal(patchRouterCopilotResponses('another build'), 'another build');
+  assert.equal(patchRouterCopilotResponses(before + before), before + before);
 });
 
 test('recent routing failures survive restart, expire, and persist no credentials or request text', () => {
@@ -670,7 +709,7 @@ test('recent routing failures survive restart, expire, and persist no credential
   const restored = createRouterHealth(saved);
   assert.equal(restored.available(choice), false);
   assert.equal(restored.available({ ...choice, model: '9router/cx/gpt-4.1' }), true);
-  assert.equal(restored.available(choice, Date.now() + 600001), true);
+  assert.equal(restored.available(choice, Date.now() + 43200001), true);
   assert.deepEqual(
     createRouterHealth([
       ['INVALID SECRET!', Date.now() + 10000],
@@ -839,7 +878,7 @@ test('consumption aggregates account models by ID, without double counting cache
   assert.equal(normalizeRouterStats({ error: 'failed' }), null);
 });
 
-test('overview unions live account models, excludes inactive catalogues, caches quotas, and whitelists IPC data', async () => {
+test('overview unions live account models, flags catalogue-only and disabled ones, caches quotas, and whitelists IPC data', async () => {
   const calls = [];
   const service = createRouterOverviewService({
     origin: 'http://localhost',
@@ -888,8 +927,13 @@ test('overview unions live account models, excludes inactive catalogues, caches 
   });
   const data = await service.overview('today');
   assert.deepEqual(
-    data.models.map((m) => m.id),
-    ['9router/cx/gpt-codex', '9router/cx/gpt-new'],
+    data.models.map((m) => [m.id, m.available, m.reason]),
+    [
+      ['9router/cc/disabled-model', false, 'disabled'],
+      ['9router/cx/gpt-codex', true, undefined],
+      ['9router/cx/gpt-new', true, undefined],
+      ['9router/cx/old-model', false, 'catalog'],
+    ],
   );
   assert.equal(data.auto.next.accountId, 'near');
   assert.ok(!JSON.stringify(data).includes('SECRET'));
@@ -918,11 +962,18 @@ test('empty profiles do not advertise 9Router static models as logged-in availab
 });
 
 test('installed auth patch honors concurrent request scopes, fallback exclusions, and explicit native preferences', async () => {
-  const source = readFileSync(
-    new URL('../node_modules/9router/app/.next-cli-build/server/chunks/4664.js', import.meta.url),
-    'utf8',
+  // Locate the installed router's account-selection chunk by content, as the runtime does.
+  const chunks = new URL(
+    '../node_modules/9router/app/.next-cli-build/server/chunks/',
+    import.meta.url,
   );
-  assert.ok(patchRouterAccountSelection(source).includes('chooseAccount'));
+  const files = readdirSync(chunks)
+    .filter((name) => name.endsWith('.js'))
+    .map((name) => new URL(name, chunks));
+  const { auth } = routerPatchTargets(files, (file) => readFileSync(file, 'utf8'));
+  const patchedSource = patchRouterAccountSelection(readFileSync(auth, 'utf8'));
+  assert.ok(patchedSource.includes('chooseAccount'));
+  assert.ok(patchedSource.includes('filterAvailable'));
   assert.throws(() => patchRouterAccountSelection('incompatible version'), /incompatível/);
   const context = new AsyncLocalStorage();
   globalThis.__mespRouterContext = context;

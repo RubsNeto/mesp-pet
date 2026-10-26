@@ -320,6 +320,84 @@
   gap: 8px;
   margin: 17px 0 10px;
 }
+.dock-verify-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: #1b1b1b;
+  color: #9a9a9a;
+  font-size: 10px;
+}
+.dock-verify-bar button {
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: #2a2a2a;
+  color: #ddd;
+  font-size: 10px;
+  cursor: pointer;
+}
+.dock-verify-bar button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.dock-priority-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dock-priority-list li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 28px 28px;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 9px;
+  background: #1d1d1d;
+}
+.dock-priority-index {
+  color: #777;
+  font-size: 10px;
+  text-align: center;
+}
+.dock-priority-name {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dock-priority-name strong {
+  font-size: 12px;
+  font-weight: 550;
+  color: #eee;
+}
+.dock-priority-name small {
+  font-size: 10px;
+  color: #c9a86a;
+}
+.dock-priority-list button {
+  height: 26px;
+  border: 0;
+  border-radius: 7px;
+  background: #2a2a2a;
+  color: #ddd;
+  cursor: pointer;
+}
+.dock-priority-list button:hover:not(:disabled) {
+  background: #3a3a3a;
+}
+.dock-priority-list button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
 .dock-settings-section-heading small,
 .dock-settings-section-heading h3 > span {
   font-size: 10px;
@@ -943,6 +1021,11 @@ body,
   background: transparent;
   border-radius: 8px;
   color: #9398a1;
+}
+.dock-actions .dock-close-mesp.is-confirming,
+.dock-actions .dock-close-mesp.is-confirming:hover {
+  background: #4a1f27;
+  color: #ff9aac;
 }
 .dock-actions button:hover,
 .dock-actions button[aria-pressed='true'] {
@@ -2020,83 +2103,6 @@ body,
   color: #eee;
   font-family: 'Segoe UI', sans-serif;
 }
-.top-dock .mesp-chat-toolbar {
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 7px 10px;
-  background: #141414;
-}
-.top-dock .mesp-model-control {
-  flex: 1 1 160px;
-  min-width: 0;
-}
-.top-dock :is(.mesp-model-trigger, .mesp-limits-trigger, .mesp-chat-new) {
-  min-width: 0;
-  border: 0;
-  border-radius: 7px;
-  background: #242424;
-  color: #ccc;
-  font-size: 11px;
-}
-.top-dock .mesp-model-trigger {
-  width: 100%;
-  max-width: none;
-}
-.top-dock .mesp-model-trigger strong {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #eee;
-}
-.top-dock .mesp-model-provider {
-  color: #aaa;
-}
-.top-dock .mesp-chat-new {
-  flex: 0 0 auto;
-  white-space: nowrap;
-}
-.top-dock .mesp-router-discover {
-  display: none;
-}
-.top-dock .mesp-mode-bar {
-  display: block;
-  background: #141414;
-  padding: 7px 10px;
-}
-.top-dock .mesp-mode-switcher {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  width: 100%;
-  gap: 4px;
-}
-.top-dock .mesp-mode-switcher button {
-  min-width: 0;
-  min-height: 28px;
-  padding: 5px;
-  justify-content: center;
-  border: 0;
-  border-radius: 7px;
-  background: #202020;
-  color: #aaa;
-}
-.top-dock .mesp-mode-switcher button.selected {
-  background: #353535;
-  color: #eee;
-  border: 0;
-  box-shadow: none;
-}
-.top-dock .mesp-mode-switcher :is(small, .mesp-mode-dot) {
-  display: none;
-}
-.top-dock .mesp-mode-bar p {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #aaa;
-  font-size: 10px;
-}
 .top-dock .mesp-message-content {
   color: #ccc;
 }
@@ -2150,9 +2156,6 @@ body,
   border: 0;
 }
 @media (max-width: 500px) {
-  .top-dock .mesp-model-control {
-    flex-basis: 100%;
-  }
 }
 @media (max-width: 600px) {
   .dock-header {
@@ -2191,7 +2194,8 @@ body,
   position: relative;
 }
 .dock-composer:has(.dock-command-popover),
-.mesp-composer:has(.dock-command-popover) {
+.mesp-composer:has(.dock-command-popover),
+.mesp-composer:has(.mesp-limits-popover) {
   z-index: 40;
   overflow: visible;
 }
@@ -2471,6 +2475,23 @@ body,
 }
 .top-dock .mesp-composer-footer > span {
   font-size: 9px;
+}
+.top-dock .mesp-composer-state {
+  color: #777;
+  font-size: 10px;
+}
+.top-dock .mesp-composer-state .mode-autonomous {
+  color: #d29aa8;
+}
+.top-dock .mesp-composer-state .mode-assisted {
+  color: #cdb07e;
+}
+.top-dock .mesp-limits-popover {
+  border: 1px solid #333;
+  border-radius: 14px;
+  background: #181818;
+  box-shadow: 0 12px 32px #0008;
+  animation: dock-router-enter 140ms ease-out;
 }
 .top-dock .mesp-composer :is(.mesp-composer-send, .mesp-composer-queue) {
   background: #e7e7e7;
@@ -3141,6 +3162,16 @@ body,
   min-height: 48px;
   padding: 7px 138px 6px 72px;
 }
+/* With several MESP the header gains a close button; shift the add button and mini rail left. */
+.top-dock:has(.dock-close-mesp) .dock-header {
+  padding-right: 168px;
+}
+.top-dock.mode-home:has(.dock-close-mesp) .dock-add-mesp {
+  right: 136px;
+}
+.top-dock.mode-home:has(.dock-close-mesp) .dock-mini-strip {
+  right: 168px;
+}
 .top-dock .dock-title {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -3240,6 +3271,17 @@ body,
     right: 12px;
     top: 44px;
     height: 32px;
+  }
+  /* Narrow screens: the add button joins the mini row so the close button fits the header. */
+  .top-dock:has(.dock-close-mesp) .dock-header {
+    padding-right: 126px;
+  }
+  .top-dock.mode-home:has(.dock-close-mesp) .dock-add-mesp {
+    top: 47px;
+    right: 12px;
+  }
+  .top-dock.mode-home:has(.dock-close-mesp) .dock-mini-strip {
+    right: 44px;
   }
 }
 .dock-delivery {

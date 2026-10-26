@@ -8,6 +8,42 @@ const COMMANDS = [
     search: 'modelo modelos model models ia auto',
   },
   {
+    command: '/fast',
+    name: 'Rápido',
+    detail: 'Respostas diretas, sem ferramentas',
+    search: 'rapido fast conversa',
+  },
+  {
+    command: '/plan',
+    name: 'Plano',
+    detail: 'Analisa sem alterar o projeto',
+    search: 'plano plan analise',
+  },
+  {
+    command: '/assisted',
+    name: 'Assistido',
+    detail: 'Pede aprovação antes de agir',
+    search: 'assistido assisted aprovar',
+  },
+  {
+    command: '/autonomous',
+    name: 'Autônomo',
+    detail: 'Executa até concluir, com verificações',
+    search: 'autonomo autonomous agente',
+  },
+  {
+    command: '/checks',
+    name: 'Verificações',
+    detail: 'Escolher os testes da entrega',
+    search: 'verificacoes checks testes lint build',
+  },
+  {
+    command: '/clear',
+    name: 'Nova conversa',
+    detail: 'Limpar o chat deste MESP',
+    search: 'limpar nova conversa clear reset',
+  },
+  {
     command: '/accounts',
     name: 'Conexões',
     detail: 'Conectar e gerenciar contas',

@@ -1461,19 +1461,6 @@ img.pixelated {
   font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
 }
 
-.mesp-chat-toolbar {
-  position: relative;
-  z-index: 6;
-  min-height: 43px;
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 6px 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.055);
-  background: rgba(12, 14, 25, 0.72);
-}
-
 .mesp-router-status {
   position: relative;
   z-index: 5;
@@ -1570,179 +1557,12 @@ img.pixelated {
   opacity: 0.48;
 }
 
-.mesp-mode-bar {
-  position: relative;
-  z-index: 4;
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 45px;
-  padding: 6px 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.055);
-  background: rgba(15, 17, 29, 0.9);
-}
-
-.mesp-mode-switcher {
-  flex: 0 0 auto;
-  display: inline-flex;
-  gap: 3px;
-  padding: 3px;
-  border: 1px solid rgba(255, 255, 255, 0.065);
-  border-radius: 9px;
-  background: rgba(5, 7, 14, 0.46);
-}
-
-.mesp-mode-switcher button {
-  min-width: 98px;
-  height: 31px;
-  display: grid;
-  grid-template-columns: 7px auto;
-  grid-template-rows: auto auto;
-  column-gap: 6px;
-  align-items: center;
-  padding: 4px 8px;
-  border: 0;
-  border-radius: 6px;
-  color: #77819e;
-  background: transparent;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.mesp-mode-switcher button:hover:not(:disabled) {
-  color: #cdd4ea;
-  background: rgba(255, 255, 255, 0.035);
-}
-
-.mesp-mode-switcher button.selected {
-  color: #eef4ff;
-  background: rgba(130, 217, 247, 0.09);
-  box-shadow: inset 0 0 0 1px rgba(130, 217, 247, 0.16);
-}
-
-.mesp-mode-switcher button:disabled {
-  cursor: default;
-  opacity: 0.64;
-}
-
-.mesp-mode-switcher strong {
-  grid-column: 2;
-  font-size: 9px;
-  font-weight: 750;
-}
-
-.mesp-mode-switcher small {
-  grid-column: 2;
-  color: #626d89;
-  font-size: 7px;
-  white-space: nowrap;
-}
-
-.mesp-mode-dot {
-  grid-row: 1 / span 2;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #82d9f7;
-  box-shadow: 0 0 8px rgba(130, 217, 247, 0.28);
-}
-
-.mesp-mode-switcher button:nth-child(2) .mesp-mode-dot {
-  background: #c7a0f5;
-  box-shadow: 0 0 8px rgba(199, 160, 245, 0.3);
-}
-
-.mesp-mode-switcher button:nth-child(3) .mesp-mode-dot {
-  background: #efbd70;
-  box-shadow: 0 0 8px rgba(239, 189, 112, 0.35);
-}
-
-.mesp-mode-switcher button:nth-child(4) .mesp-mode-dot {
-  background: #f58aa8;
-  box-shadow: 0 0 8px rgba(245, 138, 168, 0.35);
-}
-
-.mesp-mode-bar > p {
-  min-width: 0;
-  margin: 0;
-  color: #69748f;
-  font:
-    9px/1.45 -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    sans-serif;
-}
-
-.mesp-mode-bar.mode-autonomous > p {
-  color: #b98496;
-}
-
-.mesp-mode-bar.mode-assisted > p {
-  color: #a88e69;
-}
-
-.mesp-model-control {
-  position: relative;
-  min-width: 0;
-}
-
-.mesp-limits-control {
-  position: relative;
-  flex: 0 0 auto;
-}
-
-.mesp-router-discover {
-  height: 29px;
-  flex: 0 0 auto;
-  padding: 0 9px;
-  white-space: nowrap;
-  font:
-    700 8px/1 'JetBrains Mono',
-    monospace;
-}
-
-.mesp-router-discover:hover:not(:disabled) {
-  color: #e8faff;
-  border-color: rgba(130, 217, 247, 0.3);
-  background: rgba(130, 217, 247, 0.08);
-}
-
-.mesp-router-discover:disabled {
-  cursor: default;
-  opacity: 0.45;
-}
-
-.mesp-limits-trigger {
-  height: 29px;
-  padding: 0 8px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 7px;
-  color: #7e89a6;
-  background: rgba(255, 255, 255, 0.025);
-  font:
-    700 8px/1 'JetBrains Mono',
-    monospace;
-  cursor: pointer;
-}
-
-.mesp-limits-trigger:hover:not(:disabled) {
-  color: #d8deef;
-  border-color: rgba(130, 217, 247, 0.22);
-}
-
-.mesp-limits-trigger:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
 .mesp-limits-popover {
   position: absolute;
   z-index: 20;
-  top: calc(100% + 7px);
+  bottom: calc(100% + 8px);
   left: 0;
-  width: 225px;
+  right: 0;
   box-sizing: border-box;
   display: grid;
   gap: 10px;
@@ -1776,281 +1596,6 @@ img.pixelated {
 .mesp-limits-popover small {
   color: #626d89;
   font-size: 7px;
-}
-
-.mesp-model-trigger,
-.mesp-chat-new,
-.mesp-router-discover,
-.mesp-model-refresh {
-  appearance: none;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #bac2dd;
-  background: rgba(255, 255, 255, 0.035);
-  border-radius: 7px;
-  font-family: inherit;
-  cursor: pointer;
-  transition:
-    border-color 120ms ease,
-    background 120ms ease,
-    color 120ms ease;
-}
-
-.mesp-router-discovery-notice {
-  position: relative;
-  z-index: 5;
-  flex: 0 0 auto;
-  padding: 6px 10px;
-  border-bottom: 1px solid rgba(126, 231, 135, 0.12);
-  color: #bfe8c4;
-  background: rgba(52, 105, 67, 0.18);
-  font:
-    8px/1.4 'JetBrains Mono',
-    monospace;
-}
-
-.mesp-router-discovery-notice.error {
-  border-bottom-color: rgba(255, 113, 137, 0.14);
-  color: #ffb2bf;
-  background: rgba(104, 35, 48, 0.2);
-}
-
-.mesp-model-trigger {
-  height: 30px;
-  max-width: 330px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 9px;
-  text-align: left;
-}
-
-.mesp-model-trigger:hover,
-.mesp-chat-new:hover:not(:disabled),
-.mesp-model-refresh:hover:not(:disabled) {
-  color: #edf8ff;
-  border-color: rgba(130, 217, 247, 0.28);
-  background: rgba(130, 217, 247, 0.075);
-}
-
-.mesp-model-trigger strong {
-  max-width: 210px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 10px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.mesp-model-provider {
-  color: #82d9f7;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.mesp-model-chevron {
-  color: #6e7896;
-  margin-left: 2px;
-  transform: translateY(-1px);
-}
-
-.mesp-chat-session {
-  color: #636d89;
-  font-size: 9px;
-  white-space: nowrap;
-}
-
-.mesp-runtime-badge {
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 7px;
-  border: 1px solid rgba(255, 200, 87, 0.16);
-  border-radius: 999px;
-  color: #a9b1cb;
-  background: rgba(255, 200, 87, 0.045);
-  font-size: 7px;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.mesp-runtime-badge > span {
-  width: 5px;
-  height: 5px;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  background: #ffc857;
-  box-shadow: 0 0 6px rgba(255, 200, 87, 0.4);
-}
-
-.mesp-runtime-badge.is-ready {
-  border-color: rgba(126, 231, 135, 0.16);
-  color: #a9cdb2;
-  background: rgba(126, 231, 135, 0.045);
-}
-
-.mesp-runtime-badge.is-ready > span {
-  background: #7ee787;
-  box-shadow: 0 0 6px rgba(126, 231, 135, 0.38);
-}
-
-.mesp-chat-new {
-  height: 29px;
-  margin-left: auto;
-  padding: 0 9px;
-  font-size: 9px;
-}
-
-.mesp-chat-new span {
-  color: #82d9f7;
-  font-size: 13px;
-}
-
-.mesp-chat-new:disabled,
-.mesp-model-refresh:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.mesp-model-popover {
-  position: absolute;
-  z-index: 20;
-  top: 36px;
-  left: 0;
-  width: min(430px, calc(100vw - 40px));
-  overflow: hidden;
-  background: rgba(20, 23, 39, 0.985);
-  border: 1px solid rgba(130, 217, 247, 0.18);
-  border-radius: 10px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
-}
-
-.mesp-model-search-row {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 9px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.mesp-model-search-row input {
-  flex: 1;
-  min-width: 0;
-  height: 31px;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 6px;
-  outline: none;
-  padding: 0 10px;
-  color: #e5e9fa;
-  background: rgba(5, 7, 14, 0.55);
-  font:
-    10px/1 'JetBrains Mono',
-    monospace;
-}
-
-.mesp-model-search-row input:focus {
-  border-color: rgba(130, 217, 247, 0.5);
-  box-shadow: 0 0 0 2px rgba(130, 217, 247, 0.08);
-}
-
-.mesp-model-filters {
-  display: flex;
-  gap: 4px;
-  overflow-x: auto;
-  padding: 0 9px 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.055);
-}
-
-.mesp-model-filters button {
-  flex: 0 0 auto;
-  height: 23px;
-  padding: 0 8px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 5px;
-  color: #737e9b;
-  background: rgba(255, 255, 255, 0.02);
-  font:
-    700 8px/1 'JetBrains Mono',
-    monospace;
-  cursor: pointer;
-}
-
-.mesp-model-filters button:hover,
-.mesp-model-filters button.selected {
-  color: #dff6ff;
-  border-color: rgba(130, 217, 247, 0.24);
-  background: rgba(130, 217, 247, 0.075);
-}
-
-.mesp-model-refresh {
-  width: 31px;
-  height: 31px;
-  flex: 0 0 31px;
-  font-size: 14px;
-}
-
-.mesp-model-list {
-  max-height: 290px;
-  overflow-y: auto;
-  padding: 5px;
-}
-
-.mesp-model-option {
-  width: 100%;
-  min-height: 34px;
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  padding: 5px 8px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  color: #aeb6d1;
-  background: transparent;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.mesp-model-option:hover {
-  color: #f2f5ff;
-  background: rgba(255, 255, 255, 0.045);
-}
-
-.mesp-model-option.selected {
-  color: #edf9ff;
-  border-color: rgba(130, 217, 247, 0.17);
-  background: rgba(130, 217, 247, 0.075);
-}
-
-.mesp-model-option span {
-  color: #82d9f7;
-  font-size: 8px;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.mesp-model-option strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 10px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.mesp-model-empty,
-.mesp-model-footer {
-  padding: 10px;
-  color: #6d7692;
-  font-size: 9px;
-  text-align: center;
-}
-
-.mesp-model-footer {
-  border-top: 1px solid rgba(255, 255, 255, 0.055);
 }
 
 .mesp-chat-scroll {
@@ -2498,6 +2043,29 @@ img.pixelated {
   align-items: center;
   gap: 8px;
   padding: 0 7px 7px 11px;
+}
+
+.mesp-composer-state {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #69748f;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.mesp-composer-state > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mesp-composer-state .mode-autonomous {
+  color: #b98496;
+}
+
+.mesp-composer-state .mode-assisted {
+  color: #a88e69;
 }
 
 .mesp-composer-context {
@@ -3195,47 +2763,15 @@ img.pixelated {
     justify-self: start;
     flex-wrap: wrap;
   }
-  .mesp-chat-session,
-  .mesp-runtime-badge,
   .mesp-composer-hint {
     display: none;
   }
   .mesp-chat-suggestions {
     grid-template-columns: 1fr;
   }
-  .mesp-model-trigger {
-    max-width: 230px;
-  }
-  .mesp-limits-trigger {
-    max-width: 92px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .mesp-router-discover {
-    max-width: 108px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
   .mesp-limits-popover {
     left: auto;
     right: 0;
-  }
-  .mesp-mode-bar {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 5px;
-  }
-  .mesp-mode-switcher {
-    width: 100%;
-    box-sizing: border-box;
-  }
-  .mesp-mode-switcher button {
-    flex: 1;
-    min-width: 0;
-  }
-  .mesp-mode-bar > p {
-    display: none;
   }
   .mesp-message.role-user {
     margin-left: 24px;

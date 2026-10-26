@@ -14,28 +14,74 @@ const { pipeline } = require('node:stream/promises');
     autoRouterCandidates,
     patchRouterAccountSelection,
     patchRouterCopilotResponses,
+    routerPatchTargets,
     classifyRouterRequest,
     createRouterHealth,
   } = await import('./dockRouter.mjs');
   const { parseRouterConversation } = await import('./dockChatResponse.mjs');
   const { routerLocalAuthHeaders } = await import('./dockRouterLocalAuth.mjs');
+  const { providerRank } = await import('./dockRouterPriority.mjs');
+  const { readProviderPriority, readModelVerification, writeModelVerification } =
+    await import('./dockRouterPriorityFile.mjs');
+  const { verificationKey, verificationState, isChatModel, definitiveFailure } =
+    await import('./dockModelVerification.mjs');
+  // Which models actually answered on which account; kept in memory and saved shortly after.
+  let verification = readModelVerification(process.env.DATA_DIR);
+  let verificationTimer = null;
+  const markVerified = (accountId, model, ok, status) => {
+    verification[verificationKey(accountId, model)] = {
+      ok,
+      at: Date.now(),
+      ...(Number.isInteger(status) ? { status } : {}),
+    };
+    clearTimeout(verificationTimer);
+    verificationTimer = setTimeout(() => {
+      try {
+        verification = writeModelVerification(process.env.DATA_DIR, verification);
+      } catch {
+        /* A read-only profile must not stop routing. */
+      }
+    }, 400);
+  };
+  // Read on every request so a new order applies without restarting the router.
+  const priority = () => readProviderPriority(process.env.DATA_DIR);
   const serverPath = process.env.MESP_ROUTER_SERVER;
   if (!serverPath || !fs.existsSync(serverPath)) throw new Error('Runtime do 9Router ausente.');
-  const authPath = fs.realpathSync(
-    path.join(path.dirname(serverPath), '.next-cli-build/server/chunks/4664.js'),
+  let routerVersion = 'unknown';
+  for (const candidate of [
+    path.join(path.dirname(serverPath), '..', 'package.json'),
+    path.join(path.dirname(serverPath), 'package.json'),
+  ]) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(candidate, 'utf8'));
+      if (pkg.name === '9router' && pkg.version) {
+        routerVersion = pkg.version;
+        break;
+      }
+    } catch {
+      /* Try the next location. */
+    }
+  }
+  const chunkDir = fs.realpathSync(
+    path.join(path.dirname(serverPath), '.next-cli-build/server/chunks'),
   );
-  const patchedAuth = patchRouterAccountSelection(fs.readFileSync(authPath, 'utf8'));
-  const copilotPath = fs.realpathSync(
-    path.join(path.dirname(serverPath), '.next-cli-build/server/chunks/318.js'),
-  );
-  const patchedCopilot = patchRouterCopilotResponses(fs.readFileSync(copilotPath, 'utf8'));
+  const chunkFiles = fs
+    .readdirSync(chunkDir)
+    .filter((name) => name.endsWith('.js'))
+    .map((name) => path.join(chunkDir, name));
+  const targets = routerPatchTargets(chunkFiles, (file) => fs.readFileSync(file, 'utf8'));
+  const patches = new Map([
+    [targets.auth, patchRouterAccountSelection(fs.readFileSync(targets.auth, 'utf8'))],
+  ]);
+  if (targets.copilot && targets.copilot !== targets.auth)
+    patches.set(
+      targets.copilot,
+      patchRouterCopilotResponses(fs.readFileSync(targets.copilot, 'utf8')),
+    );
   const originalLoader = Module._extensions['.js'];
   Module._extensions['.js'] = (module, filename) => {
-    if (/[\\/](?:4664|318)\.js$/.test(filename)) {
-      const resolved = fs.realpathSync(filename);
-      if (resolved === authPath) return module._compile(patchedAuth, filename);
-      if (resolved === copilotPath) return module._compile(patchedCopilot, filename);
-    }
+    const patched = patches.get(filename) ?? patches.get(fs.realpathSync(filename));
+    if (patched !== undefined) return module._compile(patched, filename);
     return originalLoader(module, filename);
   };
   globalThis.__mespRouterContext = new AsyncLocalStorage();
@@ -45,6 +91,15 @@ const { pipeline } = require('node:stream/promises');
     origin,
     autoSupported: true,
     headers: () => routerLocalAuthHeaders(process.env.DATA_DIR),
+    priority,
+    verification: () => verification,
+    blockedModels: () =>
+      new Set(
+        health
+          .snapshot()
+          .map(([id]) => id)
+          .filter((id) => !id.endsWith(':*')),
+      ),
   });
   let lastRoute = null;
   const healthFile = path.join(process.env.DATA_DIR, 'runtime', 'mesp-auto-health.json');
@@ -66,6 +121,115 @@ const { pipeline } = require('node:stream/promises');
   };
   const inFlight = new Map();
 
+  let verifyStatus = { running: false, total: 0, done: 0, ok: 0, failed: 0, finishedAt: null };
+  const probe = async (account, model, authorization) => {
+    const routingId = randomUUID();
+    contexts.set(routingId, {
+      filterAvailable: (list) => list.filter((entry) => entry.id === account.id),
+      chooseAccount: (provider, excluded) => {
+        const exclude = excluded instanceof Set ? excluded : new Set(excluded ? [excluded] : []);
+        return !exclude.has(account.id) &&
+          (account.provider === provider || account.prefix === provider)
+          ? account.id
+          : null;
+      },
+    });
+    try {
+      const response = await fetch(`${origin}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mesp-route-id': routingId,
+          ...(authorization ? { authorization } : {}),
+        },
+        body: JSON.stringify({
+          model: model.replace(/^9router\//, ''),
+          stream: false,
+          messages: [{ role: 'user', content: 'Responda apenas: OK' }],
+        }),
+        signal: AbortSignal.timeout(120000),
+      });
+      const text = await response.text();
+      if (response.ok) {
+        let payload = null;
+        try {
+          payload = JSON.parse(text);
+        } catch {
+          /* Not a JSON completion. */
+        }
+        if (parseRouterConversation(payload) || payload?.choices?.length) {
+          markVerified(account.id, model, true, response.status);
+          return 'ok';
+        }
+        return 'transient';
+      }
+      if (definitiveFailure(response.status, text)) {
+        markVerified(account.id, model, false, response.status);
+        return [401, 403].includes(response.status) && !/NOT_FOUND|\[404\]/.test(text)
+          ? 'auth'
+          : 'failed';
+      }
+      return 'transient';
+    } catch {
+      return 'transient';
+    } finally {
+      contexts.delete(routingId);
+    }
+  };
+  const runVerification = async (force, authorization) => {
+    verifyStatus = { running: true, total: 0, done: 0, ok: 0, failed: 0, finishedAt: null };
+    const overview = await service.models(true);
+    const queues = [];
+    for (const account of overview.accounts) {
+      // Never spend an exhausted or currently refused account just to test it.
+      if (
+        !account.active ||
+        ['auth', 'disabled', 'error'].includes(account.health) ||
+        account.limitReached ||
+        account.rateLimited ||
+        account.lastFailure === 'permission' ||
+        account.quotas.some(
+          (quota) => !quota.unlimited && (quota.remaining === 0 || quota.usedPercent >= 100),
+        )
+      )
+        continue;
+      const models = overview.models
+        .filter(
+          (model) =>
+            isChatModel(model.id) &&
+            (model.ownerIds || model.accountIds).includes(account.id) &&
+            (force || verificationState(verification, account.id, model.id) === 'untested'),
+        )
+        .map((model) => model.id);
+      if (models.length) queues.push({ account, models });
+    }
+    verifyStatus.total = queues.reduce((sum, queue) => sum + queue.models.length, 0);
+    // Accounts run in parallel; each account tests its models one at a time.
+    await Promise.all(
+      queues.map(async ({ account, models }) => {
+        let authFailures = 0;
+        for (const model of models) {
+          if (authFailures >= 3) {
+            // The account itself is refusing access; do not spend requests on the rest.
+            markVerified(account.id, model, false, 401);
+            verifyStatus.failed += 1;
+          } else {
+            const result = await probe(account, model, authorization);
+            if (result === 'ok') {
+              verifyStatus.ok += 1;
+              authFailures = 0;
+            } else if (result === 'auth') {
+              verifyStatus.failed += 1;
+              authFailures += 1;
+            } else if (result === 'failed') verifyStatus.failed += 1;
+          }
+          verifyStatus.done += 1;
+        }
+      }),
+    );
+    verifyStatus = { ...verifyStatus, running: false, finishedAt: Date.now() };
+  };
+
   const json = (res, status, body) => {
     res.writeHead(status, {
       'content-type': 'application/json; charset=utf-8',
@@ -81,11 +245,33 @@ const { pipeline } = require('node:stream/promises');
       if (!res.writableFinished) controller.abort();
     });
     try {
+      const order = priority();
+      // After the first full test, re-check new or expired pairs at most every ten minutes.
+      if (
+        !verifyStatus.running &&
+        verifyStatus.finishedAt &&
+        Date.now() - verifyStatus.finishedAt > 10 * 60 * 1000
+      )
+        void runVerification(false, req.headers.authorization).catch(() => {
+          verifyStatus = { ...verifyStatus, running: false, finishedAt: Date.now() };
+        });
       let overview = await service.routing();
-      let choices = autoRouterCandidates(overview.accounts, overview.models, Date.now(), request);
+      let choices = autoRouterCandidates(
+        overview.accounts,
+        overview.models,
+        Date.now(),
+        request,
+        order,
+      );
       if (!choices.length) {
         overview = await service.routing(true);
-        choices = autoRouterCandidates(overview.accounts, overview.models, Date.now(), request);
+        choices = autoRouterCandidates(
+          overview.accounts,
+          overview.models,
+          Date.now(),
+          request,
+          order,
+        );
       }
       if (!choices.length)
         return json(res, 503, {
@@ -107,6 +293,8 @@ const { pipeline } = require('node:stream/promises');
         // Spread simultaneous MESP tasks across equally suitable, funded accounts.
         available.sort(
           (a, b) =>
+            providerRank(order, a.provider) - providerRank(order, b.provider) ||
+            (order.length && request.level >= 2 ? b.premium - a.premium || b.level - a.level : 0) ||
             a.fit - b.fit ||
             a.funding - b.funding ||
             (inFlight.get(a.accountId) || 0) - (inFlight.get(b.accountId) || 0),
@@ -161,16 +349,20 @@ const { pipeline } = require('node:stream/promises');
           });
           lastStatus = response.status;
           const errorPayload = !response.ok ? await response.json().catch(() => ({})) : null;
+          // 9Router wraps an upstream 404 (model not offered to this account) in a 503 with a
+          // short lock; that is about the model, not the account, so only the model cools down.
           const modelUnavailable =
             [404, 406].includes(response.status) ||
-            ([400, 403].includes(response.status) &&
-              /model_not_supported|model_not_found|unsupported model|model.*not.*(?:supported|available)|not.*enabled.*model/i.test(
+            ([400, 403, 429, 503].includes(response.status) &&
+              /model_not_supported|model_not_found|unsupported model|model.*not.*(?:supported|available)|not.*enabled.*model|\[404\]|NOT_FOUND|Requested entity was not found/i.test(
                 JSON.stringify(errorPayload),
               ));
           const retryable =
             modelUnavailable ||
             [401, 402, 403, 408, 429, 500, 502, 503, 504].includes(response.status);
           if (retryable) {
+            if (modelUnavailable)
+              markVerified(choice.accountId, choice.model, false, response.status);
             recordFailure(
               choice,
               modelUnavailable ? 'model' : response.status,
@@ -208,6 +400,7 @@ const { pipeline } = require('node:stream/promises');
           }
           // Once a response starts, never change accounts or replay a task.
           clearTimeout(timer);
+          markVerified(choice.accountId, choice.model, true, response.status);
           lastRoute = { ...choice, complexity: request.complexity, at: Date.now() };
           const session = req.headers['x-session-id'] || req.headers['x-session-affinity'];
           if (typeof session === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(session)) {
@@ -277,9 +470,29 @@ const { pipeline } = require('node:stream/promises');
         return json(res, 200, {
           auto: true,
           strategy: 'complexity-quota-reset',
-          version: '0.5.40',
+          version: routerVersion,
           source: process.env.MESP_ROUTER_PROFILE_SOURCE === '9router' ? '9router' : 'mesp',
         });
+      if (req.url === '/api/mesp/verify' && req.method === 'GET')
+        return json(res, 200, verifyStatus);
+      if (req.url === '/api/mesp/verify' && req.method === 'POST') {
+        const chunks = [];
+        req.on('data', (chunk) => chunks.push(chunk));
+        req.on('end', () => {
+          let force = false;
+          try {
+            force = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}').force === true;
+          } catch {
+            /* Default to testing only what is still unknown. */
+          }
+          if (!verifyStatus.running)
+            void runVerification(force, req.headers.authorization).catch(() => {
+              verifyStatus = { ...verifyStatus, running: false, finishedAt: Date.now() };
+            });
+          json(res, 202, verifyStatus);
+        });
+        return;
+      }
       if (req.method === 'GET' && req.url === '/api/mesp/last-route')
         return json(res, 200, lastRoute);
       if (req.method === 'GET' && req.url === '/api/mesp/warmup') {
@@ -361,6 +574,15 @@ const { pipeline } = require('node:stream/promises');
     return originalCreateServer(...args);
   };
   require(serverPath);
+  // Newer releases only start the server when custom-server.js is the main module;
+  // load its standalone server explicitly after the wrapper above is installed.
+  const standalone = path.join(path.dirname(serverPath), 'server.js');
+  if (
+    path.basename(serverPath) === 'custom-server.js' &&
+    fs.existsSync(standalone) &&
+    /require\.main\s*===\s*module/.test(fs.readFileSync(serverPath, 'utf8'))
+  )
+    require(standalone);
 })().catch((error) => {
   console.error(error.message);
   process.exitCode = 1;

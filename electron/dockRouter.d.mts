@@ -38,6 +38,8 @@ export interface RouterAccount {
   quotas: RouterQuota[];
   locks: Array<{ model: string; until: number }>;
   lastFailure: 'permission' | null;
+  /** A recent 429 from the provider that no later successful test cleared. */
+  rateLimited: boolean;
   consumption: RouterCounters | null;
 }
 export interface RouterModel {
@@ -47,6 +49,22 @@ export interface RouterModel {
   providerName: string;
   accountIds: string[];
   source: 'live' | 'catalog';
+  /** False when no account can serve the model through Auto right now. */
+  available: boolean;
+  /** Every connected account that may offer the model (accountIds lists the usable ones). */
+  ownerIds?: string[];
+  /** True when at least one account actually answered with this model. */
+  verified?: boolean;
+  reason?:
+    | 'auth'
+    | 'permission'
+    | 'quota'
+    | 'disabled'
+    | 'catalog'
+    | 'model'
+    | 'pending'
+    | 'none'
+    | 'unknown';
   supportsTools?: boolean;
   contextLength?: number;
   rateMultiplier?: number;
@@ -64,6 +82,10 @@ export interface RouterAutoChoice {
   level: number;
   fit: number;
   funding: number;
+  /** Position of the account's provider in the user's priority list. */
+  rank: number;
+  /** 2 for Opus, 1 for Sonnet, 0 otherwise; ranks quality when a provider order is set. */
+  premium: number;
   rateMultiplier: number | null;
   speed: number;
 }
@@ -112,7 +134,11 @@ export function autoRouterCandidates(
   models: RouterModel[],
   now?: number,
   request?: RouterRequestClass | null,
+  priority?: readonly string[],
 ): RouterAutoChoice[];
+export const ROUTER_FAILURE_WINDOW_MS: number;
+export const ROUTER_MODEL_BLOCK_MS: number;
+export function recentFailure(raw: unknown, now?: number): boolean;
 export function normalizeRouterStats(
   payload: unknown,
 ): { totals: RouterCounters; byAccount: Record<string, RouterCounters> } | null;
@@ -122,6 +148,11 @@ export function createRouterOverviewService(options: {
   fetchJson?: (route: string) => Promise<unknown>;
   autoSupported?: boolean;
   now?: () => number;
+  priority?: () => readonly string[];
+  /** `accountId:model` pairs the provider recently refused. */
+  blockedModels?: () => ReadonlySet<string>;
+  /** Results of real test requests per account and model. */
+  verification?: () => import('./dockModelVerification.mjs').VerificationStore;
 }): {
   overview(period?: string, force?: boolean): Promise<RouterOverview>;
   models(force?: boolean): Promise<RouterOverview>;
@@ -130,3 +161,7 @@ export function createRouterOverviewService(options: {
 export function patchRouterAccountSelection(source: string): string;
 export function patchRouterCopilotResponses(source: string): string;
 export const ROUTER_THEME_CSS: string;
+export function routerPatchTargets(
+  files: string[],
+  read: (file: string) => string,
+): { auth: string; copilot: string | null };

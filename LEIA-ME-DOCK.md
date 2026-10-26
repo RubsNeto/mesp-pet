@@ -1,5 +1,41 @@
 # MESP Top Dock
 
+## Fechar um MESP
+
+Com mais de um MESP aberto, o **×** no cabeçalho fecha o MESP ativo. O primeiro clique
+deixa o botão vermelho e o segundo, dentro de quatro segundos, confirma. Fechar remove a
+conversa, o rascunho e o terminal desse MESP, e o próximo assume o lugar. Um MESP com
+tarefa em andamento não fecha: pare a tarefa antes.
+
+No painel do 9Router, **Cancelar** fica à esquerda e a ação principal à direita. O link
+de autorização (o campo com o endereço) abre no navegador com um clique.
+
+## Modelos testados de verdade
+
+A lista de modelos mostra somente modelos que responderam a um pedido real em pelo
+menos uma conta utilizável. O MESP testa cada modelo em cada conta ao abrir e ao entrar
+nas Configurações, e também registra o resultado de cada uso normal. Um modelo que
+respondeu continua confiável por sete dias; um modelo recusado é testado de novo depois
+de três dias. **Testar de novo**, na aba Modelos, refaz todos os testes. Se o modelo
+salvo em um MESP deixar de responder, os pedidos passam a usar o Auto, e os erros do
+provedor aparecem em uma frase curta em vez do JSON do 9Router.
+
+## Ordem do Auto e Antigravity — 26 de outubro de 2026
+
+Em **Configurações → Contas → Ordem do Auto**, use ↑ e ↓ para escolher qual provedor o
+Auto usa primeiro; os seguintes são o fallback, na ordem mostrada. Com uma ordem
+definida, pedidos de trabalho usam o modelo mais forte do provedor (Opus, depois Sonnet);
+saudações, títulos e classificação continuam em modelos rápidos. Uma conta ou modelo
+que falha fica em espera por alguns minutos e o Auto segue para o próximo, sem
+desconfigurar nada. Erros antigos que o 9Router guarda depois que a conta volta
+não bloqueiam mais a conta.
+
+O 9Router integrado foi atualizado para a versão 0.5.111, que corrige o acesso ao
+Antigravity e traz Claude Opus 5.5 e Sonnet 5.5 no catálogo. Esses dois só respondem
+para contas com acesso a eles; nas contas testadas o Google respondeu "não encontrado",
+e o Auto usou Claude Opus 4.6 Thinking. Quando uma conta ganhar acesso, o Auto passa a
+usá-los automaticamente.
+
 ## Entrega autônoma de projetos
 
 Pedidos de programação acionam **inspeção → implementação → verificação → correção → entrega**.
@@ -199,8 +235,13 @@ mensagem. Digite **/model**, **/models** ou **/modelos** e pressione **Enter**
 para abrir a aba de modelos nas Configurações da própria ilha, sem um segundo
 painel sobre a conversa. A busca e os filtros de provedores continuam disponíveis;
 o modelo atual fica marcado, e **Auto** aparece no início.
-A lista usa os modelos confirmados de cada conta, sem anunciar modelos de contas
-expiradas ou apenas presentes no catálogo geral.
+A lista mostra todos os modelos que o 9Router anuncia para as contas conectadas.
+Modelos confirmados na conta aparecem primeiro; os demais ficam esmaecidos com o
+motivo (conta precisa reconectar, provedor recusou o último pedido, cota esgotada,
+apenas no catálogo). O **Auto** só usa os modelos confirmados. A lista é
+atualizada ao abrir as Configurações, a cada 30 segundos enquanto elas estão
+abertas, ao fechar o painel do 9Router e pelo botão ↻; a hora da última
+atualização aparece ao lado da contagem.
 A seleção permanece individual por MESP. Novos
 personagens herdam o modelo selecionado. **Auto** escolhe conta e modelo a cada
 pedido, priorizando o reset mais próximo e pulando contas esgotadas ou inválidas.
@@ -222,8 +263,12 @@ para buscar; clique ou use **↑**, **↓**, **Tab** e **Enter** para inserir o 
 Pressione **Enter** novamente para executá-lo. **Esc** fecha primeiro essa lista.
 **/model** abre a aba de modelos com **Enter**. Os demais comandos completos
 também são executados diretamente com **Enter**.
-Estão disponíveis modelos, conexões, consumo, cotas, abertura de projeto, novo
-MESP, lista de projetos, personalização, ajuda e recolhimento.
+Estão disponíveis modelos, os modos **/fast**, **/plan**, **/assisted** e
+**/autonomous**, as verificações da entrega (**/checks**), nova conversa
+(**/clear**), conexões, consumo, cotas, abertura de projeto, novo MESP, lista
+de projetos, personalização, ajuda e recolhimento. O chat não tem mais barra de
+modelo e modo: o modelo e o modo atuais ficam em uma linha discreta abaixo do
+campo de mensagem.
 
 O botão circular de enviar vira um quadrado de **Parar** enquanto há uma resposta,
 tarefa ou verificação em andamento. Ele continua ativo com o campo vazio;

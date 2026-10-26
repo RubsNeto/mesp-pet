@@ -328,7 +328,7 @@ if (url) console.log('MESP_QA_HOOK=' + url);
     await page.reload();
     await page.locator('.dock-compact').click();
     const codeChat = page.getByRole('region', { name: 'Chat MESP Code', exact: true });
-    const toolbarFits = await codeChat.locator('.mesp-chat-toolbar').evaluate((element) => {
+    const toolbarFits = await codeChat.locator('.mesp-composer-footer').evaluate((element) => {
       const outer = element.getBoundingClientRect();
       const controls = [...element.querySelectorAll(':scope > div, :scope > button')]
         .filter((control) => getComputedStyle(control).display !== 'none')
@@ -351,7 +351,7 @@ if (url) console.log('MESP_QA_HOOK=' + url);
     assert.equal(
       toolbarFits,
       true,
-      'Model, limits and new conversation controls do not overlap in the narrow island',
+      'Model/mode status and composer actions do not overlap in the narrow island',
     );
     await codeChat.getByRole('button', { name: 'Copiar código', exact: true }).click();
     assert.equal(await app.evaluate(() => globalThis.__mespQaCopies[1]), code);

@@ -104,7 +104,26 @@ export const ROUTER_CATALOG_SCRIPT = String.raw`(() => {
     } else empty?.remove();
   };
   window.__mespCatalogSearch = value => { searchTerm = typeof value === 'string' ? value.slice(0, 120) : ''; filter(); };
+  // Dialogs: "Cancel" on the left and the confirming action on the right, and authorization
+  // links (shown as read-only fields) open in the browser when clicked.
+  const adaptDialogs = () => {
+    document.querySelectorAll('.flex.gap-2, .flex.gap-3').forEach(row => {
+      const buttons = Array.from(row.children);
+      if (buttons.length !== 2 || !buttons.every(item => item.tagName === 'BUTTON')) return;
+      if (/^(Cancel|Cancelar)$/i.test(buttons[1].textContent.trim())) row.style.flexDirection = 'row-reverse';
+    });
+    document.querySelectorAll('input[readonly]').forEach(input => {
+      if (input.dataset.mespLink || !/^https?:\/\//i.test(input.value)) return;
+      input.dataset.mespLink = '1';
+      input.style.cursor = 'pointer';
+      input.title = 'Clique para abrir no navegador';
+      input.addEventListener('click', () => {
+        if (/^https?:\/\//i.test(input.value)) window.open(input.value, '_blank');
+      });
+    });
+  };
   const adapt = () => {
+    adaptDialogs();
     const path = location.pathname;
     const catalog = path === '/dashboard/providers' ? 'providers' : path === '/dashboard/cli-tools' ? 'tools' : /^\/dashboard\/media-providers\/[^/]+$/.test(path) ? 'media' : '';
     document.documentElement.dataset.mespCatalog = catalog;

@@ -1,4 +1,6 @@
 import { PROVIDER_CATALOG } from './dockProviderCatalog.mjs';
+import { providerRank } from './dockRouterPriority.mjs';
+import { isChatModel, verificationState } from './dockModelVerification.mjs';
 
 export const AUTO_ROUTER_MODEL = '9router/mesp-auto';
 export const ROUTER_THEME_CSS = `
@@ -148,7 +150,8 @@ export function classifyRouterRequest(body = {}, purpose = '') {
     .toLowerCase();
   const tools = Array.isArray(body.tools) && body.tools.length > 0 && body.tool_choice !== 'none';
   const inputChars = messages.reduce((sum, item) => sum + requestText(item?.content).length, 0);
-  if (purpose === 'title' || purpose === 'intent') return { complexity: 'light', level: 1, tools: false, inputChars };
+  if (purpose === 'title' || purpose === 'intent')
+    return { complexity: 'light', level: 1, tools: false, inputChars };
   const advanced =
     /arquitetura|architecture|refator(?:acao|ar)|refactor|migr(?:acao|ar|ation)|seguranca|security|vulnerab|race condition|concorrencia|concurrency|distributed|distribuid|performance|desempenho|memory leak|vazamento|investig(?:ue|ar)|causa raiz|root cause|auditor|estrategia|strategy|raciocinio|prove\b|demonstr(?:e|acao)|matematic|otimiz(?:acao|ar|e)|optimiz/g;
   const advancedSignals = (text.match(advanced) || []).length;
@@ -202,10 +205,52 @@ export function routerModelLevel(model) {
   return 2;
 }
 
-export function autoRouterCandidates(accounts, models, now = Date.now(), request = null) {
+/** 9Router keeps the last error on an account after it recovers. Only a recent error
+ * that no later successful test cleared keeps the account out of routing. */
+export const ROUTER_FAILURE_WINDOW_MS = 30 * 60 * 1000;
+export function recentFailure(raw, now = Date.now()) {
+  if (!raw || raw.testStatus === 'active' || raw.testStatus === 'success') return false;
+  const at = Date.parse(raw.lastErrorAt);
+  return Number.isFinite(at) && now - at < ROUTER_FAILURE_WINDOW_MS;
+}
+
+/** Why a listed model has no Auto candidate right now. */
+function unavailableReason(model, accounts) {
+  const owners = accounts.filter((account) => model.accountIds.includes(account.id));
+  if (!owners.length) return 'none';
+  if (owners.some((account) => account.health === 'auth')) return 'auth';
+  if (owners.some((account) => account.lastFailure === 'permission')) return 'permission';
+  if (owners.every((account) => account.rateLimited)) return 'quota';
+  if (owners.every((account) => !account.active)) return 'disabled';
+  if (
+    owners.some(
+      (account) =>
+        account.limitReached ||
+        account.quotas.some((q) => !q.unlimited && (q.remaining === 0 || q.usedPercent >= 100)),
+    )
+  )
+    return 'quota';
+  return model.source === 'catalog' ? 'catalog' : 'unknown';
+}
+
+export function autoRouterCandidates(
+  accounts,
+  models,
+  now = Date.now(),
+  request = null,
+  priority = [],
+) {
   const choices = [];
+  // Light requests (titles, intent, greetings) stay on fast models even with an order set.
+  const preferQuality = priority.length > 0 && (!request || request.level >= 2);
   for (const account of accounts) {
-    if (!account.active || account.health === 'auth' || account.health === 'error') continue;
+    if (
+      !account.active ||
+      account.health === 'auth' ||
+      account.health === 'error' ||
+      account.lastFailure === 'permission'
+    )
+      continue;
     for (const model of models) {
       if (
         !model.accountIds.includes(account.id) ||
@@ -282,12 +327,18 @@ export function autoRouterCandidates(accounts, models, now = Date.now(), request
         level,
         fit,
         funding,
+        rank: providerRank(priority, account.provider),
+        // With a chosen provider order, real work goes to the strongest Claude model first.
+        premium: /opus/.test(name) ? 2 : /sonnet/.test(name) ? 1 : 0,
         rateMultiplier: number(model.rateMultiplier),
       });
     }
   }
   return choices.sort(
     (a, b) =>
+      // The user's provider order wins; fallback walks it in sequence.
+      a.rank - b.rank ||
+      (preferQuality ? b.premium - a.premium || b.level - a.level : 0) ||
       a.fit - b.fit ||
       (request ? a.funding - b.funding : 0) ||
       (a.resetAt ?? Infinity) - (b.resetAt ?? Infinity) ||
@@ -300,6 +351,9 @@ export function autoRouterCandidates(accounts, models, now = Date.now(), request
       b.model.localeCompare(a.model),
   );
 }
+
+/** A model the provider does not offer to an account (404) is not retried for 12 hours. */
+export const ROUTER_MODEL_BLOCK_MS = 12 * 60 * 60 * 1000;
 
 /** Short local cooldowns prevent repeatedly selecting a recently rejected account/model. */
 export function createRouterHealth(saved = []) {
@@ -314,7 +368,7 @@ export function createRouterHealth(saved = []) {
           /^[A-Za-z0-9_-]{1,160}:[A-Za-z0-9._/+*:-]{1,240}$/.test(entry[0]) &&
           Number.isFinite(entry[1]) &&
           entry[1] > now &&
-          entry[1] <= now + 1800000,
+          entry[1] <= now + ROUTER_MODEL_BLOCK_MS,
       )
       .map(([id, until]) => [id, { until }]),
   );
@@ -338,13 +392,13 @@ export function createRouterHealth(saved = []) {
       const modelOnly = ['model', 'empty'].includes(status);
       let duration =
         status === 'model'
-          ? 600000
+          ? ROUTER_MODEL_BLOCK_MS
           : status === 'empty'
             ? 120000
             : status === 401
               ? 300000
               : status === 403
-                ? 120000
+                ? 600000
                 : status === 429 || status === 402
                   ? 60000
                   : 15000;
@@ -397,6 +451,9 @@ export function createRouterOverviewService({
   fetchJson,
   autoSupported,
   now = Date.now,
+  priority = () => [],
+  blockedModels = () => new Set(),
+  verification = () => ({}),
 }) {
   const cache = new Map(),
     quotaCache = new Map(),
@@ -474,12 +531,15 @@ export function createRouterOverviewService({
       );
       if (cached && !force && !resetPassed && now() - cached.updatedAt < 15000) return cached;
       const run = (async () => {
-        const [connectionsPayload, statsPayload, capability] = await Promise.all([
+        const order = priority();
+        const [connectionsPayload, statsPayload, capability, catalogPayload] = await Promise.all([
           optional('/api/providers'),
           modelsOnly || routingOnly ? null : optional(`/api/usage/stats?period=${period}`),
           autoSupported === undefined
             ? optional('/api/mesp/capabilities')
             : { auto: autoSupported },
+          // The menu lists everything the router advertises; Auto routing only uses confirmed models.
+          routingOnly && !order.length ? null : optional('/v1/models'),
         ]);
         if (!Array.isArray(connectionsPayload?.connections))
           throw new Error('Não foi possível consultar as contas do 9Router.');
@@ -560,10 +620,14 @@ export function createRouterOverviewService({
                 quotas,
                 locks,
                 lastFailure:
-                  Number(raw.errorCode || raw.lastError?.match(/^\[(\d{3})\]/)?.[1]) === 403 ||
-                  live?.status === 403
+                  live?.status === 403 ||
+                  (recentFailure(raw, now()) &&
+                    Number(raw.errorCode || raw.lastError?.match(/^\[(\d{3})\]/)?.[1]) === 403)
                     ? 'permission'
                     : null,
+                rateLimited:
+                  recentFailure(raw, now()) &&
+                  Number(raw.errorCode || raw.lastError?.match(/^\[(\d{3})\]/)?.[1]) === 429,
                 consumption:
                   stats?.byAccount[raw.id] ||
                   (stats
@@ -638,26 +702,107 @@ export function createRouterOverviewService({
         accounts.sort(
           (a, b) => a.provider.localeCompare(b.provider) || a.label.localeCompare(b.label),
         );
+        // Router catalogue entries for connected accounts stay visible even when the
+        // account cannot confirm them right now; they are flagged, not hidden.
+        for (const entry of Array.isArray(catalogPayload?.data) ? catalogPayload.data : []) {
+          const id = entry?.id;
+          if (!validModel(id) || !id.includes('/')) continue;
+          const key = `9router/${id}`;
+          if (
+            models.has(key) ||
+            /(?:^|[-_ ])(?:exec[-_ ]agent|trajectory[-_ ]compaction|copilot[-_ ]search)/i.test(id)
+          )
+            continue;
+          const prefix = id.slice(0, id.indexOf('/'));
+          const owners = accounts.filter((account) => account.prefix === prefix);
+          if (!owners.length) continue;
+          models.set(key, {
+            id: key,
+            name: id.slice(prefix.length + 1),
+            provider: owners[0].provider,
+            providerName: owners[0].providerName,
+            accountIds: owners.map((account) => account.id),
+            source: 'catalog',
+          });
+        }
         const choices = Array.from(models.values()).sort(
           (a, b) => a.providerName.localeCompare(b.providerName) || a.name.localeCompare(b.name),
         );
-        const candidates = autoRouterCandidates(accounts, choices, now());
-        const available = new Map();
-        for (const candidate of candidates) {
-          const ids = available.get(candidate.model) || [];
-          ids.push(candidate.accountId);
-          available.set(candidate.model, ids);
-        }
-        const validChoices = choices
-          .filter((model) => available.has(model.id))
-          .map((model) => ({ ...model, accountIds: available.get(model.id) }));
+        const store = verification();
+        // Once verification has run, only account/model pairs that actually answered are
+        // offered or routed. Before that, live-listed models keep the app usable.
+        const verifying = Object.keys(store).length > 0;
+        const blocked = blockedModels();
+        const state = (accountId, model) => verificationState(store, accountId, model, now());
+        const candidates = autoRouterCandidates(
+          accounts,
+          choices.filter(
+            (model) =>
+              isChatModel(model.id) &&
+              (verifying || model.source === 'live' || order.includes(model.provider)),
+          ),
+          now(),
+          null,
+          order,
+        ).filter((choice) => !blocked.has(`${choice.accountId}:${choice.model}`));
+        const verifiedCandidates = candidates.filter((choice) => {
+          const verified = state(choice.accountId, choice.model);
+          return verified === 'ok' || (!verifying && verified === 'untested');
+        });
+        // Auto only falls back to untested live models when nothing verified can answer
+        // (for example, a newly connected account); the result is then recorded.
+        const routeCandidates = verifiedCandidates.length
+          ? verifiedCandidates
+          : candidates.filter(
+              (choice) => choice.live && state(choice.accountId, choice.model) !== 'failed',
+            );
+        const byModel = (list) => {
+          const map = new Map();
+          for (const candidate of list) {
+            const ids = map.get(candidate.model) || [];
+            if (!ids.includes(candidate.accountId)) ids.push(candidate.accountId);
+            map.set(candidate.model, ids);
+          }
+          return map;
+        };
+        const available = byModel(verifiedCandidates);
+        const routable = byModel(routeCandidates);
+        const listed = choices
+          .filter((model) => isChatModel(model.id))
+          .map((model) =>
+            available.has(model.id)
+              ? {
+                  ...model,
+                  ownerIds: model.accountIds,
+                  accountIds: available.get(model.id),
+                  available: true,
+                  verified: model.accountIds.some((id) => state(id, model.id) === 'ok'),
+                }
+              : {
+                  ...model,
+                  ownerIds: model.accountIds,
+                  available: false,
+                  verified: false,
+                  reason: model.accountIds.some(
+                    (id) => blocked.has(`${id}:${model.id}`) || state(id, model.id) === 'failed',
+                  )
+                    ? 'model'
+                    : verifying && model.accountIds.some((id) => state(id, model.id) === 'untested')
+                      ? 'pending'
+                      : unavailableReason(model, accounts),
+                },
+          );
         const result = {
           updatedAt: now(),
           period,
           accounts,
-          models: validChoices,
+          models: routingOnly
+            ? listed
+                .filter((model) => routable.has(model.id))
+                .map((model) => ({ ...model, accountIds: routable.get(model.id) }))
+            : listed,
           totals: stats?.totals || null,
-          modelsAvailable: validChoices.length > 0,
+          modelsAvailable: routable.size > 0,
           accountSource:
             capability?.source === '9router'
               ? '9router'
@@ -666,9 +811,9 @@ export function createRouterOverviewService({
                 : 'external',
           usageAvailable: stats !== null,
           auto: {
-            available: capability?.auto === true && candidates.length > 0,
+            available: capability?.auto === true && routeCandidates.length > 0,
             supported: capability?.auto === true,
-            next: candidates[0] || null,
+            next: routeCandidates[0] || null,
           },
         };
         cache.set(cacheKey, result);
@@ -693,15 +838,23 @@ export function patchRouterAccountSelection(source) {
     pattern,
     '$1?.preferredConnectionId||globalThis.__mespRouterContext?.getStore()?.chooseAccount?.(arguments[0],arguments[1],arguments[2])||null',
   );
-  if (source.includes('exports.id=4664')) {
-    const available = 'let k=j.filter(a=>!(m.has(a.id)||(0,f.Bl)(a,c)));';
-    if (!source.includes(available))
-      throw new Error('9Router incompatível com a ordem de reset do MESP.');
-    patched = patched.replace(
-      available,
-      `${available}k=globalThis.__mespRouterContext?.getStore()?.filterAvailable?.(k)||k;`,
+  // Keep Auto's chosen account in the router's own candidate list. 0.5.40 and later
+  // releases name the filtered list differently; both log "| available:" right after it.
+  const legacy = 'let k=j.filter(a=>!(m.has(a.id)||(0,f.Bl)(a,c)));';
+  if (source.includes(legacy))
+    return patched.replace(
+      legacy,
+      `${legacy}k=globalThis.__mespRouterContext?.getStore()?.filterAvailable?.(k)||k;`,
     );
-  }
+  const log =
+    /if\(([A-Za-z_$][\w$]*)\.debug\("AUTH",`\$\{[A-Za-z_$][\w$]*\} \| available: \$\{([A-Za-z_$][\w$]*)\.length\}/g;
+  const logs = [...patched.matchAll(log)];
+  if (logs.length === 1)
+    return patched.replace(
+      log,
+      (match, _logger, list) =>
+        `${list}=globalThis.__mespRouterContext?.getStore()?.filterAvailable?.(${list})||${list};${match}`,
+    );
   return patched;
 }
 
@@ -711,9 +864,23 @@ export function patchRouterAccountSelection(source) {
  */
 export function patchRouterCopilotResponses(source) {
   const before = 'n=this.buildHeaders(d,c),p=(0,h.h)(a,b,c,d);';
-  if (source.split(before).length !== 2)
-    throw new Error('9Router incompatível com a tradução de respostas do Copilot.');
+  // Releases that no longer carry this code path need no correction.
+  if (source.split(before).length !== 2) return source;
   return source.replace(before, 'n=this.buildHeaders(d,!0),p=(0,h.h)(a,b,!0,d);');
+}
+
+/** Router chunks change names between releases; find the patch targets by content. */
+export function routerPatchTargets(files, read) {
+  let auth = null;
+  let copilot = null;
+  for (const file of files) {
+    const source = read(file);
+    if (/\?\.preferredConnectionId\|\|null/.test(source)) auth = auth ? 'ambiguous' : file;
+    if (source.includes('n=this.buildHeaders(d,c),p=(0,h.h)(a,b,c,d);')) copilot ??= file;
+  }
+  if (!auth || auth === 'ambiguous')
+    throw new Error('9Router incompatível com a seleção de conta do MESP.');
+  return { auth, copilot };
 }
 
 export const ROUTER_PAGES = Object.freeze({

@@ -16,6 +16,9 @@ export function resolveOpenCodeConfigValue(
   environment?: Readonly<Record<string, string | undefined>>,
 ): string | null;
 export function parseDotEnvValue(value: unknown): string;
+export function openCodeEnvironment(
+  environment?: Readonly<Record<string, string | undefined>>,
+): Record<string, string | undefined>;
 export function isLoopbackRouterURL(value: unknown): boolean;
 export function routerOriginForApiBase(value: unknown): string | null;
 export function hasActiveRouterConnections(payload: unknown): boolean | null;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { DockRouterPriority } from './DockRouterPriority';
 import { AUTO_ROUTER_MODEL } from '../../electron/dockRouter.mjs';
 import type {
   RouterOverview,
@@ -95,13 +96,16 @@ function Consumption({ value }: { value: RouterCounters | null }) {
 }
 
 type SettingsTab = 'models' | 'accounts' | 'usage';
+type ModelVerificationStatus = NonNullable<
+  Awaited<ReturnType<NonNullable<NonNullable<typeof window.mesp>['verifyModels']>>>
+>;
 const cachedOverviews = new Map<string, RouterOverview>();
 function accountState(account: RouterAccount, nextId?: string) {
   if (account.health === 'disabled') return 'Desativada';
   if (account.health === 'unknown') return 'Não verificada';
   if (account.health === 'auth' || account.health === 'error') return 'Reconectar';
   if (account.lastFailure === 'permission') return 'Verificar acesso';
-  if (account.limitReached) return 'Sem cota';
+  if (account.limitReached || account.rateLimited) return 'Sem cota até o reset';
   return account.id === nextId ? 'Prioridade Auto' : 'Ativa';
 }
 
@@ -190,6 +194,26 @@ export function DockSettings({
     const timer = window.setInterval(() => void refresh(), 30000);
     return () => window.clearInterval(timer);
   }, [active, period, refresh]);
+  // Test untested models whenever the panel opens; follow progress and refresh the list.
+  const [verification, setVerification] = useState<ModelVerificationStatus | null>(null);
+  const verifyModels = useCallback(async (force: boolean) => {
+    const status = await window.mesp?.verifyModels?.(force).catch(() => null);
+    if (status && mounted.current) setVerification(status);
+  }, []);
+  useEffect(() => {
+    if (!active) return;
+    void verifyModels(false);
+  }, [active, verifyModels]);
+  useEffect(() => {
+    if (!active || !verification?.running) return;
+    const timer = window.setInterval(async () => {
+      const status = await window.mesp?.getModelVerification?.().catch(() => null);
+      if (!status || !mounted.current) return;
+      setVerification(status);
+      void refresh(true);
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [active, verification?.running, refresh]);
   useEffect(() => {
     if (!requestedPage) return;
     if (requestedPage.page === 'overview' || requestedPage.page === 'connections') {
@@ -349,6 +373,20 @@ export function DockSettings({
                     ↻
                   </button>
                 </div>
+                <div className="dock-verify-bar" role="status">
+                  <span>
+                    {verification?.running
+                      ? `Testando modelos nas suas contas… ${verification.done} de ${verification.total}`
+                      : 'Só aparecem modelos que responderam a um teste real na sua conta.'}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={verification?.running}
+                    onClick={() => void verifyModels(true)}
+                  >
+                    {verification?.running ? 'Testando…' : 'Testar de novo'}
+                  </button>
+                </div>
                 <DockModelPicker
                   overview={overview}
                   currentModel={currentModel}
@@ -406,6 +444,7 @@ export function DockSettings({
                     <span>Outros</span>
                   </button>
                 </nav>
+                <DockRouterPriority accounts={accounts} />
                 <div className="dock-settings-section-heading">
                   <h3>
                     Suas contas <span>{accounts.length}</span>

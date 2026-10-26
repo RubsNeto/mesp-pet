@@ -20,6 +20,9 @@ export default defineConfig(() => {
             'dockRouter.mjs',
             'dockProviderCatalog.mjs',
             'dockRouterLocalAuth.mjs',
+            'dockRouterPriority.mjs',
+            'dockRouterPriorityFile.mjs',
+            'dockModelVerification.mjs',
             'dockChatResponse.mjs',
             'dockComputerTools.cjs',
           ])
