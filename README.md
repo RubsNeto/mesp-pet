@@ -19,6 +19,7 @@ Esta é a versão atual do repositório. O guia de uso está em
 - Modelos por MESP, consumo geral e por conta, cotas e resets quando informados.
 - Modelo **Auto** que prioriza contas elegíveis com reset mais próximo.
 - Expansão com mola, carinho, compressão ao clicar e movimento reduzido.
+- Regras [Ponytail](https://github.com/DietrichGebert/ponytail) em toda conversa quando o checkout está em `%APPDATA%\ponytail\checkout`.
 - Proteção ao sair com agentes ou verificações ativos.
 - Execução sem corte local por tempo, tokens ou chamadas de ferramentas.
 - Verificação de workspaces, Python, Go, Rust e .NET conforme o projeto e os runtimes.

@@ -53,6 +53,24 @@ export function openCodeEnvironment(environment = {}) {
   return copy;
 }
 
+/** Ponytail (github.com/DietrichGebert/ponytail) keeps the agent writing only the
+ * code a task needs. A checkout under the app-data folder is loaded as an OpenCode
+ * plugin whenever it is present, so every MESP turn starts with the ruleset. */
+export function openCodePlugins(appDataDirectory, exists = () => false) {
+  const plugin = ponytailFile(appDataDirectory, '.opencode/plugins/ponytail.mjs');
+  return plugin && exists(plugin) ? [plugin] : [];
+}
+
+/** The compact Ponytail rules, for replies that skip OpenCode (fast mode). */
+export function ponytailRulesPath(appDataDirectory) {
+  return ponytailFile(appDataDirectory, 'AGENTS.md');
+}
+
+function ponytailFile(appDataDirectory, relative) {
+  if (typeof appDataDirectory !== 'string' || !appDataDirectory) return null;
+  return [appDataDirectory.replace(/[\\/]+$/, ''), 'ponytail', 'checkout', relative].join('/');
+}
+
 export function parseDotEnvValue(value) {
   if (typeof value !== 'string') return '';
   const trimmed = value.trim();
@@ -414,6 +432,7 @@ export function modelIdFor9Router(model) {
 }
 
 export function buildFastMessages(history, prompt, options = {}) {
+  const rules = typeof options.rules === 'string' ? options.rules.trim() : '';
   const maxMessages = Math.max(0, options.maxMessages ?? 8);
   const maxChars = Math.max(0, options.maxChars ?? 12000);
   const clean = Array.isArray(history)
@@ -442,7 +461,8 @@ export function buildFastMessages(history, prompt, options = {}) {
     {
       role: 'system',
       content:
-        'Você é o MESP, um assistente de programação e tarefas direto e prático. Responda em português. O aplicativo pode acionar ferramentas para ler e editar arquivos e executar comandos em qualquer pasta ou disco acessível ao usuário do Windows, inclusive sem repositório. Esta resposta rápida usa somente a conversa: não afirme ter consultado arquivos ou executado ações. Para executar, a pessoa pode escrever a tarefa e informar o caminho; o aplicativo aciona o agente.',
+        'Você é o MESP, um assistente de programação e tarefas direto e prático. Responda em português. O aplicativo pode acionar ferramentas para ler e editar arquivos e executar comandos em qualquer pasta ou disco acessível ao usuário do Windows, inclusive sem repositório. Esta resposta rápida usa somente a conversa: não afirme ter consultado arquivos ou executado ações. Para executar, a pessoa pode escrever a tarefa e informar o caminho; o aplicativo aciona o agente.' +
+        (rules ? '\n\n' + rules : ''),
     },
     ...selected,
     { role: 'user', content: String(prompt).trim() },

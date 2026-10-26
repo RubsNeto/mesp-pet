@@ -17,6 +17,8 @@ import {
   normalizeProjectChecks,
   normalizeMespTokenLimit,
   openCodeEnvironment,
+  openCodePlugins,
+  ponytailRulesPath,
   normalizeStoredMespMessages,
   normalizeStoredMespQueue,
   parseDotEnvValue,
@@ -416,4 +418,38 @@ test('OpenCode environment drops shell PWD so the agent stays in the project fol
   });
   assert.deepEqual(environment, { PATH: 'C:/bin', OPENCODE_CONFIG: 'C:/cfg.json' });
   assert.deepEqual(openCodeEnvironment(), {});
+});
+
+test('Ponytail checkout under app data is loaded as an OpenCode plugin when present', () => {
+  const expected = 'C:/Users/dev/AppData/Roaming/ponytail/checkout/.opencode/plugins/ponytail.mjs';
+  assert.deepEqual(
+    openCodePlugins('C:/Users/dev/AppData/Roaming', (file) => file === expected),
+    [expected],
+  );
+  // Windows app-data paths keep their separators; a trailing one is dropped.
+  assert.deepEqual(
+    openCodePlugins('C:\\Users\\dev\\AppData\\Roaming\\', (file) => file.endsWith('/ponytail.mjs')),
+    ['C:\\Users\\dev\\AppData\\Roaming/ponytail/checkout/.opencode/plugins/ponytail.mjs'],
+  );
+  assert.deepEqual(
+    openCodePlugins('C:/Users/dev/AppData/Roaming', () => false),
+    [],
+  );
+  assert.deepEqual(
+    openCodePlugins('', () => true),
+    [],
+  );
+  assert.deepEqual(openCodePlugins('C:/x'), []);
+  assert.equal(
+    ponytailRulesPath('C:/Users/dev/AppData/Roaming'),
+    'C:/Users/dev/AppData/Roaming/ponytail/checkout/AGENTS.md',
+  );
+  assert.equal(ponytailRulesPath(''), null);
+});
+
+test('fast replies carry the Ponytail rules in the system prompt when provided', () => {
+  const [system] = buildFastMessages([], 'oi', { rules: '  # Ponytail\nWrite less.  ' });
+  assert.ok(system.content.endsWith('\n\n# Ponytail\nWrite less.'));
+  const [plain] = buildFastMessages([], 'oi', {});
+  assert.ok(!plain.content.includes('Ponytail'));
 });

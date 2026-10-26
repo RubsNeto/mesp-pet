@@ -17,6 +17,25 @@ conta e o botão fica verde quando funciona ou vermelho com o motivo da falha (p
 O auto-ping do 9Router não testa a conexão (ele dispara pedidos para iniciar janelas de
 cota) e fica oculto no MESP; continua disponível no painel completo do 9Router.
 
+## Ponytail sempre ativo
+
+O MESP Code começa toda conversa com o conjunto de regras
+[Ponytail](https://github.com/DietrichGebert/ponytail): o agente escreve só o
+código que a tarefa pede, sem cortar validação, tratamento de erro, segurança ou
+acessibilidade. O aplicativo procura um checkout do repositório em
+`%APPDATA%\ponytail\checkout` e, quando ele existe, carrega
+`.opencode/plugins/ponytail.mjs` como plugin do OpenCode embutido; as
+respostas do modo rápido, que não passam pelo OpenCode, recebem a versão
+compacta (`AGENTS.md`) no prompt. Sem o checkout, nada muda. Para instalar ou atualizar:
+
+```powershell
+git clone https://github.com/DietrichGebert/ponytail "$env:APPDATA\ponytail\checkout"
+git -C "$env:APPDATA\ponytail\checkout" pull
+```
+
+O nível padrão é `full`; `PONYTAIL_DEFAULT_MODE` ou `%APPDATA%\ponytail\config.json`
+(`{"defaultMode":"lite"}`) mudam isso para todos os agentes que usam o Ponytail.
+
 ## Modelos testados de verdade
 
 A lista de modelos mostra somente modelos que responderam a um pedido real em pelo

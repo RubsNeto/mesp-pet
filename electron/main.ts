@@ -109,7 +109,9 @@ import {
   modelIdFor9Router,
   normalizeProjectChecks,
   openCodeEnvironment,
+  openCodePlugins,
   parseDotEnvValue,
+  ponytailRulesPath,
   parseOpenAIStreamData,
   projectCheckFinalState,
   publicOpenCodeEvent,
@@ -255,8 +257,20 @@ function computerMcpConfig() {
   };
 }
 
+// Fast replies skip OpenCode, so they get the compact Ponytail rules directly.
+function ponytailRules(): string {
+  const file = ponytailRulesPath(app.getPath('appData'));
+  if (!file) return '';
+  try {
+    return fs.readFileSync(file, 'utf-8');
+  } catch {
+    return '';
+  }
+}
+
 function mespAgentConfig() {
-  return { ...MESP_AGENT_CONFIG, mcp: computerMcpConfig() };
+  const plugin = openCodePlugins(app.getPath('appData'), (file) => fs.existsSync(file));
+  return { ...MESP_AGENT_CONFIG, mcp: computerMcpConfig(), ...(plugin.length ? { plugin } : {}) };
 }
 
 // Carrega .env de forma simples, sem dependência externa.
@@ -1913,6 +1927,7 @@ async function runFastMespCode(options: {
         messages: buildFastMessages(history, prompt, {
           maxMessages: MAX_MESP_HISTORY_ITEMS,
           maxChars: MAX_MESP_HISTORY_LENGTH + prompt.length,
+          rules: ponytailRules(),
         }),
         ...(limits.maxTokens > 0 ? { max_tokens: Math.min(2048, limits.maxTokens) } : {}),
         stream: true,

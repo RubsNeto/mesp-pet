@@ -19,6 +19,11 @@ export function parseDotEnvValue(value: unknown): string;
 export function openCodeEnvironment(
   environment?: Readonly<Record<string, string | undefined>>,
 ): Record<string, string | undefined>;
+export function openCodePlugins(
+  appDataDirectory: string,
+  exists?: (file: string) => boolean,
+): string[];
+export function ponytailRulesPath(appDataDirectory: string): string | null;
 export function isLoopbackRouterURL(value: unknown): boolean;
 export function routerOriginForApiBase(value: unknown): string | null;
 export function hasActiveRouterConnections(payload: unknown): boolean | null;
@@ -77,7 +82,7 @@ export function modelIdFor9Router(model: string): string;
 export function buildFastMessages(
   history: Array<{ role: 'user' | 'assistant'; content: string }>,
   prompt: string,
-  options?: { maxMessages?: number; maxChars?: number },
+  options?: { maxMessages?: number; maxChars?: number; rules?: string },
 ): Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
 export function parseOpenAIStreamData(data: string): {
   text?: string;
