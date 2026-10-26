@@ -122,8 +122,84 @@ export const ROUTER_CATALOG_SCRIPT = String.raw`(() => {
       });
     });
   };
+  // Account rows: small round icons right after the account name, and a "Testar conexão"
+  // button in place of 9Router's quota auto-ping (which keeps windows warm, it does not test).
+  let connectionsRequest = null;
+  const connections = () => {
+    if (!connectionsRequest)
+      connectionsRequest = fetch('/api/providers', { cache: 'no-store' })
+        .then(response => response.json())
+        .then(data => (Array.isArray(data && data.connections) ? data.connections : []))
+        .catch(() => [])
+        .finally(() => setTimeout(() => { connectionsRequest = null; }, 3000));
+    return connectionsRequest;
+  };
+  const accountLabel = connection => String(connection.name || connection.email || connection.displayName || '').trim();
+  const testConnection = async (row, button) => {
+    const provider = decodeURIComponent(location.pathname.split('/').pop() || '');
+    const label = (row.querySelector('p.text-sm.font-medium') || {}).textContent || '';
+    const rows = Array.from(document.querySelectorAll('.mesp-account-row'));
+    const sameLabel = rows.filter(item => ((item.querySelector('p.text-sm.font-medium') || {}).textContent || '') === label);
+    const list = (await connections()).filter(item => item.provider === provider || (item.providerSpecificData && item.providerSpecificData.nodeId === provider));
+    const matches = list.filter(item => accountLabel(item) === label.trim());
+    const target = matches[sameLabel.indexOf(row)] || matches[0];
+    const icon = button.querySelector('.material-symbols-outlined');
+    const show = (state, title) => {
+      button.dataset.state = state;
+      icon.textContent = state === 'testing' ? 'progress_activity' : state === 'ok' ? 'check' : state === 'fail' ? 'error' : 'network_check';
+      button.title = title;
+    };
+    if (!target) return show('fail', 'Não foi possível identificar esta conta.');
+    show('testing', 'Testando a conexão…');
+    try {
+      const response = await fetch('/api/providers/' + encodeURIComponent(target.id) + '/test', { method: 'POST' });
+      const result = await response.json().catch(() => ({}));
+      if (result.valid) show('ok', 'Conexão funcionando.');
+      else show('fail', 'Falhou: ' + String(result.error || ('HTTP ' + response.status)).slice(0, 200));
+    } catch (error) {
+      show('fail', 'Falhou: ' + String((error && error.message) || error).slice(0, 200));
+    }
+    setTimeout(() => { if (button.dataset.state !== 'testing') show('idle', 'Testar conexão'); }, 8000);
+  };
+  const adaptAccounts = () => {
+    if (!/^\/dashboard\/providers\/[^/]+$/.test(location.pathname)) return;
+    document.querySelectorAll('main .group.flex.min-w-0.flex-col').forEach(row => {
+      const actions = row.lastElementChild && row.lastElementChild.firstElementChild;
+      if (!actions || !actions.querySelector('button')) return;
+      const icons = Array.from(actions.querySelectorAll('.material-symbols-outlined')).map(item => item.textContent);
+      if (!icons.includes('edit') || !icons.includes('delete')) return;
+      row.classList.add('mesp-account-row');
+      actions.classList.add('mesp-account-actions');
+      Array.from(actions.children).forEach(child => {
+        const name = (child.querySelector('.material-symbols-outlined') || {}).textContent;
+        if (name === 'bolt') child.classList.add('mesp-hidden-action');
+        const button = child.matches('button') ? child : child.querySelector('button');
+        const text = button && button.querySelector('.text-\\[10px\\]');
+        if (button && text && !button.getAttribute('aria-label')) {
+          const labels = { edit: 'Editar conta', delete: 'Excluir conta', lan: 'Proxy' };
+          const label = labels[name] || text.textContent.trim();
+          button.setAttribute('aria-label', label);
+          button.title = label;
+        }
+      });
+      if (!actions.querySelector('.mesp-test-connection')) {
+        const test = document.createElement('button');
+        test.type = 'button';
+        test.className = 'mesp-test-connection';
+        test.title = 'Testar conexão';
+        test.setAttribute('aria-label', 'Testar conexão');
+        test.innerHTML = '<span class="material-symbols-outlined">network_check</span>';
+        test.addEventListener('click', event => {
+          event.stopPropagation();
+          if (test.dataset.state !== 'testing') void testConnection(row, test);
+        });
+        actions.insertBefore(test, actions.firstChild);
+      }
+    });
+  };
   const adapt = () => {
     adaptDialogs();
+    adaptAccounts();
     const path = location.pathname;
     const catalog = path === '/dashboard/providers' ? 'providers' : path === '/dashboard/cli-tools' ? 'tools' : /^\/dashboard\/media-providers\/[^/]+$/.test(path) ? 'media' : '';
     document.documentElement.dataset.mespCatalog = catalog;
@@ -290,5 +366,23 @@ html[data-mesp-catalog="providers"] button.mesp-router-catalog-action:hover { ba
   .flex-nowrap { flex-wrap: wrap !important; }
 }
 @media (max-width: 240px) { .grid.mesp-router-catalog-grid { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; } }
+/* Account rows: name, then small round actions, then the on/off switch at the end. */
+.mesp-account-row { flex-direction: row !important; align-items: center !important; justify-content: flex-start !important; gap: 10px !important; }
+.mesp-account-row > :first-child { flex: 0 1 auto !important; min-width: 0 !important; }
+.mesp-account-row > :last-child { width: auto !important; flex: 1 1 auto !important; justify-content: flex-start !important; gap: 10px !important; }
+.mesp-account-row > :last-child > :last-child { margin-left: auto !important; }
+.mesp-account-actions { display: flex !important; flex: 0 0 auto !important; align-items: center !important; gap: 4px !important; }
+.mesp-account-actions > div { display: contents !important; }
+.mesp-account-actions button { width: 24px !important; height: 24px !important; min-width: 24px !important; min-height: 24px !important; padding: 0 !important; display: grid !important; place-items: center !important; border: 0 !important; border-radius: 999px !important; background: #262626 !important; color: #bbb !important; cursor: pointer; }
+.mesp-account-actions button:hover { background: #343434 !important; color: #fff !important; }
+.mesp-account-actions button .material-symbols-outlined { font-size: 14px !important; line-height: 1 !important; }
+.mesp-account-actions button > span:not(.material-symbols-outlined) { display: none !important; }
+.mesp-account-actions .mesp-hidden-action { display: none !important; }
+.mesp-account-actions button[aria-label="Excluir conta"] { color: #ff8a9a !important; }
+.mesp-account-actions button[aria-label="Excluir conta"]:hover { background: #4a1f27 !important; }
+.mesp-test-connection[data-state="testing"] .material-symbols-outlined { animation: mesp-spin 0.9s linear infinite; }
+.mesp-test-connection[data-state="ok"] { background: #1f3a26 !important; color: #8fe0a0 !important; }
+.mesp-test-connection[data-state="fail"] { background: #4a1f27 !important; color: #ff9aac !important; }
+@keyframes mesp-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
 `;

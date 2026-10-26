@@ -10,6 +10,12 @@ tarefa em andamento não fecha: pare a tarefa antes.
 No painel do 9Router, **Cancelar** fica à esquerda e a ação principal à direita. O link
 de autorização (o campo com o endereço) abre no navegador com um clique.
 
+Na lista de contas de cada provedor, logo depois do nome da conta ficam três botões
+redondos: **Testar conexão**, **Editar** e **Excluir**. O teste faz uma verificação real da
+conta e o botão fica verde quando funciona ou vermelho com o motivo da falha (passe o mouse).
+O auto-ping do 9Router não testa a conexão (ele dispara pedidos para iniciar janelas de
+cota) e fica oculto no MESP; continua disponível no painel completo do 9Router.
+
 ## Modelos testados de verdade
 
 A lista de modelos mostra somente modelos que responderam a um pedido real em pelo
