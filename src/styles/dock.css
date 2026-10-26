@@ -2802,7 +2802,7 @@ body,
   display: flex;
   gap: 5px;
   margin: 0 10px 8px;
-  padding: 3px 2px 5px;
+  padding: 6px 6px 5px 2px;
   overflow-x: auto;
   flex-shrink: 0;
   scrollbar-width: thin;
@@ -2816,21 +2816,22 @@ body,
   max-width: 130px;
   display: flex;
 }
+/* A small circle that pokes slightly out of the card's top-right corner. */
 .dock-switcher-close {
   position: absolute;
-  top: 3px;
-  right: 3px;
+  top: -4px;
+  right: -4px;
   z-index: 1;
-  width: 16px;
-  height: 16px;
+  width: 13px;
+  height: 13px;
   display: grid;
   place-items: center;
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: #3a1f24;
-  color: #ff7f93;
-  font: 600 13px/1 inherit;
+  background: #e5484d;
+  color: #fff;
+  line-height: 0;
   opacity: 0;
   transition:
     opacity 140ms ease,
@@ -2843,8 +2844,8 @@ body,
 }
 .dock-switcher-close:hover,
 .dock-switcher-item.is-closing .dock-switcher-close {
-  background: #e5484d;
-  color: #fff;
+  background: #ff5f66;
+  transform: scale(1.12);
 }
 .dock-project-switcher > .dock-switcher-item > .dock-switcher-card {
   display: flex;

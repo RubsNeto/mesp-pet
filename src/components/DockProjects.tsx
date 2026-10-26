@@ -91,7 +91,18 @@ export const DockProjectSwitcher = memo(function DockProjectSwitcher({
                 } else setArmed(project.id);
               }}
             >
-              ×
+              <svg
+                width="7"
+                height="7"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3.2"
+                strokeLinecap="round"
+                aria-hidden="true"
+              >
+                <path d="m6 6 12 12M6 18 18 6" />
+              </svg>
             </button>
           )}
           <button
