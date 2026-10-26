@@ -411,13 +411,10 @@ const check = (name, passed, details) => {
       lastId,
     );
     await page.getByRole('button', { name: 'Personalizar MESP', exact: true }).click();
-    await page.getByRole('tab', { name: 'Acessórios', exact: true }).click();
-    const chosenAccessory = await page
-      .getByLabel('Cabeça', { exact: true })
-      .locator('option')
-      .nth(1)
-      .getAttribute('value');
-    await page.getByLabel('Cabeça', { exact: true }).selectOption(chosenAccessory);
+    await page.getByRole('tab', { name: 'Cabeça', exact: true }).click();
+    const headOptions = page.getByRole('listbox', { name: 'Cabeça', exact: true }).getByRole('option');
+    const chosenAccessory = await headOptions.nth(1).getAttribute('data-value');
+    await headOptions.nth(1).click();
     await screenshot('06-acessorios-384');
     await page.getByRole('button', { name: 'Salvar neste MESP', exact: true }).click();
     await page.waitForFunction(

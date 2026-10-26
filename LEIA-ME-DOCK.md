@@ -351,9 +351,12 @@ imediata do próprio MESP, sem login, chamada à IA ou seleção de pasta. Isso 
 também quando há uma pasta salva ou o MESP Code está em modo Autônomo. Saudações
 com uma tarefa, como **oi, corrija o erro**, continuam indo ao agente escolhido.
 
-A personalização agora fica dentro da ilha: **Personalizar MESP → Cores ou
-Acessórios → Salvar neste MESP**. Cancelar conserva a aparência anterior. O
-formato clássico e o olho único aparecem tanto na prévia quanto no resultado.
+A personalização agora fica dentro da ilha: **Personalizar MESP → escolha a
+parte (Cor, Cabeça, Rosto, Pescoço, Costas, Na mão) → passe os cartões para o
+lado → Salvar neste MESP**. Cada cartão mostra o seu MESP já usando aquele item,
+e a prévia grande reage a cada escolha; as setas do teclado também trocam o
+item. Cancelar conserva a aparência anterior. O formato clássico e o olho único
+aparecem tanto na prévia quanto no resultado.
 Cada personagem mantém sua aparência, e o aplicativo retoma o MESP selecionado
 quando é reaberto.
 

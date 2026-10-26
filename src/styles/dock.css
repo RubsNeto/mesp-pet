@@ -2523,13 +2523,26 @@ body,
   margin-left: auto;
   flex-shrink: 0;
 }
+/* ---------------------------------------------------------------------------
+   Customizer: a lit stage with the live MESP, category chips and a horizontal
+   strip of cards, each one a still of the MESP wearing that item.
+--------------------------------------------------------------------------- */
 .dock-appearance {
+  --mesp-hi: #b6ecff;
+  --mesp-mid: #6fcfee;
+  --mesp-lo: #3a8fb8;
   display: flex;
   flex-direction: column;
   padding: 14px 18px;
-  gap: 10px;
-  background: #141518;
-  animation: dock-router-enter 180ms ease-out;
+  gap: 12px;
+  overflow: hidden;
+  background:
+    radial-gradient(
+      90% 70% at 22% 0%,
+      color-mix(in srgb, var(--mesp-mid) 16%, transparent),
+      transparent 70%
+    ),
+    #141518;
 }
 .dock-appearance .dock-overlay-heading {
   flex-shrink: 0;
@@ -2541,116 +2554,359 @@ body,
   width: 28px;
   height: 28px;
 }
-.dock-appearance-preview {
+.dock-appearance-hero {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 18px;
+  flex: 1;
+  min-height: 0;
+  padding: 0 2px;
+}
+.dock-appearance-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 184px;
+  height: 160px;
   flex-shrink: 0;
 }
-.dock-appearance-preview .dock-mascot {
-  position: static;
-  width: 78px;
-  height: 70px;
-  flex-shrink: 0;
+.dock-appearance-glow {
+  position: absolute;
+  inset: 6px 14px 18px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 50% 48%,
+    color-mix(in srgb, var(--mesp-mid) 58%, transparent),
+    color-mix(in srgb, var(--mesp-lo) 22%, transparent) 52%,
+    transparent 76%
+  );
+  filter: blur(10px);
+  animation: dock-appearance-breathe 4.2s ease-in-out infinite;
 }
-.dock-appearance-preview > div {
+.dock-appearance-floor {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  width: 80px;
+  height: 11px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  filter: blur(4px);
+}
+.dock-appearance-stage .dock-mascot {
+  position: relative;
+  left: auto;
+  top: auto;
+  width: 160px;
+  height: 144px;
+  filter: drop-shadow(0 12px 18px rgba(0, 0, 0, 0.38));
+  animation: dock-pop-in 360ms var(--ease-spring) both;
+}
+.dock-appearance-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
   min-width: 0;
 }
-.dock-appearance-preview strong {
+.dock-appearance-summary strong {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 15px;
+  letter-spacing: -0.01em;
 }
-.dock-appearance-preview p,
-.dock-accessory-grid p {
-  color: #a5a8af;
+.dock-appearance-family {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 3px 9px 3px 5px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: #d6d8de;
+  font-size: 10.5px;
+}
+.dock-appearance-family i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+.dock-appearance-worn {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dock-appearance-worn li {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent-strong);
+  font-size: 10px;
+  animation: dock-pop-in 220ms var(--ease-spring) both;
+}
+.dock-appearance-worn li.is-empty {
+  background: transparent;
+  padding: 0;
+  color: #7d818a;
+}
+.dock-appearance-summary p {
+  margin: 0;
+  color: #8b8f98;
   font-size: 11px;
   line-height: 1.5;
-  margin: 6px 0 0;
 }
-.dock-appearance-tabs {
+.dock-appearance-chips {
   display: flex;
-  gap: 5px;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 3px;
+  border-radius: 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.dock-appearance-chips::-webkit-scrollbar {
+  display: none;
+}
+.dock-appearance-chips button {
+  position: relative;
+  flex: 1 0 auto;
+  padding: 7px 12px;
+  border-radius: 9px;
+  background: transparent;
+  color: #a2a6ae;
+  font-size: 11px;
+  white-space: nowrap;
+  transition:
+    background 160ms var(--ease-out),
+    color 160ms var(--ease-out);
+}
+.dock-appearance-chips button:hover {
+  color: #e8e9ec;
+}
+.dock-appearance-chips button[aria-selected='true'] {
+  background: var(--surface-3);
+  color: #f5f5f5;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+.dock-appearance-chips button i {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+.dock-appearance-carousel {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
   flex-shrink: 0;
 }
-.dock-appearance-tabs button {
-  background: transparent;
-  color: #aaa;
-  border-radius: 8px;
-  padding: 7px 12px;
-  font-size: 11px;
-}
-.dock-appearance-tabs button[aria-selected='true'] {
-  background: #292a2d;
-  color: #f5f5f5;
-}
-.dock-appearance-options {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  scrollbar-width: thin;
-  scrollbar-color: #444 transparent;
-}
-.dock-color-grid {
-  display: grid;
-  grid-template-columns: repeat(9, minmax(0, 1fr));
-  gap: 5px;
-}
-.dock-color-grid button {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 2px;
-  border-radius: 8px;
-  background: transparent;
-}
-.dock-color-grid button:hover,
-.dock-color-grid button[aria-pressed='true'] {
-  background: #292a2d;
-}
-.dock-color-grid button > span {
-  width: 28px;
-  height: 28px;
+.dock-appearance-arrow {
   display: grid;
   place-items: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
   border-radius: 50%;
-  font-size: 15px;
-  color: #101114;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: #d0d3d9;
+  transition:
+    opacity 160ms var(--ease-out),
+    background 160ms var(--ease-out),
+    transform 160ms var(--ease-out);
 }
-.dock-color-grid small {
-  color: #bbb;
-  font-size: 9px;
-  width: 100%;
+.dock-appearance-arrow:hover:not(:disabled) {
+  background: var(--surface-3);
+  transform: scale(1.06);
+}
+.dock-appearance-arrow:disabled {
+  opacity: 0.22;
+  cursor: default;
+}
+.dock-appearance-track {
+  display: flex;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  align-items: stretch;
+  padding: 10px 8px 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent,
+    #000 28px,
+    #000 calc(100% - 28px),
+    transparent
+  );
+  mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+}
+.dock-appearance-carousel.at-start .dock-appearance-track {
+  -webkit-mask-image: linear-gradient(90deg, #000, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(90deg, #000, #000 calc(100% - 28px), transparent);
+}
+.dock-appearance-carousel.at-end .dock-appearance-track {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px, #000);
+  mask-image: linear-gradient(90deg, transparent, #000 28px, #000);
+}
+.dock-appearance-carousel.at-start.at-end .dock-appearance-track {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.dock-appearance-track::-webkit-scrollbar {
+  display: none;
+}
+.dock-appearance-card {
+  position: relative;
+  display: flex;
+  flex: 0 0 108px;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px 9px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: #cfd2d8;
+  scroll-snap-align: center;
+  animation: dock-pop-in 280ms var(--ease-spring) both;
+  animation-delay: calc(var(--i, 0) * 28ms);
+  transition:
+    transform 180ms var(--ease-out),
+    background 180ms var(--ease-out),
+    border-color 180ms var(--ease-out),
+    box-shadow 180ms var(--ease-out);
+}
+.dock-appearance-card:hover {
+  background: var(--surface-3);
+  border-color: var(--line-strong);
+  transform: translateY(-2px);
+}
+.dock-appearance-card.is-none {
+  border-style: dashed;
+}
+.dock-appearance-card[aria-selected='true'] {
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  color: #fff;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent),
+    0 10px 22px -8px var(--accent-glow);
+}
+.dock-appearance-card-art {
+  display: grid;
+  justify-items: center;
+  align-items: end;
+  width: 88px;
+  height: 84px;
+  border-radius: 12px;
+  background: radial-gradient(circle at 50% 62%, rgba(255, 255, 255, 0.07), transparent 70%);
+  overflow: hidden;
+}
+.dock-appearance-card-art img {
+  width: 92px;
+  height: 92px;
+  margin-bottom: -5px;
+  image-rendering: pixelated;
+  pointer-events: none;
+  transition: transform 220ms var(--ease-spring);
+}
+.dock-appearance-card:hover .dock-appearance-card-art img,
+.dock-appearance-card[aria-selected='true'] .dock-appearance-card-art img {
+  transform: translateY(-2px) scale(1.06);
+}
+.dock-appearance-card small {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  line-height: 1.2;
 }
-.dock-accessory-grid {
+.dock-appearance-card-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  animation: dock-pop-in 200ms var(--ease-spring) both;
 }
-.dock-accessory-grid label {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  color: #bfc1c8;
-  font-size: 11px;
+@keyframes dock-appearance-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.07);
+    opacity: 1;
+  }
 }
-.dock-accessory-grid select {
-  width: 100%;
-  min-width: 0;
-  padding: 8px;
-  background: #26272a;
-  border: 0;
-  border-radius: 8px;
-  color: #eee;
-  font: inherit;
+@media (max-width: 600px) {
+  .dock-appearance {
+    padding: 12px 12px 10px;
+    gap: 10px;
+  }
+  .dock-appearance-stage {
+    width: 128px;
+    height: 116px;
+  }
+  .dock-appearance-stage .dock-mascot {
+    width: 112px;
+    height: 100px;
+  }
+  .dock-appearance-summary p {
+    display: none;
+  }
+  .dock-appearance-card {
+    flex-basis: 88px;
+  }
+  .dock-appearance-card-art {
+    width: 70px;
+    height: 68px;
+  }
+  .dock-appearance-card-art img {
+    width: 76px;
+    height: 76px;
+    margin-bottom: -4px;
+  }
 }
-.dock-accessory-grid p {
-  grid-column: 1 / -1;
+@media (prefers-reduced-motion: reduce) {
+  .dock-appearance-glow,
+  .dock-appearance-stage .dock-mascot,
+  .dock-appearance-worn li,
+  .dock-appearance-card,
+  .dock-appearance-card-check {
+    animation: none;
+  }
+  .dock-appearance-card,
+  .dock-appearance-card-art img,
+  .dock-appearance-arrow {
+    transition: none;
+    transform: none;
+  }
 }
 .dock-appearance-actions {
   display: flex;
@@ -2691,6 +2947,10 @@ body,
   background: #e7e7e7;
   color: #151515;
 }
+.dock-appearance-actions button:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
 .dock-appearance :focus-visible {
   outline: 1px solid #aaa;
   outline-offset: 2px;
@@ -2711,17 +2971,6 @@ body,
   }
   .dock-task-title strong {
     font-size: 12px;
-  }
-  .dock-color-grid {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
-  .dock-appearance-preview .dock-mascot {
-    width: 65px;
-    height: 58px;
-  }
-  .dock-appearance {
-    padding: 12px;
-    gap: 8px;
   }
 }
 @media (max-width: 420px) {

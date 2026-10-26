@@ -11,7 +11,7 @@ Esta é a versão atual do repositório. O guia de uso está em
 
 - Criação instantânea pelo **+**, com pasta e agente herdados do MESP selecionado.
 - Até dez personagens com cores próprias, formato clássico e olho único.
-- Personalização dentro da ilha; acessórios aparecem apenas quando escolhidos.
+- Personalização dentro da ilha com carrossel de itens (cada cartão mostra o MESP usando o item); acessórios aparecem apenas quando escolhidos.
 - Títulos automáticos e acesso ao resultado quando uma tarefa termina.
 - Conversas e rascunhos separados por MESP, preservados ao recolher e reiniciar.
 - Campo único no MESP Code com envio, cancelamento e fila de tarefas.

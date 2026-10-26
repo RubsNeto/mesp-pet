@@ -564,8 +564,8 @@ process.stdin.on('end', () => {
     await page.locator('[data-mesp-id="mesp-primary"]').click();
     await ask('Personalize o MESP');
     await page.getByRole('dialog', { name: 'Personalizar este MESP', exact: true }).waitFor();
-    await page.getByRole('tab', { name: 'Acessórios', exact: true }).click();
-    await page.getByLabel('Cabeça', { exact: true }).selectOption('crown');
+    await page.getByRole('tab', { name: 'Cabeça', exact: true }).click();
+    await page.getByRole('option', { name: 'Coroa', exact: true }).click();
     await page.getByRole('button', { name: 'Salvar neste MESP', exact: true }).click();
     await page.waitForFunction(
       () =>
