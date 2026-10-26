@@ -366,7 +366,7 @@ const root = path.resolve(__dirname, '..');
     await page.emulateMedia({ reducedMotion: 'reduce' });
     assert.equal(
       await page
-        .locator('.dock-project-switcher button')
+        .locator('.dock-project-switcher .dock-switcher-card')
         .first()
         .evaluate((el) => getComputedStyle(el).transitionDuration),
       '0s',

@@ -3020,7 +3020,8 @@ body,
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .dock-project-switcher > .dock-switcher-item > .dock-switcher-card {
+  .dock-project-switcher > .dock-switcher-item > .dock-switcher-card,
+  .dock-switcher-close {
     transition: none;
   }
   .dock-projects-overview .dock-working {
