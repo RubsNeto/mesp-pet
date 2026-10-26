@@ -68,10 +68,11 @@ export const DockProjectSwitcher = memo(function DockProjectSwitcher({
       className={`dock-project-switcher${compact ? ' is-compact' : ''}`}
       aria-label="Trocar de projeto"
     >
-      {projects.map((project) => (
+      {projects.map((project, index) => (
         <div
           key={project.id}
           className={`dock-switcher-item${armed === project.id ? ' is-closing' : ''}`}
+          style={{ '--i': index } as React.CSSProperties}
         >
           {onClose && projects.length > 1 && (
             <button

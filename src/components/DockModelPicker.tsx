@@ -223,8 +223,14 @@ export function DockModelPicker({
             </span>
           </button>
         )}
-        {groups.map((group) => (
-          <div className="dock-model-group" role="group" aria-label={group} key={group}>
+        {groups.map((group, index) => (
+          <div
+            className="dock-model-group"
+            role="group"
+            aria-label={group}
+            key={group}
+            style={{ '--i': index } as React.CSSProperties}
+          >
             <h3>{group}</h3>
             {filtered
               .filter((model) => model.providerName === group)

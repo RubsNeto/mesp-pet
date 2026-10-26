@@ -3417,3 +3417,262 @@ body,
     transition: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Premium layer: tokens, depth, entrance motion and interaction states.
+   Kept last so it refines the rules above without changing layout.
+--------------------------------------------------------------------------- */
+.top-dock {
+  --accent: #8ad8f5;
+  --accent-strong: #a6e3fa;
+  --accent-ink: #07202b;
+  --accent-glow: rgba(138, 216, 245, 0.16);
+  --surface-1: #141417;
+  --surface-2: #1b1b1f;
+  --surface-3: #232328;
+  --line: rgba(255, 255, 255, 0.07);
+  --line-strong: rgba(255, 255, 255, 0.13);
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  background: linear-gradient(180deg, #121215 0%, #0a0a0c 100%);
+  box-shadow:
+    0 18px 50px rgba(0, 0, 0, 0.45),
+    0 2px 10px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+@keyframes dock-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes dock-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Entrances: content fades up as it appears; lists stagger by their index. */
+.top-dock .mesp-message,
+.top-dock .dock-chat-feedback,
+.top-dock .dock-delivery,
+.top-dock .mesp-prompt-queue,
+.top-dock .dock-project-overlay,
+.top-dock .dock-appearance,
+.top-dock .dock-help {
+  animation: dock-fade-up 280ms var(--ease-out) both;
+}
+.top-dock .dock-tab-panel {
+  animation: dock-fade-up 240ms var(--ease-out) both;
+}
+.top-dock .dock-switcher-item,
+.top-dock .dock-model-group,
+.top-dock .dock-connection-card,
+.top-dock .dock-priority-list li {
+  animation: dock-fade-up 260ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 35ms);
+}
+.top-dock .mesp-chat-empty-state {
+  animation: dock-fade-up 340ms var(--ease-out) both;
+}
+.top-dock .mesp-chat-suggestions button {
+  animation: dock-pop-in 300ms var(--ease-spring) both;
+}
+.top-dock .mesp-chat-suggestions button:nth-child(2) {
+  animation-delay: 60ms;
+}
+.top-dock .mesp-chat-suggestions button:nth-child(3) {
+  animation-delay: 120ms;
+}
+
+/* Empty state: a real headline and pill suggestions. */
+.top-dock .mesp-chat-empty-state {
+  padding: 28px 16px 16px;
+}
+.top-dock .mesp-chat-empty-state h2 {
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+.top-dock .mesp-chat-empty-state > p {
+  max-width: 420px;
+  margin: 6px auto 0;
+  color: #9a9ea8;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.top-dock .mesp-chat-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+.top-dock .mesp-chat-suggestions button {
+  min-height: 0;
+  padding: 7px 13px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: #c9ccd3;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  transition:
+    background 160ms var(--ease-out),
+    border-color 160ms var(--ease-out),
+    transform 160ms var(--ease-out);
+}
+.top-dock .mesp-chat-suggestions button:hover {
+  background: var(--surface-3);
+  border-color: var(--line-strong);
+  color: #f1f2f4;
+  transform: translateY(-1px);
+}
+
+/* Composer: a defined field with an accent send button. */
+.top-dock .mesp-composer {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  transition:
+    border-color 160ms var(--ease-out),
+    box-shadow 160ms var(--ease-out);
+}
+.top-dock .mesp-composer:focus-within {
+  border-color: rgba(138, 216, 245, 0.4);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 0 0 3px var(--accent-glow);
+}
+.top-dock .mesp-composer :is(.mesp-composer-send, .mesp-composer-queue),
+.top-dock .mesp-composer-stop {
+  background: var(--accent);
+  color: var(--accent-ink);
+  transition:
+    background 160ms var(--ease-out),
+    transform 180ms var(--ease-spring);
+}
+.top-dock .mesp-composer-action:hover:not(:disabled) {
+  background: var(--accent-strong);
+  transform: scale(1.06);
+}
+.top-dock .mesp-composer-action:active:not(:disabled) {
+  transform: scale(0.94);
+}
+.top-dock .mesp-composer-stop {
+  background: #ff7a8a;
+  color: #2a0a10;
+}
+
+/* Cards: hairline borders, lift on hover, accent ring when selected. */
+.top-dock .dock-model-option,
+.top-dock .dock-connection-card,
+.top-dock .dock-priority-list li,
+.top-dock .dock-switcher-card,
+.top-dock .dock-connect-buttons button,
+.top-dock .dock-model-shortcut {
+  border: 1px solid var(--line);
+  transition:
+    background 160ms var(--ease-out),
+    border-color 160ms var(--ease-out),
+    transform 160ms var(--ease-out),
+    box-shadow 160ms var(--ease-out);
+}
+.top-dock .dock-model-option:hover:not(:disabled),
+.top-dock .dock-connection-card:hover,
+.top-dock .dock-switcher-card:hover,
+.top-dock .dock-connect-buttons button:hover,
+.top-dock .dock-model-shortcut:hover {
+  border-color: var(--line-strong);
+  transform: translateY(-1px);
+}
+.top-dock .dock-model-option[aria-selected='true'],
+.top-dock .dock-switcher-card[aria-current='true'] {
+  border-color: rgba(138, 216, 245, 0.45);
+  background: rgba(138, 216, 245, 0.07);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.top-dock .dock-model-option[aria-selected='true'] .dock-choice-mark {
+  color: var(--accent);
+}
+
+/* Segmented tabs with a sliding highlight feel. */
+.top-dock .dock-settings-tabs {
+  border: 1px solid var(--line);
+}
+.top-dock .dock-settings-tabs button {
+  border-radius: 8px;
+  transition:
+    background 180ms var(--ease-out),
+    color 180ms var(--ease-out),
+    box-shadow 180ms var(--ease-out);
+}
+.top-dock .dock-settings-tabs button[aria-selected='true'] {
+  background: var(--surface-3);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+/* Press feedback and a single focus style. */
+.top-dock
+  :is(
+    .mesp-chat-suggestions button,
+    .dock-model-option,
+    .dock-settings-tabs button,
+    .dock-switcher-card,
+    .dock-actions button,
+    .dock-priority-list button,
+    .dock-connect-buttons button,
+    .dock-model-shortcut,
+    .dock-verify-bar button,
+    .dock-switcher-close
+  ):active:not(:disabled) {
+  transform: scale(0.97);
+}
+.top-dock :is(button, [role='option'], [role='tab']):focus-visible {
+  outline: 2px solid rgba(138, 216, 245, 0.65);
+  outline-offset: 2px;
+}
+
+/* Status line and footer: quieter, with a soft divider. */
+.top-dock .mesp-composer-state {
+  letter-spacing: 0.01em;
+}
+.top-dock .dock-delivery {
+  border: 1px solid var(--line);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .top-dock .mesp-message,
+  .top-dock .dock-chat-feedback,
+  .top-dock .dock-delivery,
+  .top-dock .mesp-prompt-queue,
+  .top-dock .dock-project-overlay,
+  .top-dock .dock-appearance,
+  .top-dock .dock-tab-panel,
+  .top-dock .dock-switcher-item,
+  .top-dock .dock-model-group,
+  .top-dock .dock-connection-card,
+  .top-dock .dock-priority-list li,
+  .top-dock .mesp-chat-empty-state,
+  .top-dock .mesp-chat-suggestions button {
+    animation: none;
+  }
+  .top-dock .mesp-composer-action,
+  .top-dock .mesp-chat-suggestions button,
+  .top-dock .dock-model-option,
+  .top-dock .dock-connection-card,
+  .top-dock .dock-switcher-card {
+    transition: none;
+    transform: none;
+  }
+}

@@ -352,7 +352,8 @@ export function DockSettings({
             </div>
           )}
           <div
-            className="dock-settings-body"
+            className="dock-settings-body dock-tab-panel"
+            key={tab}
             ref={body}
             id={`dock-settings-content-${tab}`}
             role="tabpanel"
@@ -376,7 +377,9 @@ export function DockSettings({
                 <div className="dock-verify-bar" role="status">
                   <span>
                     {verification?.running
-                      ? `Testando modelos nas suas contas… ${verification.done} de ${verification.total}`
+                      ? verification.total
+                        ? `Testando modelos nas suas contas… ${verification.done} de ${verification.total}`
+                        : 'Verificando modelos nas suas contas…'
                       : 'Só aparecem modelos que responderam a um teste real na sua conta.'}
                   </span>
                   <button
