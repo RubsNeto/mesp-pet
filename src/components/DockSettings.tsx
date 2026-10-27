@@ -10,6 +10,7 @@ import type {
 import { DockRouterPanel } from './DockRouterPanel';
 import { DockConnectionIcon as ConnectionIcon } from './DockConnectionIcon';
 import { DockModelPicker, dockModelLabel } from './DockModelPicker';
+import { DockAppSettings } from './DockAppSettings';
 
 const format = new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 });
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'USD' });
@@ -95,7 +96,7 @@ function Consumption({ value }: { value: RouterCounters | null }) {
   );
 }
 
-type SettingsTab = 'models' | 'accounts' | 'usage';
+type SettingsTab = 'models' | 'accounts' | 'usage' | 'app';
 type ModelVerificationStatus = NonNullable<
   Awaited<ReturnType<NonNullable<NonNullable<typeof window.mesp>['verifyModels']>>>
 >;
@@ -131,7 +132,11 @@ export function DockSettings({
   );
   const [refreshing, setRefreshing] = useState(false);
   const [tab, setTab] = useState<SettingsTab>(
-    requestedPage?.page === 'overview' ? 'models' : 'accounts',
+    requestedPage?.page === 'overview'
+      ? 'models'
+      : requestedPage?.page === 'app'
+        ? 'app'
+        : 'accounts',
   );
   const [panelPage, setPanelPage] = useState('');
   const [panelRequest, setPanelRequest] = useState(0);
@@ -217,9 +222,19 @@ export function DockSettings({
   }, [active, verification?.running, refresh]);
   useEffect(() => {
     if (!requestedPage) return;
-    if (requestedPage.page === 'overview' || requestedPage.page === 'connections') {
+    if (
+      requestedPage.page === 'overview' ||
+      requestedPage.page === 'connections' ||
+      requestedPage.page === 'app'
+    ) {
       setPanelPage('');
-      setTab(requestedPage.page === 'overview' ? 'models' : 'accounts');
+      setTab(
+        requestedPage.page === 'overview'
+          ? 'models'
+          : requestedPage.page === 'app'
+            ? 'app'
+            : 'accounts',
+      );
     } else setPanelPage(requestedPage.page);
     setPanelRequest((value) => value + 1);
   }, [requestedPage]);
@@ -276,18 +291,23 @@ export function DockSettings({
                   ? 'Escolha seu modelo'
                   : tab === 'accounts'
                     ? 'Suas conexões'
-                    : 'Consumo e limites'}
+                    : tab === 'app'
+                      ? 'MESP neste computador'
+                      : 'Consumo e limites'}
               </h2>
               <p title={project}>
                 {tab === 'models'
                   ? `Um clique para usar em ${project}.`
                   : tab === 'accounts'
                     ? 'Suas contas, juntas no MESP.'
-                    : 'Acompanhe o uso geral ou de uma conta.'}
+                    : tab === 'app'
+                      ? 'Atualizações, extensões e diagnóstico.'
+                      : 'Acompanhe o uso geral ou de uma conta.'}
               </p>
             </div>
             <button
               className="dock-settings-refresh"
+              hidden={tab === 'app'}
               onClick={() => void refresh(true)}
               disabled={refreshing}
               aria-label="Atualizar conexões"
@@ -333,6 +353,7 @@ export function DockSettings({
                 ['models', 'Modelos'],
                 ['accounts', 'Contas'],
                 ['usage', 'Consumo'],
+                ['app', 'App'],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -539,6 +560,7 @@ export function DockSettings({
                 )}
               </>
             )}
+            {tab === 'app' && <DockAppSettings />}
             {tab === 'usage' && (
               <section className="dock-usage-section">
                 <div className="dock-usage-filters">

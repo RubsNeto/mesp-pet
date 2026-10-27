@@ -300,6 +300,15 @@ export function TopDock() {
   const minisColumns = Math.min(projects.length - 1, 5);
   const selectedTitle = selected.taskTitle || selected.projectName || 'O que vamos criar?';
   const activeCount = projects.filter((p) => !agentCanChange(p.state)).length;
+  const [updateReady, setUpdateReady] = useState('');
+  useEffect(() => {
+    const api = window.mesp;
+    if (!api?.getAppUpdate) return;
+    const apply = (state: Awaited<ReturnType<typeof api.getAppUpdate>>) =>
+      setUpdateReady(state.status === 'ready' || state.status === 'manual' ? state.next : '');
+    void api.getAppUpdate().then(apply);
+    return api.onAppUpdate(apply);
+  }, []);
   const resumable = projects.find((p) => p.id !== selectedId && p.workDir);
   const unreadResults = projects
     .filter(unreadDockResult)
@@ -2200,6 +2209,21 @@ export function TopDock() {
                     : dockModelLabel(selected.routerModel)}
                 </span>
               </button>
+              {updateReady && (
+                <button
+                  className="dock-footer-update"
+                  title={`Versão ${updateReady} pronta. Abrir atualizações.`}
+                  onClick={() => {
+                    setShowHelp(false);
+                    setShowProjects(false);
+                    setRouterRequest({ page: 'app', nonce: Date.now() });
+                    setView('settings');
+                  }}
+                >
+                  <span aria-hidden="true" />
+                  Atualização
+                </button>
+              )}
               {!!unreadResults.length && (
                 <button
                   className="dock-unread-results"

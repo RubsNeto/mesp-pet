@@ -79,6 +79,13 @@ import {
 import { verificationState } from './dockModelVerification.mjs';
 import { routerLocalAuthHeaders } from './dockRouterLocalAuth.mjs';
 import { DockRouterView } from './dockRouterView';
+import {
+  projectRuleAllows,
+  rememberProjectRule,
+  skillsDirectory,
+  startAppServices,
+} from './dockAppServices';
+import { revertFilePlan } from './dockFileRevert.mjs';
 import { routerPanelSection } from './dockRouterPanel.mjs';
 import {
   routerConnectionSummary,
@@ -223,7 +230,7 @@ const MESP_AGENT_CONFIG = {
       description: 'MESP autonomous agent with unrestricted tool access',
       mode: 'primary',
       prompt:
-        'Execute a tarefa ate concluir, usando ferramentas para ler, editar e executar comandos e programas em qualquer pasta acessivel ao usuario do Windows. A pasta atual e somente o ponto de partida; voce tem acesso tambem a outros discos, pastas pessoais e projetos quando o pedido exigir. Preserve alteracoes existentes e verifique o resultado. Para copiar um arquivo existente, e obrigatorio usar mesp_computer_copy_file, que preserva e verifica os bytes; nunca reconstrua a copia com write a partir de read. Para verificacoes em PowerShell use APIs .NET como [IO.File]::ReadAllBytes e lance throw se uma condicao falhar. Nao devolva apenas codigo quando o usuario pediu uma implementacao. Nao altere dados sem relacao com o pedido nem publique externamente sem um pedido explicito. Nao pare para pedir confirmacao de acoes rotineiras dentro da tarefa.',
+        'Execute a tarefa ate concluir, usando ferramentas para ler, editar e executar comandos e programas em qualquer pasta acessivel a este usuario do sistema. A pasta atual e somente o ponto de partida; voce tem acesso tambem a outros discos, pastas pessoais e projetos quando o pedido exigir. Preserve alteracoes existentes e verifique o resultado. Para copiar um arquivo existente, e obrigatorio usar mesp_computer_copy_file, que preserva e verifica os bytes; nunca reconstrua a copia com write a partir de read. Para verificacoes no Windows use PowerShell com APIs .NET como [IO.File]::ReadAllBytes e lance throw se uma condicao falhar; no macOS e no Linux use set -e e exit 1. Nao devolva apenas codigo quando o usuario pediu uma implementacao. Nao altere dados sem relacao com o pedido nem publique externamente sem um pedido explicito. Nao pare para pedir confirmacao de acoes rotineiras dentro da tarefa.',
       permission: {
         '*': 'allow',
         external_directory: 'allow',
@@ -270,7 +277,12 @@ function ponytailRules(): string {
 
 function mespAgentConfig() {
   const plugin = openCodePlugins(app.getPath('appData'), (file) => fs.existsSync(file));
-  return { ...MESP_AGENT_CONFIG, mcp: computerMcpConfig(), ...(plugin.length ? { plugin } : {}) };
+  return {
+    ...MESP_AGENT_CONFIG,
+    mcp: computerMcpConfig(),
+    skills: { paths: [skillsDirectory()] },
+    ...(plugin.length ? { plugin } : {}),
+  };
 }
 
 // Carrega .env de forma simples, sem dependência externa.
@@ -347,7 +359,7 @@ interface MespCodeServerRun {
   controller: AbortController;
   cancelled: boolean;
   limitError?: string;
-  pendingPermissions: Set<string>;
+  pendingPermissions: Map<string, { permission: string; always: string[]; patterns: string[] }>;
   finish: (code: number | null, error?: string) => void;
 }
 
@@ -581,8 +593,12 @@ function resolveBundled9RouterServer(): string | null {
 }
 
 function resolveBundledOpenCodeBinary(): string | null {
-  const executable = process.platform === 'win32' ? 'opencode.exe' : 'opencode';
-  return bundledRuntimeFile('opencode-ai', 'bin', executable);
+  // opencode-ai's postinstall names the copied binary opencode.exe on every platform.
+  if (process.platform === 'win32') return bundledRuntimeFile('opencode-ai', 'bin', 'opencode.exe');
+  return (
+    bundledRuntimeFile('opencode-ai', 'bin', 'opencode') ||
+    bundledRuntimeFile('opencode-ai', 'bin', 'opencode.exe')
+  );
 }
 
 function resolveNodeRuntime(): { binary: string; source: InstalledRuntimeSource } {
@@ -1316,7 +1332,139 @@ function reserveLoopbackPort(): Promise<number> {
   });
 }
 
+function smokeRun(binary: string, args: string[], env?: NodeJS.ProcessEnv): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(binary, args, { shell: false, windowsHide: true, env: env ?? process.env });
+    let output = '';
+    child.stdout.on('data', (chunk) => (output += String(chunk)));
+    child.stderr.on('data', (chunk) => (output += String(chunk)));
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error('tempo esgotado'));
+    }, 60_000);
+    child.once('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve(output.trim().split(/\r?\n/).pop() || '');
+      else reject(new Error(`saiu com ${code}: ${output.trim().slice(-300)}`));
+    });
+  });
+}
+
+async function smokeRouter(nodeBinary: string): Promise<string> {
+  const serverPath = resolveBundled9RouterServer();
+  if (!serverPath) throw new Error('servidor do 9Router ausente');
+  const adapter = app.isPackaged
+    ? path.join(process.resourcesPath, 'runtime', 'mesp-router', 'dockRouterRuntime.cjs')
+    : path.join(__dirname, 'dockRouterRuntime.cjs');
+  const dataDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'mesp-smoke-'));
+  const port = await reserveLoopbackPort();
+  const origin = `http://127.0.0.1:${port}`;
+  const child = spawn(nodeBinary, [adapter], {
+    cwd: path.dirname(serverPath),
+    shell: false,
+    windowsHide: true,
+    env: {
+      ...routerRuntimeEnvironment(dataDir, port, '127.0.0.1', origin, null),
+      MESP_ROUTER_SERVER: serverPath,
+      MESP_ROUTER_PROFILE_SOURCE: 'mesp',
+    },
+  });
+  child.stdout.resume();
+  child.stderr.resume();
+  try {
+    const deadline = Date.now() + 90_000;
+    while (Date.now() < deadline) {
+      if (child.exitCode !== null) throw new Error(`9Router saiu com ${child.exitCode}`);
+      try {
+        const response = await fetch(`${origin}/v1/models`, { signal: AbortSignal.timeout(3_000) });
+        if (response.status < 500) return `HTTP ${response.status}`;
+      } catch {
+        // Still starting.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+    throw new Error('9Router não respondeu em 90 s');
+  } finally {
+    if (process.platform === 'win32' && child.pid) await stopWindowsProcessTree(child.pid);
+    else child.kill();
+    await fs.promises.rm(dataDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/** Runs every bundled runtime once and reports JSON; exit code 0 only when all pass. */
+async function runPackagedSmoke(): Promise<number> {
+  const report: Record<string, { ok: boolean; detail: string }> = {};
+  const check = async (name: string, run: () => Promise<string>) => {
+    try {
+      report[name] = { ok: true, detail: await run() };
+    } catch (error) {
+      report[name] = { ok: false, detail: error instanceof Error ? error.message : String(error) };
+    }
+  };
+  const node = resolveNodeRuntime();
+  const openCode = resolveOpenCodeRuntime();
+  const bundled = (source: InstalledRuntimeSource, label: string) => {
+    if (app.isPackaged && source !== 'bundled')
+      throw new Error(`${label} não veio no pacote (${source})`);
+  };
+  await check('node', async () => {
+    bundled(node.source, 'Node');
+    return smokeRun(node.binary, ['--version']);
+  });
+  await check('npm', async () => {
+    const cli = resolveBundledNpmCli();
+    if (!cli) throw new Error('npm-cli.js ausente');
+    return smokeRun(node.binary, [cli, '--version']);
+  });
+  await check('opencode', async () => {
+    bundled(openCode.source, 'OpenCode');
+    return smokeRun(openCode.binary, ['--version'], {
+      ...process.env,
+      OPENCODE_DISABLE_AUTOUPDATE: '1',
+    });
+  });
+  await check('pty', async () => {
+    const term = pty.spawn(node.binary, ['-e', 'process.stdout.write("pty-ok")'], {
+      cols: 80,
+      rows: 24,
+      cwd: os.tmpdir(),
+      env: process.env as Record<string, string>,
+    });
+    let output = '';
+    term.onData((data) => (output += data));
+    await new Promise<void>((resolve) => term.onExit(() => resolve()));
+    if (!output.includes('pty-ok')) throw new Error(`saída inesperada: ${output.slice(0, 120)}`);
+    return 'pty-ok';
+  });
+  await check('router', () => smokeRouter(node.binary));
+  const ok = Object.values(report).every((entry) => entry.ok);
+  const text = JSON.stringify(
+    { ok, version: app.getVersion(), platform: process.platform, arch: process.arch, report },
+    null,
+    2,
+  );
+  const out = process.env.MESP_SMOKE_OUT;
+  if (out) await fs.promises.writeFile(out, text);
+  else process.stdout.write(`${text}\n`);
+  return ok ? 0 : 1;
+}
+
+let mespCodeServerStale = false;
+
 async function ensureMespCodeServer(): Promise<MespCodeServerState> {
+  if (mespCodeServer && mespCodeServerStale && mespCodeServerRuns.size === 0) {
+    mespCodeServerStale = false;
+    try {
+      mespCodeServer.child.kill();
+    } catch {
+      /* noop */
+    }
+    mespCodeServer = null;
+  }
   if (mespCodeServer && !mespCodeServer.child.killed) return mespCodeServer;
   if (mespCodeServerPromise) return mespCodeServerPromise;
 
@@ -1422,7 +1570,32 @@ app.setPath(
   'userData',
   process.env.MESP_DOCK_DATA_DIR || path.join(app.getPath('appData'), 'MESP Top Dock'),
 );
-const dockInstanceLock = app.requestSingleInstanceLock();
+// Packaged-build check used by CI: proves the bundled runtimes start, then exits.
+const smokeMode = process.argv.includes('--mesp-smoke');
+const dockInstanceLock = smokeMode || app.requestSingleInstanceLock();
+if (!smokeMode && dockInstanceLock) {
+  startAppServices({
+    send: safeSend,
+    runtimeSummary: () => ({
+      node: resolveNodeRuntime().source,
+      opencode: resolveOpenCodeRuntime().source,
+      router: routerRuntimeSource,
+      accounts: routerConnectionStatus.state,
+    }),
+    readAgentConfig: () => readOpenCodeConfig(),
+    writeAgentConfig: async (config) => {
+      const configPath = mespOpenCodeConfigPath();
+      await fs.promises.mkdir(path.dirname(configPath), { recursive: true });
+      await fs.promises.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
+    },
+    agentConfigChanged: () => {
+      mespCodeServerStale = true;
+    },
+    prepareQuit: () => {
+      applicationQuitting = true;
+    },
+  });
+}
 if (!dockInstanceLock) app.quit();
 app.on('second-instance', () => {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -2089,7 +2262,7 @@ async function runAssistedMespCode(options: {
     sessionId: options.sessionId,
     controller,
     cancelled: false,
-    pendingPermissions: new Set(),
+    pendingPermissions: new Map(),
     finish: () => undefined,
   };
   mespCodeServerRuns.set(petId, run);
@@ -2243,12 +2416,34 @@ async function runAssistedMespCode(options: {
     if (type === 'permission.asked' || type === 'permission.v2.asked') {
       const permissionId = typeof properties.id === 'string' ? properties.id : '';
       if (!permissionId) return;
-      run.pendingPermissions.add(permissionId);
       const patterns = Array.isArray(properties.patterns)
         ? properties.patterns
             .filter((item): item is string => typeof item === 'string')
             .slice(0, 20)
         : [];
+      const permissionName =
+        typeof properties.permission === 'string' ? properties.permission.slice(0, 100) : 'acao';
+      const always = Array.isArray(properties.always)
+        ? properties.always.filter((item): item is string => typeof item === 'string').slice(0, 20)
+        : [];
+      run.pendingPermissions.set(permissionId, { permission: permissionName, always, patterns });
+      const autoApproved = projectRuleAllows(run.cwd, permissionName, patterns);
+      if (autoApproved) {
+        void ensureMespCodeServer()
+          .then((server) =>
+            mespServerFetch(
+              server,
+              run.cwd,
+              `/permission/${encodeURIComponent(permissionId)}/reply`,
+              {
+                method: 'POST',
+                body: JSON.stringify({ reply: 'once' }),
+              },
+            ),
+          )
+          .then(() => run.pendingPermissions.delete(permissionId))
+          .catch(() => {});
+      }
       safeSend('mesp-code:event', {
         petId,
         requestId,
@@ -2267,6 +2462,7 @@ async function runAssistedMespCode(options: {
                 .map((item) => redactMespSecrets(item, runSecrets).slice(0, 1000))
             : [],
           tool: typeof properties.tool === 'string' ? properties.tool.slice(0, 100) : undefined,
+          ...(autoApproved ? { autoApproved: true } : {}),
         },
       });
       return;
@@ -2705,7 +2901,7 @@ async function sendMespCode(
             )
           : undefined,
     }),
-    'O acesso usa as permissões deste usuário; não há elevação automática. Para operações do Windows, use PowerShell com -NoProfile -NonInteractive e argumentos corretamente escapados. Verifique os caminhos antes de agir. Não afirme clicar ou controlar telas sem uma ferramenta capaz disso.',
+    `O acesso usa as permissões deste usuário; não há elevação automática. ${process.platform === 'win32' ? 'Para operações do Windows, use PowerShell com -NoProfile -NonInteractive e argumentos corretamente escapados.' : 'Use o shell do sistema com argumentos corretamente escapados.'} Verifique os caminhos antes de agir. Não afirme clicar ou controlar telas sem uma ferramenta capaz disso.`,
   ].join('\n');
   const executeTask = taskIntent
     ? taskIntent.action === 'execute'
@@ -3191,7 +3387,10 @@ ipcMain.handle('mesp-code:permission-reply', async (_evt, payloadRaw: unknown) =
   const requestId = validateRunId(payload.requestId);
   const permissionId = validateRunId(payload.permissionId);
   const reply =
-    payload.reply === 'once' || payload.reply === 'always' || payload.reply === 'reject'
+    payload.reply === 'once' ||
+    payload.reply === 'always' ||
+    payload.reply === 'reject' ||
+    payload.reply === 'project'
       ? payload.reply
       : null;
   if (!petId || !requestId || !permissionId || !reply) {
@@ -3202,12 +3401,20 @@ ipcMain.handle('mesp-code:permission-reply', async (_evt, payloadRaw: unknown) =
     return { ok: false, error: 'a permissao nao esta mais pendente' };
   }
   try {
+    const pending = run.pendingPermissions.get(permissionId);
+    if (reply === 'project' && pending) {
+      rememberProjectRule(
+        run.cwd,
+        pending.permission,
+        pending.always.length ? pending.always : pending.patterns,
+      );
+    }
     const server = await ensureMespCodeServer();
     const response = await mespServerFetch(
       server,
       run.cwd,
       `/permission/${encodeURIComponent(permissionId)}/reply`,
-      { method: 'POST', body: JSON.stringify({ reply }) },
+      { method: 'POST', body: JSON.stringify({ reply: reply === 'project' ? 'always' : reply }) },
     );
     if (!response.ok) throw new Error(`OpenCode respondeu ${response.status}.`);
     run.pendingPermissions.delete(permissionId);
@@ -3697,6 +3904,73 @@ ipcMain.handle('mesp-code:get-diff', async (_evt, payloadRaw: unknown) => {
       files,
       truncated: raw.length > files.length || totalLength >= MAX_MESP_DIFF_TOTAL_LENGTH,
     };
+  } catch (error) {
+    return { ok: false, error: sanitizeMespError(error) };
+  }
+});
+
+ipcMain.handle('mesp-code:revert-file', async (_evt, payloadRaw: unknown) => {
+  if (!payloadRaw || typeof payloadRaw !== 'object')
+    return { ok: false, error: 'payload invalido' };
+  const payload = payloadRaw as Record<string, unknown>;
+  const sessionId = validateRunId(payload.sessionId);
+  const messageId = validateRunId(payload.messageId);
+  const requestedCwd = isString(payload.cwd, 4096) ? payload.cwd : null;
+  const fileName = isString(payload.file, 4096) ? payload.file : null;
+  if (!sessionId || !messageId || !requestedCwd || !fileName) {
+    return { ok: false, error: 'dados de reversao invalidos' };
+  }
+  let cwd = '';
+  try {
+    if (fs.statSync(requestedCwd).isDirectory()) cwd = path.resolve(requestedCwd);
+  } catch {
+    /* handled below */
+  }
+  if (!cwd) return { ok: false, error: 'diretorio invalido' };
+  try {
+    const server = await ensureMespCodeServer();
+    const raw = await mespServerJson<unknown>(
+      server,
+      cwd,
+      `/session/${encodeURIComponent(sessionId)}/diff?messageID=${encodeURIComponent(messageId)}`,
+    );
+    const item = Array.isArray(raw)
+      ? raw.map(asObject).find((entry) => entry && entry.file === fileName)
+      : null;
+    if (!item) return { ok: false, error: 'Este arquivo não faz parte desta etapa.' };
+    const target = path.resolve(cwd, fileName);
+    const relative = path.relative(cwd, target);
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+      return { ok: false, error: 'Só arquivos dentro do projeto podem ser desfeitos.' };
+    }
+    let current = '';
+    let exists = false;
+    try {
+      current = await fs.promises.readFile(target, 'utf8');
+      exists = true;
+    } catch {
+      exists = false;
+    }
+    const plan = revertFilePlan({
+      status: typeof item.status === 'string' ? item.status : 'modified',
+      patch: typeof item.patch === 'string' ? item.patch : '',
+      before: item.before,
+      after: item.after,
+      current,
+      exists,
+    });
+    if (plan.action === 'conflict') {
+      return {
+        ok: false,
+        error: 'O arquivo mudou depois desta etapa. Desfaça a etapa inteira ou ajuste à mão.',
+      };
+    }
+    if (plan.action === 'delete') await fs.promises.rm(target, { force: true });
+    if (plan.action === 'write') {
+      await fs.promises.mkdir(path.dirname(target), { recursive: true });
+      await fs.promises.writeFile(target, plan.content, 'utf8');
+    }
+    return { ok: true };
   } catch (error) {
     return { ok: false, error: sanitizeMespError(error) };
   }
@@ -4996,6 +5270,10 @@ ipcMain.handle('app:toggle-visibility', () => {
 });
 
 app.whenReady().then(() => {
+  if (smokeMode) {
+    void runPackagedSmoke().then((code) => app.exit(code));
+    return;
+  }
   if (!dockInstanceLock) return;
   loadDotEnv();
   // Identidade para notificações nativas no Windows.

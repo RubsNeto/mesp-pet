@@ -73,6 +73,7 @@ interface PermissionRequest {
   resources: string[];
   remember: string[];
   tool?: string;
+  autoApproved?: boolean;
   requestId: string;
 }
 
@@ -88,6 +89,8 @@ interface DiffReview {
   }>;
   truncated?: boolean;
   error?: string;
+  revertedFiles?: string[];
+  revertingFile?: string;
 }
 
 export interface MespCodeStatus {
@@ -798,6 +801,27 @@ export function MespCodeChat({
       }
       if (data.kind === 'permission' && data.permission) {
         if (wasCancelled) return;
+        if (data.permission.autoApproved) {
+          const assistantId = activeAssistantRef.current;
+          const permissionId = data.permission.id;
+          const permissionLabel = toolDisplayName(data.permission.tool || data.permission.action);
+          if (assistantId) {
+            setMessages((previous) =>
+              previous.map((message) =>
+                message.id === assistantId
+                  ? withTimeline(message, {
+                      id: `permission-${permissionId}`,
+                      kind: 'permission',
+                      label: `Autorizado pela regra do projeto: ${permissionLabel}`,
+                      status: 'success',
+                      at: Date.now(),
+                    })
+                  : message,
+              ),
+            );
+          }
+          return;
+        }
         setPermission({ ...data.permission, requestId: data.requestId });
         setAnnouncement(`Aprovação necessária para ${toolDisplayName(data.permission.action)}.`);
         const assistantId = activeAssistantRef.current;
@@ -1189,7 +1213,7 @@ export function MespCodeChat({
   }, []);
 
   const replyPermission = useCallback(
-    async (reply: 'once' | 'always' | 'reject') => {
+    async (reply: 'once' | 'always' | 'reject' | 'project') => {
       if (!permission || permissionReplying || !window.mesp?.replyMespCodePermission) return;
       setPermissionReplying(true);
       try {
@@ -1216,8 +1240,10 @@ export function MespCodeChat({
                     kind: 'permission',
                     label:
                       reply === 'reject'
-                        ? `Acao negada: ${permissionLabel}`
-                        : `Acao autorizada: ${permissionLabel}`,
+                        ? `Ação negada: ${permissionLabel}`
+                        : reply === 'project'
+                          ? `Sempre permitido neste projeto: ${permissionLabel}`
+                          : `Ação autorizada: ${permissionLabel}`,
                     status: reply === 'reject' ? 'cancelled' : 'success',
                     at: Date.now(),
                   })
@@ -1226,7 +1252,13 @@ export function MespCodeChat({
           );
         }
         setPermission(null);
-        setAnnouncement(reply === 'reject' ? 'Acao negada.' : 'Acao autorizada.');
+        setAnnouncement(
+          reply === 'reject'
+            ? 'Ação negada.'
+            : reply === 'project'
+              ? 'Ação liberada para este projeto.'
+              : 'Ação autorizada.',
+        );
         stateChangeRef.current?.('working');
       } catch (error) {
         if (mountedRef.current) setAnnouncement((error as Error).message);
@@ -1285,6 +1317,53 @@ export function MespCodeChat({
       }
     },
     [diffReviews, workDir],
+  );
+
+  const revertFile = useCallback(
+    async (message: ChatMessage, fileName: string) => {
+      if (!message.sessionId || !message.messageId || !workDir || !window.mesp?.revertMespCodeFile)
+        return;
+      setDiffReviews((previous) => {
+        const current = previous[message.id];
+        return current
+          ? { ...previous, [message.id]: { ...current, revertingFile: fileName } }
+          : previous;
+      });
+      try {
+        const result = await window.mesp.revertMespCodeFile({
+          sessionId: message.sessionId,
+          messageId: message.messageId,
+          cwd: workDir,
+          file: fileName,
+        });
+        if (!mountedRef.current) return;
+        setAnnouncement(
+          result.ok
+            ? `${fileName} voltou ao estado anterior.`
+            : result.error || 'Não foi possível desfazer este arquivo.',
+        );
+        setDiffReviews((previous) => {
+          const current = previous[message.id];
+          if (!current) return previous;
+          return {
+            ...previous,
+            [message.id]: {
+              ...current,
+              revertingFile: undefined,
+              revertedFiles: result.ok
+                ? [...(current.revertedFiles || []), fileName]
+                : current.revertedFiles,
+              error: result.ok
+                ? undefined
+                : result.error || 'Não foi possível desfazer este arquivo.',
+            },
+          };
+        });
+      } catch (error) {
+        if (mountedRef.current) setAnnouncement((error as Error).message);
+      }
+    },
+    [workDir],
   );
 
   const confirmRevert = useCallback(async () => {
@@ -1721,7 +1800,8 @@ export function MespCodeChat({
     stateChangeRef.current?.('idle');
   }, [occupied, setInput]);
 
-  // Keyboard replies for the approval dialog: N denies, Y or S allows once, A allows for the session.
+  // Keyboard replies for the approval dialog: N denies, Y or S allows once, A allows for the
+  // session and P always allows it in this project.
   useEffect(() => {
     if (!permission) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1734,7 +1814,9 @@ export function MespCodeChat({
             ? 'once'
             : key === 'a'
               ? 'always'
-              : null;
+              : key === 'p'
+                ? 'project'
+                : null;
       if (!reply) return;
       event.preventDefault();
       void replyPermission(reply);
@@ -2287,6 +2369,22 @@ export function MespCodeChat({
                           </small>
                         </summary>
                         {file.patch ? <pre>{file.patch}</pre> : <p>Diff textual indisponível.</p>}
+                        {message.messageId &&
+                          !message.reverted &&
+                          (diffReviews[message.id].revertedFiles?.includes(file.file) ? (
+                            <span className="mesp-diff-file-state">Arquivo desfeito</span>
+                          ) : (
+                            <button
+                              type="button"
+                              className="mesp-diff-file-revert"
+                              disabled={diffReviews[message.id].revertingFile === file.file}
+                              onClick={() => void revertFile(message, file.file)}
+                            >
+                              {diffReviews[message.id].revertingFile === file.file
+                                ? 'Desfazendo…'
+                                : 'Desfazer este arquivo'}
+                            </button>
+                          ))}
                       </details>
                     ))}
                     {diffReviews[message.id].truncated && (
@@ -2561,7 +2659,29 @@ export function MespCodeChat({
               >
                 Permitir na sessão <kbd aria-hidden="true">A</kbd>
               </button>
+              <button
+                type="button"
+                className="mesp-permission-project"
+                onClick={() => void replyPermission('project')}
+                disabled={permissionReplying}
+                title={
+                  permission.remember.length
+                    ? `Libera sempre neste projeto: ${permission.remember.join(', ')}`
+                    : 'Libera sempre esta ação neste projeto'
+                }
+              >
+                Sempre neste projeto <kbd aria-hidden="true">P</kbd>
+              </button>
             </div>
+            {permission.remember.length > 0 && (
+              <p className="mesp-permission-scope">
+                “Sempre neste projeto” vale para{' '}
+                {permission.remember.map((pattern, index) => (
+                  <code key={`${pattern}-${index}`}>{pattern}</code>
+                ))}
+                . Você remove em Configurações → App.
+              </p>
+            )}
           </div>
         </div>
       )}

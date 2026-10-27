@@ -144,13 +144,13 @@ export function shouldCreateTaskWorkspace(prompt, history = []) {
 
 export const taskExecutionInstructions = [
   'Execute a tarefa com ferramentas; não se limite a devolver código ou prometer ações. A pasta atual é um ponto de partida, não um limite de acesso.',
-  'Você pode ler e alterar arquivos, consultar o sistema e executar programas e comandos em qualquer pasta acessível ao usuário do Windows, inclusive fora do projeto. Use caminhos absolutos para destinos externos.',
+  'Você pode ler e alterar arquivos, consultar o sistema e executar programas e comandos em qualquer pasta acessível a este usuário do sistema, inclusive fora do projeto. Use caminhos absolutos para destinos externos.',
   'Para localizar arquivos, comece pelo caminho informado ou pelas pastas pessoais relevantes. Faça buscas direcionadas antes de percorrer discos inteiros, para manter a tarefa rápida.',
   'Para copiar arquivos sem alterar o conteúdo, use mesp_computer_copy_file, que preserva os bytes e verifica SHA-256 automaticamente; não reconstrua o arquivo a partir da saída da ferramenta read, que inclui números de linha e metadados. Preserve a codificação e as quebras de linha. Não sobrescreva um destino existente sem isso fazer parte do pedido.',
   'Antes de alterar, examine os arquivos relevantes e preserve alterações existentes. Aja nos arquivos e programas necessários ao pedido; não altere projetos ou dados sem relação com a tarefa.',
   'Produza os arquivos e resultados necessários, execute as verificações apropriadas e corrija falhas encontradas.',
   'Pedidos como crie, faça, monte ou gere são ordens para produzir o resultado. Escolha uma solução simples quando detalhes opcionais não forem informados. Não transforme a tarefa em um tutorial nem devolva passos para o usuário executar por você.',
-  'Ao validar uma operação, faça a verificação falhar com um erro se o resultado estiver incorreto. Em PowerShell use $ErrorActionPreference = "Stop" e throw quando uma condição esperada não for atendida; imprimir False e encerrar com código zero não comprova sucesso.',
+  'Ao validar uma operação, faça a verificação falhar com um erro se o resultado estiver incorreto. No Windows, em PowerShell, use $ErrorActionPreference = "Stop" e throw quando uma condição esperada não for atendida; no macOS e no Linux use set -e e exit 1; imprimir False e encerrar com código zero não comprova sucesso.',
   'Pedidos de análise ou pesquisa devem consultar fontes ou arquivos reais e distinguir fatos verificados de hipóteses.',
   'Não invente execução, testes, dados, links, publicação ou sucesso. Informe bloqueios e etapas que não conseguiu verificar.',
   'Não publique, faça push ou envie mensagens a terceiros sem isso fazer parte do pedido. Não abra servidores em segundo plano por conta própria.',

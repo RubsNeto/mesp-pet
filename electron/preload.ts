@@ -44,7 +44,33 @@ export interface MespCodeEvent {
     resources: string[];
     remember: string[];
     tool?: string;
+    autoApproved?: boolean;
   };
+}
+
+export type AppUpdateState =
+  | { status: 'off' | 'idle' | 'checking' | 'current'; version: string }
+  | { status: 'downloading'; version: string; next: string; percent: number }
+  | { status: 'ready'; version: string; next: string }
+  | { status: 'manual'; version: string; next: string; url: string }
+  | { status: 'error'; version: string; message: string };
+
+export interface McpServerSummary {
+  name: string;
+  type: 'local' | 'remote';
+  target: string;
+  enabled: boolean;
+}
+
+export interface ExtensionsSnapshot {
+  mcp: McpServerSummary[];
+  skills: Array<{ folder: string; name: string; description: string }>;
+}
+
+export interface ProjectPermissionRules {
+  key: string;
+  label: string;
+  rules: Array<{ permission: string; patterns: string[]; createdAt: number }>;
 }
 
 export interface MespCodeDiffFile {
@@ -297,9 +323,18 @@ const api = {
     petId: string;
     requestId: string;
     permissionId: string;
-    reply: 'once' | 'always' | 'reject';
+    reply: 'once' | 'always' | 'reject' | 'project';
   }): Promise<{ ok: boolean; error?: string }> {
     return ipcRenderer.invoke('mesp-code:permission-reply', opts);
+  },
+  /** Desfaz um unico arquivo de uma etapa, se ele nao mudou depois dela. */
+  revertMespCodeFile(opts: {
+    sessionId: string;
+    messageId: string;
+    cwd: string;
+    file: string;
+  }): Promise<{ ok: boolean; error?: string }> {
+    return ipcRenderer.invoke('mesp-code:revert-file', opts);
   },
   /** Retorna as mudancas de uma sessao, com conteudo sensivel filtrado no main. */
   getMespCodeDiff(opts: {
@@ -525,6 +560,66 @@ const api = {
   /** Abre uma URL http(s) no navegador padrao. */
   openExternal(url: string): Promise<boolean> {
     return ipcRenderer.invoke('app:open-external', url);
+  },
+  getAppUpdate(): Promise<AppUpdateState> {
+    return ipcRenderer.invoke('app:update-state');
+  },
+  checkAppUpdate(): Promise<AppUpdateState> {
+    return ipcRenderer.invoke('app:update-check');
+  },
+  installAppUpdate(): Promise<boolean> {
+    return ipcRenderer.invoke('app:update-install');
+  },
+  onAppUpdate(cb: (state: AppUpdateState) => void): () => void {
+    const handler = (_e: unknown, state: AppUpdateState) => cb(state);
+    ipcRenderer.on('app:update', handler);
+    return () => ipcRenderer.removeListener('app:update', handler);
+  },
+  copyDiagnostics(): Promise<boolean> {
+    return ipcRenderer.invoke('app:copy-diagnostics');
+  },
+  openLogs(): Promise<boolean> {
+    return ipcRenderer.invoke('app:open-logs');
+  },
+  reportIssue(): Promise<boolean> {
+    return ipcRenderer.invoke('app:report-issue');
+  },
+  listPermissionRules(): Promise<ProjectPermissionRules[]> {
+    return ipcRenderer.invoke('permissions:list');
+  },
+  removePermissionRule(opts: { key: string; index: number }): Promise<boolean> {
+    return ipcRenderer.invoke('permissions:remove', opts);
+  },
+  listExtensions(): Promise<ExtensionsSnapshot> {
+    return ipcRenderer.invoke('extensions:list');
+  },
+  addMcpServer(form: {
+    name: string;
+    type: 'local' | 'remote';
+    command?: string;
+    url?: string;
+  }): Promise<({ ok: true } & ExtensionsSnapshot) | { ok: false; error?: string }> {
+    return ipcRenderer.invoke('extensions:add-mcp', form);
+  },
+  toggleMcpServer(opts: {
+    name: string;
+    enabled: boolean;
+  }): Promise<({ ok: true } & ExtensionsSnapshot) | { ok: false }> {
+    return ipcRenderer.invoke('extensions:toggle-mcp', opts);
+  },
+  removeMcpServer(name: string): Promise<({ ok: true } & ExtensionsSnapshot) | { ok: false }> {
+    return ipcRenderer.invoke('extensions:remove-mcp', name);
+  },
+  openSkillsFolder(): Promise<boolean> {
+    return ipcRenderer.invoke('extensions:open-skills');
+  },
+  importSkill(): Promise<
+    ({ ok: true } & ExtensionsSnapshot) | { ok: false; error?: string; cancelled?: boolean }
+  > {
+    return ipcRenderer.invoke('extensions:import-skill');
+  },
+  removeSkill(folder: string): Promise<({ ok: true } & ExtensionsSnapshot) | { ok: false }> {
+    return ipcRenderer.invoke('extensions:remove-skill', folder);
   },
   isElectron: true as const,
   platform: process.platform,

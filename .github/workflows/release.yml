@@ -1,0 +1,131 @@
+name: Publicar instaladores
+
+# Uma tag vX.Y.Z gera os instaladores de Windows, macOS (Apple Silicon e Intel) e Linux,
+# prova que cada pacote inicia seus runtimes (--mesp-smoke) e só então publica a release.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag existente para republicar (ex.: v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  prepare:
+    name: Validar versão e abrir rascunho
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: Conferir tag e versão
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Tag inválida: $TAG"; exit 1
+          fi
+          if [[ "$TAG" != "v$version" ]]; then
+            echo "A tag $TAG não corresponde à versão $version do package.json"; exit 1
+          fi
+      - name: Criar release em rascunho
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Release $TAG já existe; os arquivos serão substituídos."
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft \
+              --title "MESP ${TAG#v}" --generate-notes --verify-tag
+          fi
+
+  build:
+    name: ${{ matrix.name }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            builder: --win --x64
+            assets: release/MESP-Setup.exe release/MESP-Setup.exe.blockmap release/latest.yml
+          - name: macOS Apple Silicon
+            os: macos-latest
+            builder: --mac --arm64
+            assets: release/MESP-mac-arm64.dmg
+          - name: macOS Intel
+            os: macos-15-intel
+            builder: --mac --x64
+            assets: release/MESP-mac-x64.dmg
+          - name: Linux x64
+            os: ubuntu-22.04
+            builder: --linux --x64
+            assets: release/MESP-linux.AppImage release/MESP-linux.deb release/latest-linux.yml
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Dependências do sistema (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libxss1 libasound2 libgbm1 libgtk-3-0 xvfb
+      - name: Instalar dependências
+        run: npm ci
+      - name: Testes, tipos e lint
+        shell: bash
+        run: |
+          npm test
+          npm run typecheck
+          npm run lint
+      - name: Build
+        run: npm run build
+      - name: Empacotar
+        shell: bash
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder ${{ matrix.builder }} --publish never
+      - name: Verificar o pacote (runtimes embutidos)
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            xvfb-run -a node scripts/smoke-package.cjs
+          else
+            node scripts/smoke-package.cjs
+          fi
+      - name: Conferir assinatura ad-hoc (macOS)
+        if: runner.os == 'macOS'
+        run: codesign --verify --deep --verbose=2 release/mac*/"MESP Top Dock.app"
+      - name: Enviar para a release
+        shell: bash
+        run: |
+          for file in ${{ matrix.assets }}; do
+            test -s "$file" || { echo "Arquivo ausente ou vazio: $file"; exit 1; }
+          done
+          gh release upload "$TAG" ${{ matrix.assets }} --repo "$GITHUB_REPOSITORY" --clobber
+
+  publish:
+    name: Publicar release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tirar do rascunho
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest

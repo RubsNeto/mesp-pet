@@ -37,7 +37,9 @@ export async function inspectDeveloperContext(root, files) {
         branch: await git(root, ['branch', '--show-current']),
         head: await git(root, ['rev-parse', 'HEAD']),
         status: await git(root, ['status', '--porcelain=v1', '--untracked-files=normal']),
-        parentRepository: relative(root, gitRoot) !== '',
+        // --show-prefix is empty at the top level; comparing paths breaks on symlinked or
+        // short-name temp folders (macOS /var vs /private/var, Windows RUNNER~1).
+        parentRepository: (await git(root, ['rev-parse', '--show-prefix'])) !== '',
       }
     : null;
   const packages = [];

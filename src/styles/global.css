@@ -4837,3 +4837,55 @@ img.pixelated {
     monospace;
   opacity: 0.8;
 }
+
+/* Approval scope and per-file revert. */
+.mesp-permission-actions {
+  flex-wrap: wrap;
+}
+.mesp-access-actions button.mesp-permission-project {
+  border-color: rgba(138, 216, 245, 0.32);
+  color: #cdeffb;
+  background: rgba(138, 216, 245, 0.1);
+}
+.mesp-permission-scope {
+  margin: 12px 0 0;
+  color: #8f97ad;
+  font-size: 9px;
+  line-height: 1.6;
+  text-align: center;
+}
+.mesp-permission-scope code {
+  margin: 0 3px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #cdeffb;
+}
+.mesp-diff-file-revert,
+.mesp-diff-file-state {
+  display: inline-flex;
+  margin: 0 8px 8px;
+  font-size: 9px;
+}
+.mesp-diff-file-revert {
+  padding: 5px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #c8cfe2;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+.mesp-diff-file-revert:hover:not(:disabled) {
+  border-color: rgba(245, 138, 168, 0.34);
+  background: rgba(245, 138, 168, 0.1);
+}
+.mesp-diff-file-revert:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.mesp-diff-file-state {
+  color: #8ee6b2;
+}
