@@ -305,27 +305,28 @@ export function DockSettings({
                       : 'Acompanhe o uso geral ou de uma conta.'}
               </p>
             </div>
-            <button
-              className="dock-settings-refresh"
-              hidden={tab === 'app'}
-              onClick={() => void refresh(true)}
-              disabled={refreshing}
-              aria-label="Atualizar conexões"
-              title="Atualizar contas e modelos"
-            >
-              <svg
-                className={refreshing ? 'spinning' : ''}
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.7"
-                aria-hidden="true"
+            {tab !== 'app' && (
+              <button
+                className="dock-settings-refresh"
+                onClick={() => void refresh(true)}
+                disabled={refreshing}
+                aria-label="Atualizar conexões"
+                title="Atualizar contas e modelos"
               >
-                <path d="M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 13 3M18 18a8 8 0 0 1-13-3" />
-              </svg>
-            </button>
+                <svg
+                  className={refreshing ? 'spinning' : ''}
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  aria-hidden="true"
+                >
+                  <path d="M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 13 3M18 18a8 8 0 0 1-13-3" />
+                </svg>
+              </button>
+            )}
           </div>
           <div
             className="dock-settings-tabs"

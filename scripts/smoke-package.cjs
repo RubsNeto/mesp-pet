@@ -23,6 +23,25 @@ if (!binary || !fs.existsSync(binary)) {
   console.error(`Build não encontrado: ${binary}`);
   process.exit(1);
 }
+// The NSIS installer cannot write paths over 260 characters. Leave room for a long
+// install folder such as C:\Users\<long name>\AppData\Local\Programs\MESP Top Dock\.
+if (process.platform === 'win32') {
+  const root = path.dirname(binary);
+  const longest = { length: 0, file: '' };
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (path.relative(root, full).length > longest.length)
+        Object.assign(longest, { length: path.relative(root, full).length, file: full });
+    }
+  };
+  walk(root);
+  if (longest.length > 180) {
+    console.error(`Caminho longo demais para o instalador (${longest.length}): ${longest.file}`);
+    process.exit(1);
+  }
+}
 const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mesp-smoke-')), 'report.json');
 const args = ['--mesp-smoke', ...(process.platform === 'linux' ? ['--no-sandbox'] : [])];
 const result = spawnSync(binary, args, {

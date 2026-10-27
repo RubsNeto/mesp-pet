@@ -4546,3 +4546,63 @@ body,
     animation: none;
   }
 }
+
+/* First run without accounts. */
+.dock-welcome-connect {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: min(100%, 560px);
+  margin: 4px auto 14px;
+  padding: 12px 12px 12px 16px;
+  border: 1px solid rgba(138, 216, 245, 0.28);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(138, 216, 245, 0.12), rgba(138, 216, 245, 0.04));
+  text-align: left;
+  animation: dock-pop-in 280ms var(--ease-spring) both;
+}
+.dock-welcome-connect > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.dock-welcome-connect strong {
+  color: #e8f7fd;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.dock-welcome-connect small {
+  color: var(--text-muted);
+  font-size: 10.5px;
+}
+.top-dock .dock-welcome-connect button {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 14px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 11px;
+  font-weight: 600;
+  transition:
+    background-color 150ms var(--ease-out),
+    transform 150ms var(--ease-out);
+}
+.top-dock .dock-welcome-connect button:hover {
+  background: var(--accent-strong);
+}
+.top-dock .dock-welcome-connect button:active {
+  transform: scale(0.97);
+}
+@media (max-width: 600px) {
+  .dock-welcome-connect {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dock-welcome-connect {
+    animation: none;
+  }
+}

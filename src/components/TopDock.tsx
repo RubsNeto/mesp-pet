@@ -309,6 +309,23 @@ export function TopDock() {
     void api.getAppUpdate().then(apply);
     return api.onAppUpdate(apply);
   }, []);
+  // First run: with no account connected, the welcome leads with how to connect one.
+  const [needsAccount, setNeedsAccount] = useState(false);
+  const welcomeVisible = !selected.workDir && view !== 'settings';
+  useEffect(() => {
+    if (!welcomeVisible || !window.mesp?.get9RouterConnections) return;
+    let current = true;
+    void window.mesp
+      .get9RouterConnections()
+      .then((summary) => {
+        if (current && Array.isArray(summary))
+          setNeedsAccount(summary.every((connection) => connection.accounts === 0));
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [welcomeVisible]);
   const resumable = projects.find((p) => p.id !== selectedId && p.workDir);
   const unreadResults = projects
     .filter(unreadDockResult)
@@ -1784,6 +1801,27 @@ export function TopDock() {
                         Converse, tire dúvidas ou peça uma tarefa. Se precisar de um projeto, eu
                         aviso antes.
                       </p>
+                      {needsAccount && (
+                        <div className="dock-welcome-connect" role="note">
+                          <div>
+                            <strong>Conecte uma conta para começar</strong>
+                            <small>
+                              Use Claude, ChatGPT, Gemini, Copilot ou uma chave de API. Leva um
+                              minuto.
+                            </small>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setShowHelp(false);
+                              setShowProjects(false);
+                              setRouterRequest({ page: 'connections', nonce: Date.now() });
+                              setView('settings');
+                            }}
+                          >
+                            Conectar conta
+                          </button>
+                        </div>
+                      )}
                       <div className="dock-welcome-examples" aria-label="Exemplos de pedido">
                         {WELCOME_EXAMPLES.map((example, index) => (
                           <button

@@ -117,6 +117,7 @@
         "to": "runtime/9router",
         "filter": [
           "app/**/*",
+          "!app/.next-cli-build/server/route-cache/**",
           "LICENSE",
           "package.json"
         ]
