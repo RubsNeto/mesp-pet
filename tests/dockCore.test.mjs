@@ -8,6 +8,7 @@ import {
   visibleHitRegions,
   parseDockRequest,
   dockGreetingReply,
+  visibleReplyText,
   dockModelHistory,
   findDockProject,
   taskTitle,
@@ -49,6 +50,12 @@ test('/model opens the router model selector instead of sending a task', () => {
   for (const command of ['/model', '/models', '/modelo', '/modelos'])
     assert.deepEqual(parseDockRequest(command), { kind: 'settings', page: 'overview' });
   assert.equal(parseDockRequest('/model explicar').kind, 'send');
+  // Chat-level commands are recognised by the island too, so they never become a message.
+  assert.deepEqual(parseDockRequest('/fast'), { kind: 'mode', mode: 'fast' });
+  assert.deepEqual(parseDockRequest('/assisted'), { kind: 'mode', mode: 'assisted' });
+  assert.deepEqual(parseDockRequest('/checks'), { kind: 'checks' });
+  assert.deepEqual(parseDockRequest('/clear'), { kind: 'clear' });
+  assert.equal(parseDockRequest('/fast explicar').kind, 'send');
 });
 
 test('slash commands map to local actions without sending them to a provider', () => {
@@ -471,4 +478,14 @@ test('rendered CLI snapshots become real replies without echoed prompts or ANSI 
     'Resposta real',
   );
   assert.equal(terminalReply('Same', 'Same', 'Task'), '');
+});
+
+test('visibleReplyText hides leaked reasoning blocks, open or closed', () => {
+  assert.equal(
+    visibleReplyText('Vou verificar:<thinking>\nconfere\n</thinking>\nArquivo criado.'),
+    'Vou verificar:Arquivo criado.',
+  );
+  assert.equal(visibleReplyText('<thinking>ainda pensando'), '');
+  assert.equal(visibleReplyText('Sem bloco <b>nenhum</b>'), 'Sem bloco <b>nenhum</b>');
+  assert.equal(visibleReplyText(''), '');
 });

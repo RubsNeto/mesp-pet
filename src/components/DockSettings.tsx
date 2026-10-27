@@ -170,7 +170,8 @@ export function DockSettings({
       );
       setError('');
     } catch {
-      if (mounted.current) setError('Não foi possível atualizar as contas. Tente novamente.');
+      if (mounted.current)
+        setError('Não foi possível atualizar as contas. O 9Router pode estar iniciando.');
     } finally {
       refreshingRef.current = false;
       if (mounted.current) setRefreshing(false);
@@ -348,7 +349,13 @@ export function DockSettings({
           </div>
           {error && (
             <div className="dock-settings-error" role="alert">
-              {error}
+              <span>{error}</span>
+              <button type="button" onClick={() => void refresh(true)} disabled={refreshing}>
+                {refreshing ? 'Atualizando…' : 'Tentar novamente'}
+              </button>
+              <button type="button" aria-label="Fechar aviso" onClick={() => setError('')}>
+                ×
+              </button>
             </div>
           )}
           <div
@@ -564,7 +571,14 @@ export function DockSettings({
                     </select>
                   </label>
                 </div>
-                <Consumption value={consumption} />
+                {overview && !accounts.length ? (
+                  <div className="dock-settings-empty">
+                    <strong>Sem consumo ainda</strong>
+                    <p>Conecte uma conta na aba Contas. O uso aparece aqui por conta e período.</p>
+                  </div>
+                ) : (
+                  <Consumption value={consumption} />
+                )}
                 <p className="dock-usage-note">
                   Consumo registrado pelo 9Router. Custos são estimativas.
                 </p>

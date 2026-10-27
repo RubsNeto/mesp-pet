@@ -176,7 +176,7 @@ export function DockCommands({ menu }: { menu: ReturnType<typeof useDockCommands
     <div className="dock-command-popover">
       <div className="dock-command-heading">
         <span>Comandos</span>
-        <small>↑ ↓ selecionar · Enter inserir</small>
+        <small>↑ ↓ navegar · Enter escolher · Esc fechar</small>
       </div>
       <div
         className="dock-command-list"

@@ -220,10 +220,10 @@ const CHAT_COMMANDS: Record<string, MespCodeMode | 'clear' | 'checks'> = {
   '/checks': 'checks',
 };
 const MODE_LABELS: Record<MespCodeMode, string> = {
-  fast: 'rapida',
+  fast: 'rápida',
   plan: 'plano',
   assisted: 'assistida',
-  autonomous: 'autonoma',
+  autonomous: 'autônoma',
 };
 const DEFAULT_LIMITS: MespCodeLimits = {
   maxDurationMs: 0,
@@ -324,7 +324,7 @@ function recentHistory(messages: ChatMessage[]) {
 
 function modelParts(model: string | null | undefined): { provider: string; name: string } {
   if (model === '9router/mesp-auto') return { provider: 'MESP', name: 'Auto' };
-  const clean = (model || '9router/modelo automatico').replace(/^9router\//, '');
+  const clean = (model || '9router/modelo automático').replace(/^9router\//, '');
   const [prefix, ...rest] = clean.split('/');
   return {
     provider: PROVIDER_NAMES[prefix] || (rest.length ? prefix.toUpperCase() : '9Router'),
@@ -693,7 +693,7 @@ export function MespCodeChat({
       void window.mesp?.cancelMespCode?.(petId, requestId).catch(() => undefined);
     }
     if (hadQueuedTasks || requestId || verification) {
-      setAnnouncement('Pasta alterada. A execucao anterior foi interrompida e a fila foi limpa.');
+      setAnnouncement('Pasta alterada. A execução anterior foi interrompida e a fila foi limpa.');
     }
   }, [petId, workDir]);
 
@@ -743,7 +743,7 @@ export function MespCodeChat({
                     {
                       id: 'run-start',
                       kind: 'run',
-                      label: 'Execucao iniciada',
+                      label: 'Execução iniciada',
                       status: 'running',
                       at: Date.now(),
                     },
@@ -810,7 +810,7 @@ export function MespCodeChat({
                 ? withTimeline(message, {
                     id: `permission-${permissionId}`,
                     kind: 'permission',
-                    label: `Aguardando aprovacao: ${permissionLabel}`,
+                    label: `Aguardando aprovação: ${permissionLabel}`,
                     status: 'pending',
                     at: Date.now(),
                   })
@@ -973,7 +973,7 @@ export function MespCodeChat({
                     kind: 'run',
                     label: usage
                       ? `${usage.total.toLocaleString()} tokens processados`
-                      : 'Etapa concluida',
+                      : 'Etapa concluída',
                     status: 'success',
                     at: Date.now(),
                   })
@@ -1012,7 +1012,7 @@ export function MespCodeChat({
                       {
                         id: 'run-exit',
                         kind: 'run',
-                        label: 'Execucao interrompida',
+                        label: 'Execução interrompida',
                         status: 'cancelled',
                         at: Date.now(),
                       },
@@ -1047,7 +1047,7 @@ export function MespCodeChat({
               .catch(() => undefined);
           }
           finishWithError(
-            data.error || `OpenCode encerrou com codigo ${data.code}`,
+            data.error || `OpenCode encerrou com código ${data.code}`,
             data.requestId,
           );
           return;
@@ -1072,7 +1072,7 @@ export function MespCodeChat({
                     {
                       id: 'run-exit',
                       kind: 'run',
-                      label: 'Execucao concluida',
+                      label: 'Execução concluída',
                       status: 'success',
                       at: Date.now(),
                     },
@@ -1097,9 +1097,9 @@ export function MespCodeChat({
           selectedChecksRef.current.some((check) => availableChecksRef.current.includes(check))
         ) {
           setPendingAutoVerify(assistantId);
-          setAnnouncement('Tarefa concluida. Iniciando verificacoes.');
+          setAnnouncement('Tarefa concluída. Iniciando verificações.');
         } else {
-          setAnnouncement('Tarefa concluida.');
+          setAnnouncement('Tarefa concluída.');
         }
         stateChangeRef.current?.('success');
         window.setTimeout(() => {
@@ -1149,12 +1149,12 @@ export function MespCodeChat({
       const result = await window.mesp.open9RouterDashboard();
       if (!mountedRef.current) return;
       if (!result.ok) {
-        setSetupError(result.error || 'Nao foi possivel abrir a configuracao.');
+        setSetupError(result.error || 'Não foi possível abrir a configuração.');
         return;
       }
-      setAnnouncement('Configuracao do 9Router aberta.');
+      setAnnouncement('Configuração do 9Router aberta.');
     } catch {
-      if (mountedRef.current) setSetupError('Nao foi possivel abrir a configuracao.');
+      if (mountedRef.current) setSetupError('Não foi possível abrir a configuração.');
     } finally {
       if (mountedRef.current) setSetupOpening(false);
     }
@@ -1201,7 +1201,7 @@ export function MespCodeChat({
         });
         if (!mountedRef.current) return;
         if (!result.ok) {
-          setAnnouncement(result.error || 'Nao foi possivel responder a aprovacao.');
+          setAnnouncement(result.error || 'Não foi possível responder a aprovação.');
           return;
         }
         const assistantId = activeAssistantRef.current;
@@ -1268,7 +1268,7 @@ export function MespCodeChat({
             loading: false,
             files: result.files || [],
             truncated: result.truncated,
-            error: result.ok ? undefined : result.error || 'Nao foi possivel carregar o diff.',
+            error: result.ok ? undefined : result.error || 'Não foi possível carregar o diff.',
           },
         }));
       } catch (error) {
@@ -1306,7 +1306,7 @@ export function MespCodeChat({
       });
       if (!mountedRef.current) return;
       if (!result.ok) {
-        setAnnouncement(result.error || 'Nao foi possivel reverter as mudancas.');
+        setAnnouncement(result.error || 'Não foi possível reverter as mudanças.');
         return;
       }
       setMessages((previous) =>
@@ -1320,7 +1320,7 @@ export function MespCodeChat({
         return next;
       });
       setRevertMessage(null);
-      setAnnouncement('Mudancas desta etapa revertidas.');
+      setAnnouncement('Mudanças desta etapa revertidas.');
     } catch (error) {
       if (mountedRef.current) setAnnouncement((error as Error).message);
     } finally {
@@ -1356,7 +1356,7 @@ export function MespCodeChat({
               {
                 id: `verify-${data.check}-start`,
                 kind: 'verification',
-                label: `${PROJECT_CHECK_LABELS[data.check]} em execucao`,
+                label: `${PROJECT_CHECK_LABELS[data.check]} em execução`,
                 status: 'running',
                 at: Date.now(),
               },
@@ -1425,10 +1425,10 @@ export function MespCodeChat({
                 id: 'verify-exit',
                 kind: 'verification',
                 label: data.cancelled
-                  ? 'Verificacao interrompida'
+                  ? 'Verificação interrompida'
                   : data.passed
-                    ? 'Todas as verificacoes passaram'
-                    : 'Verificacao falhou',
+                    ? 'Todas as verificações passaram'
+                    : 'Verificação falhou',
                 status: data.cancelled ? 'cancelled' : data.passed ? 'success' : 'error',
                 at: Date.now(),
               },
@@ -1452,12 +1452,12 @@ export function MespCodeChat({
         if (pauseQueue) setQueuePaused(true);
         setAnnouncement(
           data.cancelled
-            ? 'Verificacao interrompida.'
+            ? 'Verificação interrompida.'
             : data.passed
-              ? 'Todas as verificacoes passaram.'
+              ? 'Todas as verificações passaram.'
               : wasAuto && queueRef.current.length > 0
-                ? 'Uma verificacao falhou. A fila foi pausada.'
-                : 'Uma verificacao falhou.',
+                ? 'Uma verificação falhou. A fila foi pausada.'
+                : 'Uma verificação falhou.',
         );
         stateChangeRef.current?.(data.passed ? 'success' : data.cancelled ? 'idle' : 'error');
       }
@@ -1485,7 +1485,7 @@ export function MespCodeChat({
       );
       if (checks.length === 0) {
         setPendingAutoVerify(null);
-        setAnnouncement('Este projeto nao possui verificacoes selecionadas.');
+        setAnnouncement('Este projeto não possui verificações selecionadas.');
         return;
       }
       const verificationId = id('verify');
@@ -1508,7 +1508,7 @@ export function MespCodeChat({
                 {
                   id: 'verify-start',
                   kind: 'verification',
-                  label: 'Verificacao iniciada',
+                  label: 'Verificação iniciada',
                   status: 'running',
                   at: Date.now(),
                 },
@@ -1556,7 +1556,7 @@ export function MespCodeChat({
         });
         if (!mountedRef.current) return;
         if (!result.ok) {
-          failToStart(result.error || 'Nao foi possivel iniciar a verificacao.');
+          failToStart(result.error || 'Não foi possível iniciar a verificação.');
         }
       } catch (error) {
         if (mountedRef.current) failToStart((error as Error).message);
@@ -1698,7 +1698,7 @@ export function MespCodeChat({
           limits: task.limits,
         });
         if (!result.ok) {
-          finishWithError(result.error || 'Nao foi possivel iniciar o OpenCode.', requestId);
+          finishWithError(result.error || 'Não foi possível iniciar o OpenCode.', requestId);
         }
       } catch (error) {
         finishWithError((error as Error).message, requestId);
@@ -1720,6 +1720,28 @@ export function MespCodeChat({
     setDiffReviews({});
     stateChangeRef.current?.('idle');
   }, [occupied, setInput]);
+
+  // Keyboard replies for the approval dialog: N denies, Y or S allows once, A allows for the session.
+  useEffect(() => {
+    if (!permission) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.altKey || event.ctrlKey || event.metaKey || permissionReplying) return;
+      const key = event.key.toLowerCase();
+      const reply =
+        key === 'n'
+          ? 'reject'
+          : key === 'y' || key === 's'
+            ? 'once'
+            : key === 'a'
+              ? 'always'
+              : null;
+      if (!reply) return;
+      event.preventDefault();
+      void replyPermission(reply);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [permission, permissionReplying, replyPermission]);
 
   const send = useCallback(
     (promptOverride?: string, requestedMode?: MespCodeMode, intent?: TaskIntent) => {
@@ -1752,7 +1774,7 @@ export function MespCodeChat({
         return;
       }
       if (!effectiveModel) {
-        finishWithError('Nenhum modelo do 9Router esta disponivel.');
+        finishWithError('Nenhum modelo do 9Router está disponível.');
         return;
       }
       const task: QueuedPrompt = {
@@ -1768,7 +1790,7 @@ export function MespCodeChat({
       if (occupied || submittingRef.current || queuePaused || queueRef.current.length > 0) {
         const queued = enqueueUniqueTask(queueRef.current, task, 10);
         if (!queued.added) {
-          setAnnouncement('A fila ja possui o limite de 10 tarefas.');
+          setAnnouncement('A fila já possui o limite de 10 tarefas.');
           return;
         }
         const nextQueue = [...queued.queue] as QueuedPrompt[];
@@ -1827,8 +1849,8 @@ export function MespCodeChat({
       setPendingAutoVerify(null);
       setAnnouncement(
         queueRef.current.length > 0
-          ? 'Verificacao automatica cancelada. A fila foi pausada.'
-          : 'Verificacao automatica cancelada.',
+          ? 'Verificação automática cancelada. A fila foi pausada.'
+          : 'Verificação automática cancelada.',
       );
       return;
     }
@@ -1855,13 +1877,13 @@ export function MespCodeChat({
       );
     }
     if (!window.mesp?.cancelMespCode) {
-      finishWithError('Nao foi possivel interromper fora do aplicativo desktop.', requestId);
+      finishWithError('Não foi possível interromper fora do aplicativo desktop.', requestId);
       return;
     }
     try {
       const accepted = await window.mesp.cancelMespCode(petId, requestId);
       if (!accepted && activeRequestRef.current === requestId) {
-        finishWithError('O processo ja nao estava mais disponivel para interrupcao.', requestId);
+        finishWithError('O processo já não estava mais disponível para interrupção.', requestId);
       }
     } catch (error) {
       finishWithError((error as Error).message, requestId);
@@ -1900,10 +1922,10 @@ export function MespCodeChat({
           <div>
             <strong>
               {status.routerState === 'unauthorized'
-                ? 'Autenticacao recusada'
+                ? 'Autenticação recusada'
                 : status.routerState === 'misconfigured'
-                  ? 'Configuracao necessaria'
-                  : '9Router indisponivel'}
+                  ? 'Configuração necessária'
+                  : '9Router indisponível'}
             </strong>
             <span>{status.routerMessage}</span>
             {setupError && <span className="mesp-router-setup-error">{setupError}</span>}
@@ -2029,23 +2051,23 @@ export function MespCodeChat({
               <article className={`mesp-message role-${message.role}`} key={message.id}>
                 <header>
                   <span className="mesp-message-role">
-                    {message.role === 'user' ? 'VOCE' : 'MESP'}
+                    {message.role === 'user' ? 'VOCÊ' : 'MESP'}
                   </span>
                   {message.role === 'assistant' && message.mode && (
                     <span className={`mesp-message-mode mode-${message.mode}`}>
                       {message.mode === 'fast'
-                        ? 'rapido'
+                        ? 'rápido'
                         : message.mode === 'plan'
                           ? 'plano'
                           : message.mode === 'assisted'
                             ? 'assistido'
-                            : 'autonomo'}
+                            : 'autônomo'}
                     </span>
                   )}
                   {message.role === 'assistant' && message.status === 'streaming' && (
                     <span className="mesp-message-live">
                       {permission && message.id === activeAssistantRef.current
-                        ? 'aguardando aprovacao'
+                        ? 'aguardando aprovação'
                         : message.developerPhase || 'respondendo'}
                     </span>
                   )}
@@ -2227,9 +2249,9 @@ export function MespCodeChat({
                   message.messageId && (
                     <div className="mesp-review-actions">
                       <button type="button" onClick={() => void reviewChanges(message)}>
-                        {diffReviews[message.id]?.open ? 'Ocultar mudancas' : 'Revisar mudancas'}
+                        {diffReviews[message.id]?.open ? 'Ocultar mudanças' : 'Revisar mudanças'}
                       </button>
-                      {message.reverted && <span>Mudancas revertidas</span>}
+                      {message.reverted && <span>Mudanças revertidas</span>}
                     </div>
                   )}
                 {message.role === 'assistant' &&
@@ -2249,7 +2271,7 @@ export function MespCodeChat({
                   )}
                 {diffReviews[message.id]?.open && (
                   <section className="mesp-diff-review" aria-label="Mudancas da sessao">
-                    {diffReviews[message.id].loading && <p>Carregando mudancas...</p>}
+                    {diffReviews[message.id].loading && <p>Carregando mudanças...</p>}
                     {diffReviews[message.id].error && (
                       <p className="mesp-message-error">{diffReviews[message.id].error}</p>
                     )}
@@ -2264,7 +2286,7 @@ export function MespCodeChat({
                             <b>+{file.additions}</b> <i>-{file.deletions}</i>
                           </small>
                         </summary>
-                        {file.patch ? <pre>{file.patch}</pre> : <p>Diff textual indisponivel.</p>}
+                        {file.patch ? <pre>{file.patch}</pre> : <p>Diff textual indisponível.</p>}
                       </details>
                     ))}
                     {diffReviews[message.id].truncated && (
@@ -2379,7 +2401,7 @@ export function MespCodeChat({
                       <small>O modo Autônomo já verifica e corrige a entrega.</small>
                     </span>
                   </label>
-                  <p>Os scripts selecionados executam codigo deste projeto.</p>
+                  <p>Os scripts selecionados executam código deste projeto.</p>
                 </>
               ) : (
                 <p>Nenhum script conhecido foi encontrado no package.json.</p>
@@ -2500,13 +2522,13 @@ export function MespCodeChat({
             <span className="mesp-access-icon supervised" aria-hidden="true">
               ?
             </span>
-            <p className="mesp-chat-eyebrow">Aprovacao necessaria</p>
+            <p className="mesp-chat-eyebrow">Aprovação necessária</p>
             <h2 id="mesp-permission-title">
               Permitir {toolDisplayName(permission.tool || permission.action)}?
             </h2>
             <p id="mesp-permission-description">
-              O MESP pausou antes de executar esta acao. Revise os recursos envolvidos e escolha o
-              alcance da permissao.
+              O MESP pausou antes de executar esta ação. Revise os recursos envolvidos e escolha o
+              alcance da permissão.
             </p>
             {permission.resources.length > 0 && (
               <div className="mesp-permission-resources">
@@ -2522,14 +2544,14 @@ export function MespCodeChat({
                 disabled={permissionReplying}
                 autoFocus
               >
-                Negar
+                Negar <kbd aria-hidden="true">N</kbd>
               </button>
               <button
                 type="button"
                 onClick={() => void replyPermission('once')}
                 disabled={permissionReplying}
               >
-                Permitir uma vez
+                Permitir uma vez <kbd aria-hidden="true">Y</kbd>
               </button>
               <button
                 type="button"
@@ -2537,7 +2559,7 @@ export function MespCodeChat({
                 onClick={() => void replyPermission('always')}
                 disabled={permissionReplying}
               >
-                Permitir na sessao
+                Permitir na sessão <kbd aria-hidden="true">A</kbd>
               </button>
             </div>
           </div>
@@ -2557,10 +2579,10 @@ export function MespCodeChat({
               !
             </span>
             <p className="mesp-chat-eyebrow">Reversao de arquivos</p>
-            <h2 id="mesp-revert-title">Reverter as mudancas desta etapa?</h2>
+            <h2 id="mesp-revert-title">Reverter as mudanças desta etapa?</h2>
             <p id="mesp-revert-description">
               O OpenCode restaurara os arquivos modificados a partir desta resposta. Alteracoes
-              posteriores na mesma sessao tambem podem ser afetadas.
+              posteriores na mesma sessão também podem ser afetadas.
             </p>
             <div className="mesp-access-actions">
               <button

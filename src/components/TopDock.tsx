@@ -6,6 +6,7 @@ import { DockProjects, DockProjectSwitcher, type ProjectFilter } from './DockPro
 import { DockConversation, type DockMessage } from './DockConversation';
 import { DockSettings } from './DockSettings';
 import { DockCommands, useDockCommands } from './DockCommands';
+import { dockModelLabel } from './DockModelPicker';
 import { Tracked } from '../coucou/anim';
 import { IslandStateMachine, type FsmState } from '../coucou/fsm';
 import type { BotEmoteName } from '../coucou/layout';
@@ -178,6 +179,29 @@ function Icon({
   );
 }
 
+const WORKING_NOTICE = 'Este MESP está trabalhando';
+const MODE_NAMES = {
+  fast: 'Rápido',
+  plan: 'Plano',
+  assisted: 'Assistido',
+  autonomous: 'Autônomo',
+} as const;
+/** Three starting points for an empty island: a question, a new project and the computer. */
+const WELCOME_EXAMPLES = [
+  {
+    title: 'Tirar uma dúvida',
+    prompt: 'Qual a diferença entre debounce e throttle? Dê um exemplo curto.',
+  },
+  {
+    title: 'Criar algo novo',
+    prompt: 'Crie um site de portfólio com página inicial e formulário de contato.',
+  },
+  {
+    title: 'Mexer no computador',
+    prompt: 'Verifique meu PC e liste os programas que iniciam com o Windows.',
+  },
+];
+
 export function TopDock() {
   const [projects, setProjects] = useState<PetEntity[]>(restoreProjects);
   const [initialSelection] = useState(() => restoreSelection(projects));
@@ -276,6 +300,7 @@ export function TopDock() {
   const minisColumns = Math.min(projects.length - 1, 5);
   const selectedTitle = selected.taskTitle || selected.projectName || 'O que vamos criar?';
   const activeCount = projects.filter((p) => !agentCanChange(p.state)).length;
+  const resumable = projects.find((p) => p.id !== selectedId && p.workDir);
   const unreadResults = projects
     .filter(unreadDockResult)
     .sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
@@ -449,6 +474,11 @@ export function TopDock() {
     }
   }, []);
   const commands = useDockCommands(input, (value) => changeDraft(selectedRef.current, value));
+  // The "working" notice must not outlive the work: clear it as soon as the MESP is free again.
+  useEffect(() => {
+    if (selected.hasActiveTask) return;
+    setNotice((current) => (current.startsWith(WORKING_NOTICE) ? '' : current));
+  }, [selected.hasActiveTask, selected.id]);
 
   // The opening spring and 340 ms closing curve are the actual Coucou motion helpers.
   const dimensions = useRef({
@@ -464,10 +494,7 @@ export function TopDock() {
         h = window.innerHeight;
       const desiredWidth =
         mode === 'home'
-          ? Math.min(
-              view === 'terminal' && selected.workDir ? 1040 : view === 'chat' ? 760 : 680,
-              w - 24,
-            )
+          ? Math.min(view === 'terminal' && selected.workDir ? 1040 : 760, w - 24)
           : mode === 'coucou'
             ? Math.min(640, w - 24)
             : mode === 'hidden'
@@ -805,6 +832,10 @@ export function TopDock() {
                 ...(promote ? { hasActiveTask: false, completedAt: Date.now() } : {}),
                 ...(next === 'error' ? { hasActiveTask: false } : {}),
                 ...(next === 'error' ? { taskError: true } : {}),
+                // A new turn or a success supersedes an older failure in the header and the rail.
+                ...(['thinking', 'working', 'waiting', 'success'].includes(next)
+                  ? { taskError: false }
+                  : {}),
                 ...(old.agentPresetId === 'mesp-code' && next === 'idle'
                   ? { hasActiveTask: false }
                   : {}),
@@ -1149,6 +1180,7 @@ export function TopDock() {
       );
     } finally {
       generalRuns.current.delete(id);
+      setNotice((current) => (current.startsWith(WORKING_NOTICE) ? '' : current));
     }
   };
   const request = async (text: string, preserveDraft = false) => {
@@ -1186,6 +1218,22 @@ export function TopDock() {
       }
       if (action.kind === 'collapse') {
         collapse();
+        return;
+      }
+      if (action.kind === 'mode') {
+        setNotice(
+          selected.workDir
+            ? `O modo ${MODE_NAMES[action.mode]} vale para o agente MESP Code. Este MESP usa outro agente.`
+            : `O modo ${MODE_NAMES[action.mode]} entra em ação com um projeto aberto. Sem projeto, a conversa é livre.`,
+        );
+        return;
+      }
+      if (action.kind === 'checks') {
+        setNotice('As verificações valem com um projeto aberto. Abra um projeto para escolhê-las.');
+        return;
+      }
+      if (action.kind === 'clear') {
+        setMessages((prev) => ({ ...prev, [selected.id]: [] }));
         return;
       }
       if (action.kind === 'customize') {
@@ -1721,19 +1769,43 @@ export function TopDock() {
                   !showHelp &&
                   !showProjects && (
                     <div className="dock-welcome">
+                      <p className="dock-welcome-eyebrow">MESP está ouvindo</p>
                       <h2>Pode me pedir.</h2>
                       <p>
-                        Converse, tire dúvidas ou peça uma tarefa.
-                        <br />
-                        Se precisar de um projeto, eu aviso antes.
+                        Converse, tire dúvidas ou peça uma tarefa. Se precisar de um projeto, eu
+                        aviso antes.
                       </p>
+                      <div className="dock-welcome-examples" aria-label="Exemplos de pedido">
+                        {WELCOME_EXAMPLES.map((example, index) => (
+                          <button
+                            key={example.title}
+                            style={{ '--i': index } as React.CSSProperties}
+                            title="Preenche o campo para você ajustar antes de enviar"
+                            onClick={() => {
+                              changeDraft(selected.id, example.prompt);
+                              setFocusRequest((value) => value + 1);
+                            }}
+                          >
+                            <strong>{example.title}</strong>
+                            <small>{example.prompt}</small>
+                          </button>
+                        ))}
+                      </div>
                       <div className="dock-suggestions">
-                        {['Abrir projeto', '/model', 'Meus projetos', 'O que posso pedir?'].map(
+                        {['Abrir projeto', 'Modelos', 'Meus projetos', 'O que posso pedir?'].map(
                           (text) => (
                             <button key={text} onClick={() => void request(text, true)}>
                               {text}
                             </button>
                           ),
+                        )}
+                        {resumable && (
+                          <button
+                            className="dock-suggestion-resume"
+                            onClick={() => selectProject(resumable.id)}
+                          >
+                            Continuar em {resumable.projectName || resumable.taskTitle}
+                          </button>
                         )}
                       </div>
                     </div>
@@ -2083,6 +2155,11 @@ export function TopDock() {
                 <button
                   role="tab"
                   aria-selected={view === 'terminal'}
+                  title={
+                    selected.workDir
+                      ? 'Terminal do projeto'
+                      : 'Abra um projeto para usar o terminal'
+                  }
                   onClick={() => {
                     setShowHelp(false);
                     setView('terminal');
@@ -2106,9 +2183,23 @@ export function TopDock() {
                   Configurações
                 </button>
               </div>
-              <span>
-                {projects.length} MESP · {activeCount} em atividade
-              </span>
+              <button
+                className="dock-footer-model"
+                title="Modelo deste MESP. Clique para trocar."
+                onClick={() => {
+                  setShowHelp(false);
+                  setShowProjects(false);
+                  setRouterRequest({ page: 'overview', nonce: Date.now() });
+                  setView('settings');
+                }}
+              >
+                <Icon name="spark" />
+                <span>
+                  {!selected.routerModel || selected.routerModel === AUTO_ROUTER_MODEL
+                    ? 'Auto'
+                    : dockModelLabel(selected.routerModel)}
+                </span>
+              </button>
               {!!unreadResults.length && (
                 <button
                   className="dock-unread-results"
@@ -2126,6 +2217,7 @@ export function TopDock() {
               <button
                 className="dock-more-projects"
                 aria-label="Ver todos os MESP"
+                title={`${projects.length} MESP · ${activeCount} em atividade`}
                 onClick={() => {
                   setShowHelp(false);
                   setView('chat');
@@ -2133,7 +2225,8 @@ export function TopDock() {
                   setShowProjects(true);
                 }}
               >
-                Meus MESP
+                <Icon name="folder" />
+                <span>Meus MESP</span>
               </button>
               <button
                 title="Sair e encerrar sessões"

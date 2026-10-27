@@ -19,6 +19,11 @@ Esta é a versão atual do repositório. O guia de uso está em
 - Modelos por MESP, consumo geral e por conta, cotas e resets quando informados.
 - Modelo **Auto** que prioriza contas elegíveis com reset mais próximo.
 - Expansão com mola, carinho, compressão ao clicar e movimento reduzido.
+- Ilha com largura estável entre Chat e Configurações; rodapé mostra o modelo em uso em vez de contadores.
+- Tela inicial com três pontos de partida (dúvida, projeto novo, computador) que preenchem o campo sem enviar.
+- Comandos de modo (`/fast`, `/plan`, `/assisted`, `/autonomous`) nunca viram mensagem: sem projeto, viram um aviso.
+- Erros com ação no lugar: banner de contas com **Tentar novamente**, resposta com falha destacada e botões logo abaixo.
+- Diálogo de aprovação responde às teclas **N**, **Y** (ou S) e **A**.
 - Regras [Ponytail](https://github.com/DietrichGebert/ponytail) em toda conversa quando o checkout está em `%APPDATA%\ponytail\checkout`.
 - Proteção ao sair com agentes ou verificações ativos.
 - Execução sem corte local por tempo, tokens ou chamadas de ferramentas.

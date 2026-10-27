@@ -37,7 +37,8 @@ export function DockDelivery({
                 ? 'Entrega precisa de atenção'
                 : 'Entrega interrompida'}
             <small>
-              {report.files.length} mudanças em arquivos · {passed} verificações passaram
+              {report.files.length} {report.files.length === 1 ? 'mudança' : 'mudanças'} em arquivos
+              · {passed} {passed === 1 ? 'verificação passou' : 'verificações passaram'}
               {skipped ? ` · ${skipped} não executadas` : ''}
             </small>
           </span>

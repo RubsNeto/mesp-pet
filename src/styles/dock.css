@@ -3925,3 +3925,333 @@ body,
     transform: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Review pass: stable width, quieter settings chrome, actionable errors,
+   a welcome state that teaches, and a footer that shows user decisions.
+--------------------------------------------------------------------------- */
+
+/* Settings tabs: text tabs with a sliding accent underline instead of a heavy segmented control. */
+.top-dock .dock-settings-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0;
+  margin-bottom: 14px;
+  border-radius: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+}
+.top-dock .dock-settings-tabs button {
+  position: relative;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px 8px 0 0;
+  color: var(--text-muted);
+  font-weight: 500;
+  transition:
+    color 160ms var(--ease-out),
+    background-color 160ms var(--ease-out);
+}
+.top-dock .dock-settings-tabs button::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transition: transform 240ms var(--ease-out);
+}
+.top-dock .dock-settings-tabs button:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+.top-dock .dock-settings-tabs button[aria-selected='true'] {
+  background: transparent;
+  color: #fff;
+}
+.top-dock .dock-settings-tabs button[aria-selected='true']::after {
+  transform: scaleX(1);
+}
+
+/* Error banner: cause, action and a way to dismiss. */
+.top-dock .dock-settings-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 7px 7px 12px;
+  border: 1px solid rgba(255, 176, 128, 0.22);
+  border-radius: 10px;
+  background: rgba(255, 176, 128, 0.07);
+  color: #f1dccd;
+  animation: dock-fade-up 240ms var(--ease-out) both;
+}
+.top-dock .dock-settings-error span {
+  flex: 1;
+  min-width: 0;
+}
+.top-dock .dock-settings-error button {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.top-dock .dock-settings-error button:last-child {
+  width: 26px;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--text-muted);
+}
+.top-dock .dock-settings-error button:last-child:hover {
+  color: #fff;
+}
+
+/* Selects follow the custom inputs: no native chrome, our chevron, our surfaces. */
+.top-dock .dock-usage-filters select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 8px 28px 8px 10px;
+  border-color: var(--line-strong);
+  border-radius: 9px;
+  background-color: var(--surface-2);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239398a1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 12px;
+  transition:
+    border-color 160ms var(--ease-out),
+    background-color 160ms var(--ease-out);
+}
+.top-dock .dock-usage-filters select:hover {
+  background-color: var(--surface-3);
+}
+.top-dock .dock-usage-filters select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+/* Command palette: the conversation steps back while the menu is open. */
+.top-dock .dock-welcome,
+.top-dock .dock-conversation,
+.top-dock .mesp-chat-scroll {
+  transition:
+    filter 220ms var(--ease-out),
+    opacity 220ms var(--ease-out);
+}
+.dock-expanded:has(.dock-command-popover)
+  :is(.dock-welcome, .dock-conversation, .mesp-chat-scroll) {
+  filter: blur(3px);
+  opacity: 0.4;
+  pointer-events: none;
+}
+.top-dock .dock-command-popover {
+  transform-origin: bottom center;
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  animation: dock-pop-in 220ms var(--ease-spring) both;
+}
+
+/* One close button for every overlay. */
+.top-dock .dock-overlay-heading button {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--text-muted);
+  transition:
+    background-color 150ms var(--ease-out),
+    color 150ms var(--ease-out);
+}
+.top-dock .dock-overlay-heading button:hover {
+  background: var(--surface-3);
+  color: #fff;
+}
+
+/* Welcome: an eyebrow, a line, three starting points and the shortcuts. */
+.top-dock .dock-welcome {
+  padding: 18px 16px;
+}
+.top-dock .dock-welcome-eyebrow {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.top-dock .dock-welcome h2 {
+  font-size: 17px;
+  letter-spacing: -0.01em;
+}
+.top-dock .dock-welcome > p {
+  max-width: 380px;
+  margin-bottom: 16px;
+}
+.top-dock .dock-welcome-examples {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  max-width: 560px;
+  margin-bottom: 14px;
+}
+.top-dock .dock-welcome-examples button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  min-height: 78px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text-primary);
+  text-align: left;
+  animation: dock-fade-up 320ms var(--ease-out) both;
+  animation-delay: calc(60ms + var(--i, 0) * 50ms);
+  transition:
+    transform 180ms var(--ease-out),
+    background-color 160ms var(--ease-out),
+    border-color 160ms var(--ease-out);
+}
+.top-dock .dock-welcome-examples button:hover {
+  transform: translateY(-2px);
+  border-color: var(--line-strong);
+  background: var(--surface-3);
+}
+.top-dock .dock-welcome-examples button:active {
+  transform: translateY(0) scale(0.99);
+}
+.top-dock .dock-welcome-examples strong {
+  font-size: 11px;
+  font-weight: 600;
+}
+.top-dock .dock-welcome-examples small {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.top-dock .dock-suggestion-resume {
+  border: 1px solid var(--line-strong);
+}
+
+/* Footer: the model this MESP uses is a decision, so it lives where the counter was. */
+.top-dock .dock-chat-tabs button {
+  transition:
+    background-color 160ms var(--ease-out),
+    color 160ms var(--ease-out);
+}
+.top-dock .dock-footer-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 10px;
+  transition:
+    background-color 150ms var(--ease-out),
+    border-color 150ms var(--ease-out),
+    color 150ms var(--ease-out);
+}
+.top-dock .dock-footer-model:hover {
+  border-color: var(--line);
+  background: var(--surface-2);
+  color: #fff;
+}
+.top-dock .dock-footer-model svg {
+  width: 12px;
+  height: 12px;
+  color: var(--accent);
+}
+.top-dock .dock-more-projects {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.top-dock .dock-more-projects svg {
+  display: none;
+  width: 13px;
+  height: 13px;
+}
+@media (max-width: 600px) {
+  .top-dock .dock-footer-model span,
+  .top-dock .dock-welcome-examples small {
+    display: none;
+  }
+  .top-dock .dock-welcome-examples {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .top-dock .dock-welcome-examples button {
+    min-height: 0;
+    padding: 9px 12px;
+  }
+}
+@media (max-width: 420px) {
+  .top-dock .dock-chat-footer {
+    flex-wrap: nowrap;
+    min-height: 34px;
+    gap: 6px;
+  }
+  .top-dock .dock-chat-tabs {
+    flex: 0 1 auto;
+  }
+  .top-dock .dock-more-projects {
+    margin-left: 0;
+  }
+  .top-dock .dock-more-projects span {
+    display: none;
+  }
+  .top-dock .dock-more-projects svg {
+    display: block;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .top-dock .dock-settings-tabs button::after,
+  .top-dock .dock-welcome-examples button,
+  .top-dock .dock-settings-error,
+  .top-dock .dock-command-popover,
+  .dock-expanded:has(.dock-command-popover)
+    :is(.dock-welcome, .dock-conversation, .mesp-chat-scroll) {
+    animation: none;
+    transition: none;
+    filter: none;
+  }
+}
+
+/* Error replies read as errors, and their actions sit right under them instead of floating. */
+.top-dock .dock-chat-reply.is-error .dock-message-text {
+  padding-left: 10px;
+  border-left: 2px solid rgba(255, 176, 128, 0.55);
+  color: #f1dccd;
+}
+.top-dock .dock-chat-log .dock-conversation-actions {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  max-width: 100%;
+  margin: -2px 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  animation: dock-fade-up 240ms var(--ease-out) both;
+}
+.top-dock .dock-chat-log .dock-conversation-actions button:first-child {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}

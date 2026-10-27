@@ -1,5 +1,36 @@
 # MESP Top Dock
 
+## Revisão de design — 27 de outubro de 2026
+
+A ilha mantém **760 px** de largura entre Chat e Configurações (o Terminal continua mais
+largo); antes ela saltava para 680 ao abrir as Configurações. O rodapé troca o contador
+"N MESP · k em atividade" por um chip com o **modelo em uso** (Auto ou o nome do modelo);
+clicar nele abre a aba Modelos. O contador segue no título do botão **Meus MESP** e na
+fileira de MESP. A aba **Terminal** explica, ao passar o mouse, que precisa de um projeto.
+
+A tela inicial sem projeto mostra três pontos de partida: **Tirar uma dúvida**, **Criar
+algo novo** e **Mexer no computador**. Clicar preenche o campo com um pedido de exemplo para
+você ajustar antes de enviar. Se outro MESP tem projeto aberto, aparece **Continuar em …**.
+
+Os comandos `/fast`, `/plan`, `/assisted`, `/autonomous`, `/checks` e `/clear` são
+reconhecidos pela ilha em qualquer situação. Sem projeto aberto eles não viram mensagem:
+o MESP avisa que o modo entra em ação com um projeto. `/clear` limpa a conversa livre.
+
+O aviso "Este MESP está trabalhando" desaparece sozinho quando a resposta termina ou falha,
+e um erro antigo não fica no cabeçalho depois que uma nova tarefa começa ou termina bem.
+Respostas com falha ganham uma barra lateral âmbar e os botões **Tentar novamente** e
+**Ver contas** ficam logo abaixo da mensagem, não soltos no fim do painel.
+
+Nas Configurações, as abas Modelos, Contas e Consumo viraram abas de texto com sublinhado
+animado; o banner de erro das contas traz **Tentar novamente** e fecha com ×; os seletores
+de conta e período usam o visual dos outros campos; sem contas, a aba Consumo explica o que
+fazer em vez de mostrar traços.
+
+O menu de comandos (`/`) desfoca a conversa enquanto está aberto e entra com mola. No
+diálogo de aprovação do modo Assistido, **N** nega, **Y** (ou **S**) permite uma vez e **A**
+permite na sessão; as teclas aparecem nos botões. Todos os textos do MESP Code ganharam
+acentuação. Os botões de fechar das sobreposições usam o mesmo ícone e tamanho.
+
 ## Fechar um MESP
 
 Com mais de um MESP aberto, passe o mouse sobre o cartão do MESP na fileira abaixo do

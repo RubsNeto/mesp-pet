@@ -4823,3 +4823,17 @@ img.pixelated {
     animation: none;
   }
 }
+
+/* Keyboard hints inside the approval dialog buttons. */
+.mesp-access-actions kbd {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font:
+    600 8px/1.4 'JetBrains Mono',
+    monospace;
+  opacity: 0.8;
+}

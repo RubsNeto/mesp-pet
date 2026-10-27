@@ -96,7 +96,10 @@ export type DockRequest =
   | { kind: 'select-project'; name: string }
   | { kind: 'agent'; agent: string }
   | { kind: 'delegate'; agent: string; prompt: string }
+  | { kind: 'mode'; mode: 'fast' | 'plan' | 'assisted' | 'autonomous' }
+  | { kind: 'checks' | 'clear' }
   | { kind: 'send'; prompt: string };
 export function parseDockRequest(text: string): DockRequest;
 export function dockGreetingReply(text: string): string | null;
+export function visibleReplyText(text: string): string;
 export function findDockProject(projects: DockProject[], name: string): string | null;

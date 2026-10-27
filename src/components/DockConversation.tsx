@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { PetState } from '../types';
 import { dockModelLabel } from './DockModelPicker';
+import { visibleReplyText } from '../services/dockCore.mjs';
 
 export interface DockMessage {
   id: string;
@@ -79,7 +80,7 @@ export function DockCopyButton({ text, label }: { text: string; label: 'resposta
   );
 }
 export function DockReplyText({ content }: { content: string }) {
-  const pieces = content.split(/(```[\s\S]*?```)/g);
+  const pieces = visibleReplyText(content).split(/(```[\s\S]*?```)/g);
   return (
     <>
       {pieces.map((part, index) => {
@@ -179,7 +180,9 @@ export function DockConversation({
               <div className={`dock-chat-row ${m.role}`}>
                 <div
                   className={
-                    m.role === 'user' ? 'dock-chat-bubble' : 'dock-chat-reply dock-response-row'
+                    m.role === 'user'
+                      ? 'dock-chat-bubble'
+                      : `dock-chat-reply dock-response-row${m.status === 'error' ? ' is-error' : ''}`
                   }
                 >
                   <div className="dock-message-text">
@@ -217,8 +220,8 @@ export function DockConversation({
             Confira a mensagem do agente ou abra o Terminal para continuar.
           </div>
         )}
+        {children}
       </div>
-      {children}
       {showLatest && (
         <button
           className="dock-latest-message"

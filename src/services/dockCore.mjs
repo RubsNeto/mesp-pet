@@ -310,6 +310,14 @@ const plain = (s) =>
     .toLowerCase()
     .trim();
 /** A greeting belongs to the MESP itself, before any agent login or project flow. */
+/** Hides a model's leaked reasoning (<thinking>…</thinking>, even while still open) from a reply. */
+export function visibleReplyText(text) {
+  if (typeof text !== 'string' || !/<thinking>/i.test(text)) return text;
+  return text
+    .replace(/<thinking>[\s\S]*?<\/thinking>\s*/gi, '')
+    .replace(/<thinking>[\s\S]*$/i, '')
+    .trimStart();
+}
 export function dockGreetingReply(text) {
   if (typeof text !== 'string' || text.length > 100) return null;
   const greeting = plain(text)
@@ -351,6 +359,12 @@ export function parseDockRequest(text) {
     '/appearance': { kind: 'customize' },
     '/help': { kind: 'help' },
     '/minimize': { kind: 'collapse' },
+    '/fast': { kind: 'mode', mode: 'fast' },
+    '/plan': { kind: 'mode', mode: 'plan' },
+    '/assisted': { kind: 'mode', mode: 'assisted' },
+    '/autonomous': { kind: 'mode', mode: 'autonomous' },
+    '/checks': { kind: 'checks' },
+    '/clear': { kind: 'clear' },
   };
   if (shortcuts[command]) return shortcuts[command];
   if (
