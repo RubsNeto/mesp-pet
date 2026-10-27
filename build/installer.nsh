@@ -9,12 +9,12 @@
 
 !macro customWelcomePage
   !define MUI_WELCOMEPAGE_TITLE "Bem-vindo ao MESP"
-  !define MUI_WELCOMEPAGE_TEXT "O MESP vive no topo da tela e coloca um agente de código em cada projeto: ele lê, edita, executa e pede sua aprovação antes de agir.$\r$\n$\r$\nA instalação leva menos de um minuto. Seus dados ficam neste computador.$\r$\n$\r$\nClique em Avançar para continuar."
+  !define MUI_WELCOMEPAGE_TEXT "O MESP vive no topo da tela e coloca um agente de código em cada projeto: ele lê, edita, executa e pede sua aprovação antes de agir.$\r$\n$\r$\nA instalação leva menos de um minuto. Seus dados ficam neste computador.$\r$\n$\r$\nClique em Próximo para continuar."
   !insertmacro MUI_PAGE_WELCOME
 !macroend
 
 !macro customUnWelcomePage
   !define MUI_WELCOMEPAGE_TITLE "Desinstalar o MESP"
-  !define MUI_WELCOMEPAGE_TEXT "O MESP será removido deste computador.$\r$\n$\r$\nSeus projetos, conversas e contas conectadas continuam guardados caso você instale de novo.$\r$\n$\r$\nClique em Avançar para continuar."
+  !define MUI_WELCOMEPAGE_TEXT "O MESP será removido deste computador.$\r$\n$\r$\nSeus projetos, conversas e contas conectadas continuam guardados caso você instale de novo.$\r$\n$\r$\nClique em Próximo para continuar."
   !insertmacro MUI_UNPAGE_WELCOME
 !macroend

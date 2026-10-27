@@ -40,8 +40,8 @@
     "test:routing": "node tests/dockRouting.electron.cjs",
     "test:developer": "node tests/dockDeveloper.electron.cjs && node tests/dockWebAudit.electron.cjs",
     "test:languages": "node tests/dockDeveloperLanguages.cjs",
-    "gen:installer-art": "electron scripts/gen-installer-art.cjs",
-    "package:smoke": "node scripts/smoke-package.cjs"
+    "package:smoke": "node scripts/smoke-package.cjs",
+    "gen:brand": "electron scripts/gen-brand-assets.cjs"
   },
   "dependencies": {
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
@@ -135,7 +135,8 @@
           ]
         }
       ],
-      "artifactName": "MESP-Setup.${ext}"
+      "artifactName": "MESP-Setup.${ext}",
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
@@ -151,8 +152,6 @@
       "installerLanguages": [
         "pt_BR"
       ],
-      "language": "1046",
-      "multiLanguageInstaller": false,
       "artifactName": "MESP-Setup.${ext}"
     },
     "mac": {
